@@ -1,0 +1,5 @@
+-keep class com.usesense.sdk.api.models.** { *; }
+-keep class com.usesense.sdk.UseSenseResult { *; }
+-keep class com.usesense.sdk.UseSenseError { *; }
+-keep class com.usesense.sdk.UseSenseConfig { *; }
+-keep class com.usesense.sdk.UseSenseCallback { *; }

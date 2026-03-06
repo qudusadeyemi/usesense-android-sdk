@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.UseSenseDemo" parent="Theme.MaterialComponents.DayNight.DarkActionBar">
+        <item name="colorPrimary">#FF4B5C</item>
+        <item name="colorPrimaryVariant">#D63447</item>
+        <item name="colorOnPrimary">@android:color/white</item>
+        <item name="colorSecondary">#03DAC5</item>
+    </style>
+</resources>

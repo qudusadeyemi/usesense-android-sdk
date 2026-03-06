@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="usesense_primary">#FF4B5C</color>
+    <color name="usesense_primary_dark">#D63447</color>
+    <color name="usesense_background">#1A1A2E</color>
+    <color name="usesense_surface">#16213E</color>
+    <color name="usesense_text_primary">#FFFFFF</color>
+    <color name="usesense_text_secondary">#B0B0CC</color>
+    <color name="usesense_success">#4CAF50</color>
+    <color name="usesense_error">#F44336</color>
+    <color name="usesense_warning">#FFC107</color>
+    <color name="usesense_dot_color">#FF5050</color>
+    <color name="usesense_dot_glow">#99FF5050</color>
+    <color name="usesense_overlay_bg">#CC000000</color>
+</resources>

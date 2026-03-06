@@ -1,0 +1,347 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#1A1A2E"
+    android:padding="24dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <!-- Header -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/demo_title"
+            android:textColor="#FFFFFF"
+            android:textSize="28sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/demo_subtitle"
+            android:textColor="#B0B0CC"
+            android:textSize="14sp" />
+
+        <!-- Demo Mode Toggle -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            app:cardBackgroundColor="#16213E"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="0dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/demo_mode_label"
+                    android:textColor="#B0B0CC"
+                    android:textSize="12sp"
+                    android:textAllCaps="true" />
+
+                <RadioGroup
+                    android:id="@+id/modeGroup"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:orientation="horizontal">
+
+                    <RadioButton
+                        android:id="@+id/modeMock"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/demo_mode_mock"
+                        android:textColor="#FFFFFF"
+                        android:buttonTint="#FF4B5C"
+                        android:checked="true" />
+
+                    <RadioButton
+                        android:id="@+id/modeSandbox"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/demo_mode_sandbox"
+                        android:textColor="#FFFFFF"
+                        android:buttonTint="#FF4B5C" />
+                </RadioGroup>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- API Key (for sandbox mode) -->
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/apiKeyLayout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:visibility="gone"
+            app:boxBackgroundColor="#16213E"
+            app:hintTextColor="#B0B0CC">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/apiKeyInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="@string/api_key_hint"
+                android:textColor="#FFFFFF"
+                android:inputType="text" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <!-- Session Type -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            app:cardBackgroundColor="#16213E"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="0dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/session_type_label"
+                    android:textColor="#B0B0CC"
+                    android:textSize="12sp"
+                    android:textAllCaps="true" />
+
+                <RadioGroup
+                    android:id="@+id/sessionTypeGroup"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:orientation="horizontal">
+
+                    <RadioButton
+                        android:id="@+id/typeEnrollment"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/enrollment"
+                        android:textColor="#FFFFFF"
+                        android:buttonTint="#FF4B5C"
+                        android:checked="true" />
+
+                    <RadioButton
+                        android:id="@+id/typeAuthentication"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/authentication"
+                        android:textColor="#FFFFFF"
+                        android:buttonTint="#FF4B5C" />
+                </RadioGroup>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/identityIdLayout"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:visibility="gone"
+                    app:boxBackgroundColor="#0D1B2A"
+                    app:hintTextColor="#B0B0CC">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/identityIdInput"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="@string/identity_id_hint"
+                        android:textColor="#FFFFFF"
+                        android:inputType="text" />
+                </com.google.android.material.textfield.TextInputLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Challenge Type (mock mode only) -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/challengeCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            app:cardBackgroundColor="#16213E"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="0dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/challenge_type_label"
+                    android:textColor="#B0B0CC"
+                    android:textSize="12sp"
+                    android:textAllCaps="true" />
+
+                <RadioGroup
+                    android:id="@+id/challengeGroup"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:orientation="vertical">
+
+                    <RadioButton
+                        android:id="@+id/challengeFollowDot"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/follow_dot"
+                        android:textColor="#FFFFFF"
+                        android:buttonTint="#FF4B5C"
+                        android:checked="true" />
+
+                    <RadioButton
+                        android:id="@+id/challengeHeadTurn"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/head_turn"
+                        android:textColor="#FFFFFF"
+                        android:buttonTint="#FF4B5C" />
+
+                    <RadioButton
+                        android:id="@+id/challengeSpeakPhrase"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/speak_phrase"
+                        android:textColor="#FFFFFF"
+                        android:buttonTint="#FF4B5C" />
+                </RadioGroup>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Mock Verdict (mock mode only) -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/verdictCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            app:cardBackgroundColor="#16213E"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="0dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/verdict_label"
+                    android:textColor="#B0B0CC"
+                    android:textSize="12sp"
+                    android:textAllCaps="true" />
+
+                <RadioGroup
+                    android:id="@+id/verdictGroup"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:orientation="horizontal">
+
+                    <RadioButton
+                        android:id="@+id/verdictApprove"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/approve"
+                        android:textColor="#4CAF50"
+                        android:buttonTint="#4CAF50"
+                        android:checked="true" />
+
+                    <RadioButton
+                        android:id="@+id/verdictReject"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/reject"
+                        android:textColor="#F44336"
+                        android:buttonTint="#F44336" />
+
+                    <RadioButton
+                        android:id="@+id/verdictManualReview"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/manual_review"
+                        android:textColor="#FFC107"
+                        android:buttonTint="#FFC107"
+                        android:textSize="11sp" />
+                </RadioGroup>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Start Button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/startButton"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginTop="32dp"
+            android:text="@string/start_verification"
+            android:textAllCaps="false"
+            android:textSize="16sp"
+            app:cornerRadius="28dp"
+            app:backgroundTint="#FF4B5C" />
+
+        <!-- Last Result -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/resultCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:visibility="gone"
+            app:cardBackgroundColor="#16213E"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="0dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/last_result"
+                    android:textColor="#B0B0CC"
+                    android:textSize="12sp"
+                    android:textAllCaps="true" />
+
+                <TextView
+                    android:id="@+id/resultText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:textColor="#FFFFFF"
+                    android:textSize="13sp"
+                    android:fontFamily="monospace" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="32dp" />
+
+    </LinearLayout>
+</ScrollView>

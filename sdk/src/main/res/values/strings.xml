@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="usesense_title">Identity Verification</string>
+    <string name="usesense_instruction_follow_dot">You\'ll be asked to follow a dot on screen with your eyes. Keep your face centered and visible.</string>
+    <string name="usesense_instruction_head_turn">You\'ll be asked to turn your head in specific directions. Follow the on-screen instructions.</string>
+    <string name="usesense_instruction_speak_phrase">You\'ll be asked to read a phrase aloud. Make sure you\'re in a quiet environment.</string>
+    <string name="usesense_instruction_default">We need to verify you\'re a real person. Position your face in the center of the screen.</string>
+    <string name="usesense_start_button">Got it - Start Challenge</string>
+    <string name="usesense_uploading">Uploading verification data…</string>
+    <string name="usesense_analyzing">Analyzing… This may take a few seconds.</string>
+    <string name="usesense_success">Verification Successful</string>
+    <string name="usesense_rejected">Verification Failed</string>
+    <string name="usesense_manual_review">Verification Pending Review</string>
+    <string name="usesense_error_generic">Something went wrong. Please try again.</string>
+    <string name="usesense_cancel">Cancel</string>
+    <string name="usesense_retry">Try Again</string>
+    <string name="usesense_done">Done</string>
+    <string name="usesense_camera_permission_title">Camera Access Required</string>
+    <string name="usesense_camera_permission_message">We need access to your camera for identity verification.</string>
+    <string name="usesense_mic_permission_message">We need access to your microphone for voice verification.</string>
+    <string name="usesense_grant_permission">Grant Permission</string>
+
+    <!-- Head turn directions -->
+    <string name="usesense_turn_left">Turn your head LEFT</string>
+    <string name="usesense_turn_right">Turn your head RIGHT</string>
+    <string name="usesense_turn_up">Look UP</string>
+    <string name="usesense_turn_down">Look DOWN</string>
+    <string name="usesense_turn_center">Face forward</string>
+
+    <!-- Speak phrase -->
+    <string name="usesense_speak_now">Please say:</string>
+    <string name="usesense_recording">Recording…</string>
+</resources>

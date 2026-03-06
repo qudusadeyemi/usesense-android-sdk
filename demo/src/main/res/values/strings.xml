@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">UseSense Demo</string>
+    <string name="demo_title">UseSense SDK Demo</string>
+    <string name="demo_subtitle">Human Presence Verification</string>
+    <string name="demo_mode_label">Demo Mode</string>
+    <string name="demo_mode_mock">Mock Server (Offline)</string>
+    <string name="demo_mode_sandbox">Sandbox (Live API)</string>
+    <string name="session_type_label">Session Type</string>
+    <string name="enrollment">Enrollment</string>
+    <string name="authentication">Authentication</string>
+    <string name="challenge_type_label">Challenge Type</string>
+    <string name="follow_dot">Follow the Dot</string>
+    <string name="head_turn">Head Turn</string>
+    <string name="speak_phrase">Speak Phrase</string>
+    <string name="verdict_label">Mock Verdict</string>
+    <string name="approve">APPROVE</string>
+    <string name="reject">REJECT</string>
+    <string name="manual_review">MANUAL REVIEW</string>
+    <string name="start_verification">Start Verification</string>
+    <string name="api_key_hint">API Key (sk_test_...)</string>
+    <string name="identity_id_hint">Identity ID (for auth)</string>
+    <string name="last_result">Last Result</string>
+</resources>
