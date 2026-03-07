@@ -19,6 +19,7 @@ data class UseSenseError(
         const val CAPTURE_FAILED = 4001
         const val ENCODING_FAILED = 4002
         const val INVALID_CONFIG = 5001
+        const val QUOTA_EXCEEDED = 6001
 
         fun cameraUnavailable() = UseSenseError(
             code = CAMERA_UNAVAILABLE,
@@ -27,34 +28,35 @@ data class UseSenseError(
 
         fun cameraPermissionDenied() = UseSenseError(
             code = CAMERA_PERMISSION_DENIED,
-            message = "Camera permission was not granted",
+            message = "We need camera access to verify your identity. Please allow camera access in Settings.",
         )
 
         fun microphonePermissionDenied() = UseSenseError(
             code = MICROPHONE_PERMISSION_DENIED,
-            message = "Microphone permission was not granted",
+            message = "We need microphone access to complete verification. Please allow microphone access in Settings.",
         )
 
         fun networkError(cause: String? = null) = UseSenseError(
             code = NETWORK_ERROR,
-            message = cause ?: "Network request failed",
+            message = cause ?: "Connection issue. Please check your internet and try again.",
             isRetryable = true,
         )
 
         fun networkTimeout() = UseSenseError(
             code = NETWORK_TIMEOUT,
-            message = "Network request timed out",
+            message = "Request timed out. Please try again.",
             isRetryable = true,
         )
 
         fun sessionExpired() = UseSenseError(
             code = SESSION_EXPIRED,
-            message = "Session has expired",
+            message = "Your session has expired. Please start over.",
         )
 
         fun uploadFailed() = UseSenseError(
             code = UPLOAD_FAILED,
             message = "Signal upload failed after retries",
+            isRetryable = true,
         )
 
         fun captureFailed(cause: String? = null) = UseSenseError(
@@ -72,12 +74,35 @@ data class UseSenseError(
             message = "Invalid configuration: $detail",
         )
 
+        fun quotaExceeded() = UseSenseError(
+            code = QUOTA_EXCEEDED,
+            serverCode = "QUOTA_EXCEEDED",
+            message = "Rate limit reached. Please try again later.",
+        )
+
         fun fromServerError(httpStatus: Int, serverCode: String?, message: String?): UseSenseError {
-            val retryable = httpStatus == 500
+            val userMessage = message ?: when (httpStatus) {
+                400 -> "Invalid request. Please check the parameters."
+                401 -> when (serverCode) {
+                    "session_expired" -> "Your session has expired. Please start over."
+                    "invalid_token" -> "Session token is invalid."
+                    else -> "Authentication failed. Check API key."
+                }
+                404 -> when (serverCode) {
+                    "identity_not_found" -> "Identity not found."
+                    else -> "Endpoint not found. Verify Backend URL."
+                }
+                429 -> "Rate limit reached. Try again later."
+                500 -> "Server error. Please try again."
+                503 -> "Service unavailable. Try again later."
+                else -> "Server error"
+            }
+
+            val retryable = httpStatus in setOf(500, 503, 429)
             return UseSenseError(
                 code = httpStatus,
                 serverCode = serverCode,
-                message = message ?: "Server error",
+                message = userMessage,
                 isRetryable = retryable,
             )
         }

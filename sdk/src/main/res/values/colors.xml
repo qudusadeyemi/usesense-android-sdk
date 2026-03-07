@@ -1,46 +1,75 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Indigo primary scale (v1.17.5+) -->
-    <color name="usesense_indigo_50">#FFEEF2FF</color>
-    <color name="usesense_indigo_100">#FFE0E7FF</color>
-    <color name="usesense_indigo_200">#FFC7D2FE</color>
-    <color name="usesense_indigo_400">#FF818CF8</color>
-    <color name="usesense_indigo_500">#FF6366F1</color>
-    <color name="usesense_indigo_600">#FF4F46E5</color>
-    <color name="usesense_indigo_700">#FF4338CA</color>
-    <color name="usesense_indigo_800">#FF3730A3</color>
-    <color name="usesense_violet_500">#FF8B5CF6</color>
+    <!-- ============================================================ -->
+    <!-- Section 3.1: Brand & Primary Colors                          -->
+    <!-- ============================================================ -->
+    <color name="usesense_primary">#FF4F63F5</color>
+    <color name="usesense_primary_dark">#FF4F46E5</color>
+    <color name="usesense_primary_light">#FF6366F1</color>
 
-    <!-- Primary = indigo-600 -->
-    <color name="usesense_primary">#FF4F46E5</color>
-    <color name="usesense_primary_dark">#FF3730A3</color>
+    <!-- ============================================================ -->
+    <!-- Section 3.2: Indigo Guidance Theme (Quality + Challenge ONLY) -->
+    <!-- ============================================================ -->
+    <color name="usesense_guidance_critical">#E67C3AED</color>       <!-- rgba(124,58,237,0.9)  -->
+    <color name="usesense_guidance_warning">#E6A78BFA</color>        <!-- rgba(167,139,250,0.9) -->
+    <color name="usesense_guidance_info">#E66366F1</color>           <!-- rgba(99,102,241,0.9)  -->
+    <color name="usesense_guidance_critical_bg">#1A7C3AED</color>    <!-- rgba(124,58,237,0.1)  -->
+    <color name="usesense_guidance_warning_bg">#1AA78BFA</color>     <!-- rgba(167,139,250,0.1) -->
+    <color name="usesense_guidance_critical_text">#FF6D28D9</color>
+    <color name="usesense_guidance_warning_text">#FF7C3AED</color>
+    <color name="usesense_guidance_critical_border">#337C3AED</color> <!-- rgba(124,58,237,0.2) -->
+    <color name="usesense_guidance_warning_border">#33A78BFA</color>  <!-- rgba(167,139,250,0.2) -->
+    <color name="usesense_guidance_critical_glow">#997C3AED</color>  <!-- rgba(124,58,237,0.6)  -->
+    <color name="usesense_guidance_acceptable_glow">#80A78BFA</color> <!-- rgba(167,139,250,0.5) -->
 
-    <!-- Backgrounds -->
-    <color name="usesense_background">#1A1A2E</color>
-    <color name="usesense_surface">#16213E</color>
+    <!-- ============================================================ -->
+    <!-- Section 3.3: Semantic Outcome Colors (Outcome Screens ONLY)  -->
+    <!-- CRITICAL: These must NOT be used for guidance/quality UI     -->
+    <!-- ============================================================ -->
+    <color name="usesense_success">#FF10B981</color>
+    <color name="usesense_error">#FFEF4444</color>
+    <color name="usesense_warning">#FFF59E0B</color>
 
-    <!-- Text -->
-    <color name="usesense_text_primary">#FFFFFF</color>
-    <color name="usesense_text_secondary">#B0B0CC</color>
+    <!-- ============================================================ -->
+    <!-- Section 3.4: Neutral Palette                                 -->
+    <!-- ============================================================ -->
+    <color name="usesense_background">#FFF8F9FA</color>
+    <color name="usesense_surface">#FFFFFFFF</color>
+    <color name="usesense_text_primary">#FF1A1A1A</color>
+    <color name="usesense_text_secondary">#FF6B7280</color>
+    <color name="usesense_border">#FFE5E7EB</color>
+    <color name="usesense_video_bg">#FF000000</color>
 
-    <!-- Status -->
-    <color name="usesense_success">#4CAF50</color>
-    <color name="usesense_error">#F44336</color>
-    <color name="usesense_warning">#FFC107</color>
-
-    <!-- Dot (indigo, was red) -->
+    <!-- ============================================================ -->
+    <!-- Section 3.5: Challenge-Specific Colors                       -->
+    <!-- ============================================================ -->
     <color name="usesense_dot_color">#FF6366F1</color>
-    <color name="usesense_dot_glow">#806366F1</color>
+    <color name="usesense_dot_glow">#806366F1</color>       <!-- rgba(99,102,241,0.5)  -->
+    <color name="usesense_countdown_overlay">#66000000</color> <!-- rgba(0,0,0,0.4)      -->
+    <color name="usesense_countdown_circle">#F2FFFFFF</color>  <!-- rgba(255,255,255,0.95) -->
+    <color name="usesense_countdown_number">#FF4F46E5</color>
+    <color name="usesense_countdown_label_bg">#99000000</color> <!-- rgba(0,0,0,0.6) -->
+    <color name="usesense_face_guide_overlay">#99000000</color> <!-- rgba(0,0,0,0.6) -->
+    <color name="usesense_face_guide_border">#CCFFFFFF</color>  <!-- rgba(255,255,255,0.8) -->
+    <color name="usesense_face_guide_label_bg">#99000000</color>
+    <color name="usesense_instructions_overlay">#BF000000</color> <!-- rgba(0,0,0,0.75) -->
+    <color name="usesense_instructions_icon_bg">#FFE0E7FF</color>
+    <color name="usesense_instructions_icon_color">#FF4F46E5</color>
+    <color name="usesense_instructions_title">#FF1E293B</color>
+    <color name="usesense_instructions_body">#FF64748B</color>
 
-    <!-- Overlays -->
-    <color name="usesense_overlay_bg">#CC000000</color>
-    <color name="usesense_overlay_light">#66000000</color>
+    <!-- Phase badges -->
+    <color name="usesense_badge_baseline">#E66366F1</color>    <!-- rgba(99,102,241,0.9)  -->
+    <color name="usesense_badge_challenge">#E64F46E5</color>   <!-- rgba(79,70,229,0.9)   -->
+    <color name="usesense_badge_complete_bg">#266366F1</color>  <!-- rgba(99,102,241,0.15) -->
+    <color name="usesense_badge_complete_text">#FF4F46E5</color>
 
-    <!-- Phase badges (indigo) -->
-    <color name="usesense_badge_baseline">#E66366F1</color>
-    <color name="usesense_badge_challenge">#E64F46E5</color>
+    <!-- Baseline oval: subtle -->
+    <color name="usesense_baseline_oval">#4DFFFFFF</color>      <!-- rgba(255,255,255,0.3) -->
 
-    <!-- Face guide -->
-    <color name="usesense_face_guide_border">#CCFFFFFF</color>
-    <color name="usesense_face_guide_oval_subtle">#4DFFFFFF</color>
+    <!-- Error info caption -->
+    <color name="usesense_caption_muted">#FF94A3B8</color>
+
+    <!-- Arrow circle glow -->
+    <color name="usesense_arrow_glow">#806366F1</color>
 </resources>

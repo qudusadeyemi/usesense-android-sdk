@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="64dp"
+    android:height="64dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64">
+
+    <!-- Background rounded rect (gradient simulated with two layers) -->
+    <path
+        android:pathData="M16,0L48,0A16,16 0 0,1 64,16L64,48A16,16 0 0,1 48,64L16,64A16,16 0 0,1 0,48L0,16A16,16 0 0,1 16,0z"
+        android:fillColor="#4F46E5" />
+
+    <!-- Lighter overlay for gradient effect (top-left region) -->
+    <path
+        android:pathData="M16,0L48,0A16,16 0 0,1 64,16L0,16A16,16 0 0,1 16,0z"
+        android:fillColor="#4F63F5"
+        android:fillAlpha="0.5" />
+
+    <!-- Shield outline (white, 20% fill + stroke) -->
+    <path
+        android:pathData="M32,12L18,19V31C18,40.5 24,48.5 32,52C40,48.5 46,40.5 46,31V19L32,12Z"
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.2"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineJoin="round" />
+
+    <!-- Biometric eye: outer ring -->
+    <path
+        android:pathData="M32,30m-8,0a8,8 0,1 1,16 0a8,8 0,1 1,-16 0"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2" />
+
+    <!-- Biometric eye: inner dot (iris) -->
+    <path
+        android:pathData="M32,30m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0"
+        android:fillColor="#FFFFFF" />
+
+    <!-- Scan crosshair: left -->
+    <path
+        android:pathData="M24,30L20,30"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeAlpha="0.6" />
+
+    <!-- Scan crosshair: right -->
+    <path
+        android:pathData="M40,30L44,30"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeAlpha="0.6" />
+
+    <!-- Scan crosshair: top -->
+    <path
+        android:pathData="M32,22L32,18"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeAlpha="0.6" />
+
+    <!-- Scan crosshair: bottom -->
+    <path
+        android:pathData="M32,38L32,42"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeAlpha="0.6" />
+
+    <!-- Success badge circle (green, bottom-right) -->
+    <path
+        android:pathData="M44,44m-8,0a8,8 0,1 1,16 0a8,8 0,1 1,-16 0"
+        android:fillColor="#10B981"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2" />
+
+    <!-- Checkmark inside badge -->
+    <path
+        android:pathData="M40,44L43,47L48,41"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

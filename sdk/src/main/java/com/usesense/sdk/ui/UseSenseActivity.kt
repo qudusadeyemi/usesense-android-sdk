@@ -7,6 +7,13 @@ import android.animation.ValueAnimator
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
+import android.graphics.LinearGradient
+import android.graphics.Shader
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.PaintDrawable
+import android.graphics.drawable.ShapeDrawable
+import android.graphics.drawable.shapes.OvalShape
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -24,53 +31,97 @@ import com.google.android.material.button.MaterialButton
 import com.usesense.sdk.*
 import com.usesense.sdk.api.models.ChallengeSpec
 import com.usesense.sdk.capture.FrameCaptureManager
+import com.usesense.sdk.capture.ImageQualityAnalyzer
 import com.usesense.sdk.challenge.*
 import com.usesense.sdk.internal.CapturePhase
 import com.usesense.sdk.internal.SessionState
 import kotlinx.coroutines.*
+import java.util.concurrent.Executors
 
 class UseSenseActivity : AppCompatActivity() {
 
     private lateinit var session: UseSenseSession
 
-    // Views
+    // Screen containers
+    private lateinit var introScreen: LinearLayout
+    private lateinit var permissionScreen: LinearLayout
+    private lateinit var captureScreen: LinearLayout
+    private lateinit var uploadingScreen: LinearLayout
+    private lateinit var successScreen: LinearLayout
+    private lateinit var deniedScreen: LinearLayout
+    private lateinit var failureScreen: LinearLayout
+    private lateinit var blockedScreen: LinearLayout
+
+    // Capture screen views
     private lateinit var cameraPreview: PreviewView
+    private lateinit var videoContainer: FrameLayout
     private lateinit var challengeOverlay: FrameLayout
     private lateinit var baselineOvalView: View
     private lateinit var dotView: View
-    private lateinit var directionText: TextView
     private lateinit var directionCircle: FrameLayout
-    private lateinit var directionArrow: ImageView
+    private lateinit var directionArrow: TextView
+    private lateinit var directionText: TextView
     private lateinit var speakPhraseLayout: LinearLayout
     private lateinit var phraseText: TextView
     private lateinit var recordingIndicator: TextView
     private lateinit var challengeProgress: ProgressBar
     private lateinit var phaseBadge: TextView
-    private lateinit var instructionsLayout: LinearLayout
-    private lateinit var instructionsBody: TextView
-    private lateinit var startButton: MaterialButton
-    private lateinit var processingLayout: LinearLayout
-    private lateinit var processingText: TextView
-    private lateinit var resultLayout: LinearLayout
-    private lateinit var resultIcon: TextView
-    private lateinit var resultText: TextView
-    private lateinit var resultDetails: TextView
-    private lateinit var doneButton: MaterialButton
-    private lateinit var cancelButton: ImageButton
+    private lateinit var captureTitle: TextView
+    private lateinit var captureSubtitle: TextView
+    private lateinit var qualityIndicator: QualityIndicatorView
+    private lateinit var qualityBanner: QualityWarningBanner
 
-    // Face guide views (v1.17.5+)
+    // Instructions modal overlay (inside video container)
+    private lateinit var instructionsOverlay: FrameLayout
+    private lateinit var instructionsIcon: TextView
+    private lateinit var instructionsTitle: TextView
+    private lateinit var instructionsBody: TextView
+    private lateinit var instructionsCta: TextView
+
+    // Face guide overlay
     private lateinit var faceGuideOverlay: FrameLayout
     private lateinit var faceGuideReadyButton: MaterialButton
 
-    // Countdown views (v1.17.5+)
+    // Countdown overlay
     private lateinit var countdownOverlay: FrameLayout
     private lateinit var countdownCircle: FrameLayout
     private lateinit var countdownNumber: TextView
+
+    // Permission screen views
+    private lateinit var permissionIcon: ImageView
+    private lateinit var permissionTitle: TextView
+    private lateinit var permissionMessage: TextView
+    private lateinit var permissionButton: MaterialButton
+
+    // Success screen views
+    private lateinit var successIcon: ImageView
+    private lateinit var successTitle: TextView
+    private lateinit var successSubtitle: TextView
+    private lateinit var successButton: MaterialButton
+
+    // Failure screen views
+    private lateinit var failureMessage: TextView
+    private lateinit var failureRetryButton: MaterialButton
+
+    // Blocked screen views
+    private lateinit var blockedRefreshButton: MaterialButton
+
+    // Denied screen views
+    private lateinit var deniedButton: MaterialButton
+
+    private lateinit var cancelButton: ImageButton
+
+    // Quality analysis
+    private val qualityAnalyzer = ImageQualityAnalyzer()
+    private var lastQualityAnalysisMs = 0L
+    private val analysisExecutor = Executors.newSingleThreadExecutor()
 
     private val mainScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val handler = Handler(Looper.getMainLooper())
     private var challengePresenter: ChallengePresenter? = null
     private var frameCaptureManager: FrameCaptureManager? = null
+
+    private val eventEmitter get() = UseSense.eventEmitter
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -78,8 +129,10 @@ class UseSenseActivity : AppCompatActivity() {
         val cameraGranted = permissions[Manifest.permission.CAMERA] == true
 
         if (cameraGranted) {
+            eventEmitter.emit(EventType.PERMISSIONS_GRANTED, mapOf("camera" to true))
             onPermissionsGranted()
         } else {
+            eventEmitter.emit(EventType.PERMISSIONS_DENIED, mapOf("camera" to false))
             deliverError(UseSenseError.cameraPermissionDenied())
         }
     }
@@ -101,66 +154,109 @@ class UseSenseActivity : AppCompatActivity() {
         session = UseSenseSession(this, config, request)
         session.onStateChanged = { state -> onSessionStateChanged(state) }
 
-        cancelButton.setOnClickListener {
-            deliverCancelled()
-        }
+        cancelButton.setOnClickListener { deliverCancelled() }
 
-        doneButton.setOnClickListener {
-            finish()
-        }
-
-        // Start the flow
         mainScope.launch { beginVerification() }
     }
 
     private fun bindViews() {
+        // Screen containers
+        introScreen = findViewById(R.id.introScreen)
+        permissionScreen = findViewById(R.id.permissionScreen)
+        captureScreen = findViewById(R.id.captureScreen)
+        uploadingScreen = findViewById(R.id.uploadingScreen)
+        successScreen = findViewById(R.id.successScreen)
+        deniedScreen = findViewById(R.id.deniedScreen)
+        failureScreen = findViewById(R.id.failureScreen)
+        blockedScreen = findViewById(R.id.blockedScreen)
+
+        // Capture screen
         cameraPreview = findViewById(R.id.cameraPreview)
+        videoContainer = findViewById(R.id.videoContainer)
         challengeOverlay = findViewById(R.id.challengeOverlay)
         baselineOvalView = findViewById(R.id.baselineOvalView)
         dotView = findViewById(R.id.dotView)
-        directionText = findViewById(R.id.directionText)
         directionCircle = findViewById(R.id.directionCircle)
         directionArrow = findViewById(R.id.directionArrow)
+        directionText = findViewById(R.id.directionText)
         speakPhraseLayout = findViewById(R.id.speakPhraseLayout)
         phraseText = findViewById(R.id.phraseText)
         recordingIndicator = findViewById(R.id.recordingIndicator)
         challengeProgress = findViewById(R.id.challengeProgress)
         phaseBadge = findViewById(R.id.phaseBadge)
-        instructionsLayout = findViewById(R.id.instructionsLayout)
-        instructionsBody = findViewById(R.id.instructionsBody)
-        startButton = findViewById(R.id.startButton)
-        processingLayout = findViewById(R.id.processingLayout)
-        processingText = findViewById(R.id.processingText)
-        resultLayout = findViewById(R.id.resultLayout)
-        resultIcon = findViewById(R.id.resultIcon)
-        resultText = findViewById(R.id.resultText)
-        resultDetails = findViewById(R.id.resultDetails)
-        doneButton = findViewById(R.id.doneButton)
-        cancelButton = findViewById(R.id.cancelButton)
+        captureTitle = findViewById(R.id.captureTitle)
+        captureSubtitle = findViewById(R.id.captureSubtitle)
+        qualityIndicator = findViewById(R.id.qualityIndicator)
+        qualityBanner = findViewById(R.id.qualityBanner)
 
-        // Face guide views (v1.17.5+)
+        // Instructions modal
+        instructionsOverlay = findViewById(R.id.instructionsOverlay)
+        instructionsIcon = findViewById(R.id.instructionsIcon)
+        instructionsTitle = findViewById(R.id.instructionsTitle)
+        instructionsBody = findViewById(R.id.instructionsBody)
+        instructionsCta = findViewById(R.id.instructionsCta)
+
+        // Face guide
         faceGuideOverlay = findViewById(R.id.faceGuideOverlay)
         faceGuideReadyButton = findViewById(R.id.faceGuideReadyButton)
 
-        // Countdown views (v1.17.5+)
+        // Countdown
         countdownOverlay = findViewById(R.id.countdownOverlay)
         countdownCircle = findViewById(R.id.countdownCircle)
         countdownNumber = findViewById(R.id.countdownNumber)
+
+        // Permission screen
+        permissionIcon = findViewById(R.id.permissionIcon)
+        permissionTitle = findViewById(R.id.permissionTitle)
+        permissionMessage = findViewById(R.id.permissionMessage)
+        permissionButton = findViewById(R.id.permissionButton)
+
+        // Success screen
+        successIcon = findViewById(R.id.successIcon)
+        successTitle = findViewById(R.id.successTitle)
+        successSubtitle = findViewById(R.id.successSubtitle)
+        successButton = findViewById(R.id.successButton)
+
+        // Failure screen
+        failureMessage = findViewById(R.id.failureMessage)
+        failureRetryButton = findViewById(R.id.failureRetryButton)
+
+        // Blocked screen
+        blockedRefreshButton = findViewById(R.id.blockedRefreshButton)
+
+        // Denied screen
+        deniedButton = findViewById(R.id.deniedButton)
+
+        cancelButton = findViewById(R.id.cancelButton)
+
+        // Button listeners for outcome screens
+        successButton.setOnClickListener { finish() }
+        deniedButton.setOnClickListener { finish() }
+        blockedRefreshButton.setOnClickListener {
+            mainScope.launch { beginVerification() }
+        }
+        failureRetryButton.setOnClickListener {
+            mainScope.launch { beginVerification() }
+        }
     }
 
+    // ========================================================================
+    // Flow: Create Session -> Permissions -> Instructions -> Camera -> Capture
+    // ========================================================================
+
     private suspend fun beginVerification() {
-        // 1. Create session
-        showProcessing(getString(R.string.usesense_analyzing))
+        showScreen(introScreen)
         val createResult = session.createSession()
         createResult.onFailure { e ->
-            deliverError(
-                (e as? com.usesense.sdk.api.ApiException)?.useSenseError
-                    ?: UseSenseError.networkError(e.message)
-            )
+            eventEmitter.emit(EventType.ERROR, mapOf("error" to e.message))
+            val error = (e as? com.usesense.sdk.api.ApiException)?.useSenseError
+                ?: UseSenseError.networkError(e.message)
+            deliverError(error)
             return
         }
 
-        // 2. Check permissions
+        eventEmitter.emit(EventType.SESSION_CREATED, mapOf("session_id" to session.sessionId))
+        eventEmitter.emit(EventType.PERMISSIONS_REQUESTED)
         checkAndRequestPermissions()
     }
 
@@ -175,9 +271,30 @@ class UseSenseActivity : AppCompatActivity() {
         }
 
         if (notGranted.isEmpty()) {
+            eventEmitter.emit(EventType.PERMISSIONS_GRANTED, mapOf("camera" to true))
             onPermissionsGranted()
         } else {
-            permissionLauncher.launch(notGranted.toTypedArray())
+            // Show permission screen before requesting
+            showPermissionScreen(notGranted)
+        }
+    }
+
+    private fun showPermissionScreen(permissions: List<String>) {
+        val needsMic = permissions.contains(Manifest.permission.RECORD_AUDIO)
+        if (needsMic) {
+            permissionIcon.setImageResource(R.drawable.usesense_icon_microphone)
+            permissionTitle.text = getString(R.string.usesense_mic_permission_title)
+            permissionMessage.text = getString(R.string.usesense_mic_permission_message)
+        } else {
+            permissionIcon.setImageResource(R.drawable.usesense_icon_camera)
+            permissionTitle.text = getString(R.string.usesense_camera_permission_title)
+            permissionMessage.text = getString(R.string.usesense_camera_permission_message)
+        }
+
+        showScreen(permissionScreen)
+
+        permissionButton.setOnClickListener {
+            permissionLauncher.launch(permissions.toTypedArray())
         }
     }
 
@@ -185,29 +302,65 @@ class UseSenseActivity : AppCompatActivity() {
         showInstructions()
     }
 
-    private fun showInstructions() {
-        hideAll()
-        instructionsLayout.visibility = View.VISIBLE
+    // ========================================================================
+    // Instructions Modal (Section 7.4) — overlay on top of camera preview
+    // ========================================================================
 
-        val instructionText = when (session.challengeSpec?.type) {
+    private fun showInstructions() {
+        // Show capture screen first (camera will start behind the modal)
+        showScreen(captureScreen)
+
+        val challengeType = session.challengeSpec?.type
+
+        // Set instruction icon
+        val icon = when (challengeType) {
+            ChallengeSpec.TYPE_FOLLOW_DOT -> "\uD83D\uDC41" // eye
+            ChallengeSpec.TYPE_HEAD_TURN -> "\u21C4" // arrows
+            ChallengeSpec.TYPE_SPEAK_PHRASE -> "\uD83C\uDFA4" // microphone
+            else -> "\uD83D\uDC64" // person
+        }
+        instructionsIcon.text = icon
+
+        // Set title
+        val title = when (challengeType) {
+            ChallengeSpec.TYPE_FOLLOW_DOT -> getString(R.string.usesense_instructions_title_follow_dot)
+            ChallengeSpec.TYPE_HEAD_TURN -> getString(R.string.usesense_instructions_title_head_turn)
+            ChallengeSpec.TYPE_SPEAK_PHRASE -> getString(R.string.usesense_instructions_title_speak_phrase)
+            else -> getString(R.string.usesense_verifying)
+        }
+        instructionsTitle.text = title
+
+        // Set body
+        val body = when (challengeType) {
             ChallengeSpec.TYPE_FOLLOW_DOT -> getString(R.string.usesense_instruction_follow_dot)
             ChallengeSpec.TYPE_HEAD_TURN -> getString(R.string.usesense_instruction_head_turn)
             ChallengeSpec.TYPE_SPEAK_PHRASE -> getString(R.string.usesense_instruction_speak_phrase)
             else -> getString(R.string.usesense_instruction_default)
         }
-        instructionsBody.text = instructionText
+        instructionsBody.text = body
 
-        startButton.setOnClickListener {
+        // Show overlay
+        instructionsOverlay.visibility = View.VISIBLE
+        captureTitle.text = getString(R.string.usesense_getting_ready)
+        captureSubtitle.text = ""
+
+        instructionsCta.setOnClickListener {
+            instructionsOverlay.visibility = View.GONE
             startCameraAndCapture()
         }
     }
 
-    private fun startCameraAndCapture() {
-        hideAll()
-        cameraPreview.visibility = View.VISIBLE
+    // ========================================================================
+    // Camera Setup
+    // ========================================================================
 
+    private fun startCameraAndCapture() {
         frameCaptureManager = session.initCapture()
         challengePresenter = session.createChallengePresenter()
+
+        captureTitle.text = getString(R.string.usesense_position_face)
+        captureSubtitle.text = getString(R.string.usesense_center_face)
+
         startCamera()
     }
 
@@ -220,7 +373,7 @@ class UseSenseActivity : AppCompatActivity() {
                 .build()
                 .also { it.surfaceProvider = cameraPreview.surfaceProvider }
 
-            // Mirror preview for user (selfie feel), but frames are raw
+            // Mirror preview for selfie feel, but frames are raw/non-mirrored
             cameraPreview.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
             cameraPreview.scaleX = -1f
 
@@ -228,10 +381,37 @@ class UseSenseActivity : AppCompatActivity() {
                 .setTargetResolution(android.util.Size(640, 480))
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
-                .also { it.setAnalyzer(
-                    ContextCompat.getMainExecutor(this),
-                    frameCaptureManager!!.createAnalyzer()
-                )}
+                .also { analysis ->
+                    analysis.setAnalyzer(analysisExecutor) { imageProxy ->
+                        frameCaptureManager?.createAnalyzer()?.analyze(imageProxy)
+
+                        // Quality analysis at 4Hz (every 250ms)
+                        val now = System.currentTimeMillis()
+                        val phase = session.capturePhase
+                        val shouldAnalyze = phase in setOf(
+                            CapturePhase.FACE_GUIDE, CapturePhase.BASELINE,
+                            CapturePhase.COUNTDOWN, CapturePhase.CHALLENGE
+                        )
+
+                        if (shouldAnalyze && now - lastQualityAnalysisMs >= ImageQualityAnalyzer.ANALYSIS_INTERVAL_MS) {
+                            lastQualityAnalysisMs = now
+                            try {
+                                val report = qualityAnalyzer.analyze(imageProxy.image!!)
+                                runOnUiThread { updateQualityUI(report) }
+                                eventEmitter.emit(EventType.IMAGE_QUALITY_CHECK, mapOf(
+                                    "score" to report.overallScore,
+                                    "acceptable" to report.isAcceptable,
+                                    "blur" to report.blurLevel.name,
+                                    "lighting" to report.lightingLevel.name,
+                                ))
+                            } catch (_: Exception) {
+                                // Quality analysis is best-effort
+                            }
+                        }
+
+                        imageProxy.close()
+                    }
+                }
 
             val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
 
@@ -242,13 +422,13 @@ class UseSenseActivity : AppCompatActivity() {
                 val requiresStepup = session.policy?.requiresStepup == true
 
                 if (requiresStepup) {
-                    // v1.17.5+ flow: face guide -> baseline -> countdown -> challenge
                     showFaceGuide()
                 } else {
-                    // No challenge: start capture immediately, go to baseline
                     session.startCapture()
+                    eventEmitter.emit(EventType.CAPTURE_STARTED)
                     if (session.requiresAudio) {
                         session.startAudioRecording()
+                        eventEmitter.emit(EventType.AUDIO_RECORD_STARTED)
                     }
                     startBaselinePhase()
                 }
@@ -259,46 +439,81 @@ class UseSenseActivity : AppCompatActivity() {
     }
 
     // ========================================================================
-    // Phase: Face Guide (v1.17.5+ - only for challenge sessions)
-    // Camera preview is active but NO frames are captured.
+    // Quality UI updates
+    // ========================================================================
+
+    private fun updateQualityUI(report: ImageQualityAnalyzer.ImageQualityReport) {
+        qualityIndicator.updateQuality(report)
+        qualityBanner.updateQuality(report)
+
+        // Show quality views when we have data
+        qualityIndicator.visibility = View.VISIBLE
+        qualityBanner.visibility = if (report.isAcceptable) View.GONE else View.VISIBLE
+
+        // Update video container border glow (Section 6.7)
+        updateQualityGlow(report)
+    }
+
+    private fun updateQualityGlow(report: ImageQualityAnalyzer.ImageQualityReport) {
+        val bg = videoContainer.background
+        if (bg is GradientDrawable) {
+            val dp = resources.displayMetrics.density
+            val strokeWidth = (3 * dp).toInt()
+
+            val borderColor = when {
+                report.overallScore >= 65 -> Color.TRANSPARENT
+                report.overallScore >= 40 -> Color.parseColor("#80A78BFA") // indigo guidance
+                else -> Color.parseColor("#997C3AED") // deep indigo
+            }
+            bg.setStroke(if (borderColor == Color.TRANSPARENT) 0 else strokeWidth, borderColor)
+        }
+    }
+
+    // ========================================================================
+    // Phase: Face Guide (Section 7.5)
     // ========================================================================
 
     private fun showFaceGuide() {
         session.setCapturePhase(CapturePhase.FACE_GUIDE)
         faceGuideOverlay.visibility = View.VISIBLE
 
+        captureTitle.text = getString(R.string.usesense_position_face)
+        captureSubtitle.text = getString(R.string.usesense_center_face)
+
         faceGuideReadyButton.setOnClickListener {
             faceGuideOverlay.visibility = View.GONE
 
-            // Now start frame capture and begin baseline
             session.startCapture()
+            eventEmitter.emit(EventType.CAPTURE_STARTED)
             if (session.requiresAudio) {
                 session.startAudioRecording()
+                eventEmitter.emit(EventType.AUDIO_RECORD_STARTED)
             }
             startBaselinePhase()
         }
     }
 
     // ========================================================================
-    // Phase: Baseline (2000ms - frames captured at target_fps)
+    // Phase: Baseline (2000ms)
     // ========================================================================
 
     private fun startBaselinePhase() {
         session.setCapturePhase(CapturePhase.BASELINE)
         challengeOverlay.visibility = View.VISIBLE
 
-        // Show subtle oval reminder during baseline (if challenge session)
+        captureTitle.text = getString(R.string.usesense_hold_still)
+        captureSubtitle.text = getString(R.string.usesense_keep_still)
+
         val requiresStepup = session.policy?.requiresStepup == true
         if (requiresStepup) {
             baselineOvalView.visibility = View.VISIBLE
-            showPhaseBadge("Baseline")
+            showPhaseBadge("BASELINE")
         }
 
         handler.postDelayed({
             baselineOvalView.visibility = View.GONE
 
             if (requiresStepup) {
-                // v1.17.5+: 3-2-1 countdown before challenge
                 startCountdownPhase()
             } else {
                 startChallengePhase()
@@ -307,8 +522,7 @@ class UseSenseActivity : AppCompatActivity() {
     }
 
     // ========================================================================
-    // Phase: Countdown 3-2-1 (v1.17.5+ - frames CONTINUE to be captured)
-    // Countdown frames are tagged as baseline (no challenge step).
+    // Phase: Countdown 3-2-1 (Section 7.7)
     // ========================================================================
 
     private fun startCountdownPhase() {
@@ -316,15 +530,12 @@ class UseSenseActivity : AppCompatActivity() {
         countdownOverlay.visibility = View.VISIBLE
         phaseBadge.visibility = View.GONE
 
+        captureTitle.text = getString(R.string.usesense_countdown_label)
+        captureSubtitle.text = ""
+
         showCountdownNumber(3)
-
-        handler.postDelayed({
-            showCountdownNumber(2)
-        }, 1000)
-
-        handler.postDelayed({
-            showCountdownNumber(1)
-        }, 2000)
+        handler.postDelayed({ showCountdownNumber(2) }, 1000)
+        handler.postDelayed({ showCountdownNumber(1) }, 2000)
 
         handler.postDelayed({
             countdownOverlay.visibility = View.GONE
@@ -332,33 +543,36 @@ class UseSenseActivity : AppCompatActivity() {
         }, COUNTDOWN_MS)
     }
 
+    /**
+     * Section 8.6: Countdown Number animation
+     * Phase 1: scale 0.3 -> 1.15 + fade 0 -> 1 (360ms, overshoot)
+     * Phase 2: settle scale 1.15 -> 1.0 (540ms)
+     */
     private fun showCountdownNumber(number: Int) {
         countdownNumber.text = number.toString()
 
-        // Pop animation: scale 0.3 -> 1.15 (overshoot) -> 1.0 (settle)
         countdownCircle.scaleX = 0.3f
         countdownCircle.scaleY = 0.3f
         countdownCircle.alpha = 0f
 
         val scaleUpX = ObjectAnimator.ofFloat(countdownCircle, "scaleX", 0.3f, 1.15f).apply {
-            duration = 400
+            duration = 360
             interpolator = OvershootInterpolator(1.5f)
         }
         val scaleUpY = ObjectAnimator.ofFloat(countdownCircle, "scaleY", 0.3f, 1.15f).apply {
-            duration = 400
+            duration = 360
             interpolator = OvershootInterpolator(1.5f)
         }
         val fadeIn = ObjectAnimator.ofFloat(countdownCircle, "alpha", 0f, 1f).apply {
-            duration = 400
+            duration = 360
         }
-
         val settleX = ObjectAnimator.ofFloat(countdownCircle, "scaleX", 1.15f, 1.0f).apply {
-            duration = 500
-            startDelay = 400
+            duration = 540
+            startDelay = 360
         }
         val settleY = ObjectAnimator.ofFloat(countdownCircle, "scaleY", 1.15f, 1.0f).apply {
-            duration = 500
-            startDelay = 400
+            duration = 540
+            startDelay = 360
         }
 
         AnimatorSet().apply {
@@ -368,35 +582,40 @@ class UseSenseActivity : AppCompatActivity() {
     }
 
     // ========================================================================
-    // Phase: Challenge (frames captured, challenge UI shown)
+    // Phase: Challenge
     // ========================================================================
 
     private fun startChallengePhase() {
         session.setCapturePhase(CapturePhase.CHALLENGE)
+        eventEmitter.emit(EventType.CHALLENGE_STARTED, mapOf(
+            "type" to session.challengeSpec?.type
+        ))
 
         val presenter = challengePresenter
         if (presenter == null) {
-            // No challenge - capture for remaining duration
             val remaining = (session.uploadConfig?.captureDurationMs ?: 4500) - BASELINE_MS
             handler.postDelayed({ onCaptureComplete() }, remaining.coerceAtLeast(1000))
             return
         }
 
-        showPhaseBadge("Challenge")
+        showPhaseBadge("CHALLENGE")
         presenter.onChallengeComplete = { onCaptureComplete() }
 
-        // Configure challenge-specific UI
         when (presenter) {
             is FollowDotChallenge -> {
                 dotView.visibility = View.VISIBLE
+                captureTitle.text = getString(R.string.usesense_follow_dot)
+                captureSubtitle.text = ""
                 presenter.onDotPositionChanged = { x, y, animate -> moveDot(x, y, animate) }
             }
             is HeadTurnChallenge -> {
                 directionText.visibility = View.VISIBLE
+                captureTitle.text = ""
                 presenter.onDirectionChanged = { dir, _ -> showDirection(dir) }
             }
             is SpeakPhraseChallenge -> {
                 speakPhraseLayout.visibility = View.VISIBLE
+                captureTitle.text = ""
                 presenter.onPhraseDisplay = { phrase, isRecording ->
                     phraseText.text = "\"$phrase\""
                     recordingIndicator.visibility = if (isRecording) View.VISIBLE else View.GONE
@@ -404,8 +623,9 @@ class UseSenseActivity : AppCompatActivity() {
             }
         }
 
-        // Start progress animation
+        // Animate progress bar
         val totalDuration = presenter.spec.totalDurationMs
+        challengeProgress.visibility = View.VISIBLE
         challengeProgress.max = 1000
         val progressAnimator = ValueAnimator.ofInt(0, 1000).apply {
             duration = totalDuration.toLong()
@@ -437,7 +657,12 @@ class UseSenseActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Section 6.12: Direction Arrow with gradient circle and enter animation.
+     * 96dp circle, indigo gradient bg, arrow Unicode, 350ms enter animation.
+     */
     private fun showDirection(direction: String) {
+        // Update text label below video
         val text = when (direction) {
             "left" -> getString(R.string.usesense_turn_left)
             "right" -> getString(R.string.usesense_turn_right)
@@ -447,6 +672,65 @@ class UseSenseActivity : AppCompatActivity() {
             else -> direction
         }
         directionText.text = text
+
+        // Arrow character (Appendix B)
+        val arrow = when (direction) {
+            "left" -> "\u2190"
+            "right" -> "\u2192"
+            "up" -> "\u2191"
+            "down" -> "\u2193"
+            "center" -> "\u25CB"
+            else -> ""
+        }
+        directionArrow.text = arrow
+
+        // Build gradient background for direction circle (Section 3.5: indigo gradient)
+        val isCenter = direction == "center"
+        val startColor = if (isCenter) Color.parseColor("#6366F1") else Color.parseColor("#4F46E5")
+        val endColor = if (isCenter) Color.parseColor("#8B5CF6") else Color.parseColor("#6366F1")
+        val gradientBg = GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            intArrayOf(startColor, endColor)
+        ).apply {
+            shape = GradientDrawable.OVAL
+        }
+        directionCircle.background = gradientBg
+        directionCircle.visibility = View.VISIBLE
+
+        // Section 8.3: Direction Arrow Enter - 350ms ease-out
+        // scale 0.5 -> 1.1 -> 1.0, opacity 0 -> 1
+        playDirectionEnterAnimation()
+    }
+
+    private fun playDirectionEnterAnimation() {
+        directionCircle.scaleX = 0.5f
+        directionCircle.scaleY = 0.5f
+        directionCircle.alpha = 0f
+
+        val scaleUpX = ObjectAnimator.ofFloat(directionCircle, "scaleX", 0.5f, 1.1f).apply {
+            duration = 210
+            interpolator = OvershootInterpolator(1.5f)
+        }
+        val scaleUpY = ObjectAnimator.ofFloat(directionCircle, "scaleY", 0.5f, 1.1f).apply {
+            duration = 210
+            interpolator = OvershootInterpolator(1.5f)
+        }
+        val fadeIn = ObjectAnimator.ofFloat(directionCircle, "alpha", 0f, 1f).apply {
+            duration = 210
+        }
+        val settleX = ObjectAnimator.ofFloat(directionCircle, "scaleX", 1.1f, 1.0f).apply {
+            duration = 140
+            startDelay = 210
+        }
+        val settleY = ObjectAnimator.ofFloat(directionCircle, "scaleY", 1.1f, 1.0f).apply {
+            duration = 140
+            startDelay = 210
+        }
+
+        AnimatorSet().apply {
+            playTogether(scaleUpX, scaleUpY, fadeIn, settleX, settleY)
+            start()
+        }
     }
 
     private fun showPhaseBadge(label: String) {
@@ -461,27 +745,36 @@ class UseSenseActivity : AppCompatActivity() {
     private fun onCaptureComplete() {
         session.setCapturePhase(CapturePhase.DONE)
         session.stopCapture()
+        eventEmitter.emit(EventType.CAPTURE_COMPLETED)
+        eventEmitter.emit(EventType.CHALLENGE_COMPLETED)
 
         mainScope.launch {
-            // Upload signals
-            showProcessing(getString(R.string.usesense_uploading))
+            showScreen(uploadingScreen)
+            eventEmitter.emit(EventType.UPLOAD_STARTED)
+
             val uploadResult = session.uploadSignals()
             uploadResult.onFailure { e ->
+                eventEmitter.emit(EventType.ERROR, mapOf("phase" to "upload", "error" to e.message))
                 deliverError(
                     (e as? com.usesense.sdk.api.ApiException)?.useSenseError
                         ?: UseSenseError.uploadFailed()
                 )
                 return@launch
             }
+            eventEmitter.emit(EventType.UPLOAD_COMPLETED)
 
-            // Complete session and get verdict
-            showProcessing(getString(R.string.usesense_analyzing))
+            eventEmitter.emit(EventType.COMPLETE_STARTED)
             val verdictResult = session.complete()
             verdictResult.onSuccess { result ->
-                showResult(result)
+                eventEmitter.emit(EventType.DECISION_RECEIVED, mapOf(
+                    "decision" to result.decision,
+                    "session_id" to result.sessionId,
+                ))
+                showOutcomeScreen(result)
                 deliverSuccess(result)
             }
             verdictResult.onFailure { e ->
+                eventEmitter.emit(EventType.ERROR, mapOf("phase" to "complete", "error" to e.message))
                 deliverError(
                     (e as? com.usesense.sdk.api.ApiException)?.useSenseError
                         ?: UseSenseError.networkError(e.message)
@@ -490,62 +783,71 @@ class UseSenseActivity : AppCompatActivity() {
         }
     }
 
-    private fun showProcessing(text: String) {
-        hideAll()
-        processingLayout.visibility = View.VISIBLE
-        processingText.text = text
-    }
+    // ========================================================================
+    // Outcome Screens (Sections 7.12-7.16)
+    // ========================================================================
 
-    private fun showResult(result: UseSenseResult) {
-        hideAll()
-        resultLayout.visibility = View.VISIBLE
-
+    private fun showOutcomeScreen(result: UseSenseResult) {
         when (result.decision) {
             UseSenseResult.DECISION_APPROVE -> {
-                resultIcon.text = "\u2713"
-                resultIcon.setTextColor(ContextCompat.getColor(this, R.color.usesense_success))
-                resultText.text = getString(R.string.usesense_success)
-                resultDetails.text = "Scores: Channel ${result.channelTrustScore}, " +
-                    "Liveness ${result.livenessScore}, Dedupe ${result.dedupeRiskScore}"
-            }
-            UseSenseResult.DECISION_REJECT -> {
-                resultIcon.text = "\u2717"
-                resultIcon.setTextColor(ContextCompat.getColor(this, R.color.usesense_error))
-                resultText.text = getString(R.string.usesense_rejected)
-                resultDetails.text = result.reasons.joinToString("\n")
+                successIcon.setImageResource(R.drawable.usesense_icon_success)
+                successTitle.text = getString(R.string.usesense_success)
+                successSubtitle.text = getString(R.string.usesense_success_detail)
+                showScreen(successScreen)
             }
             UseSenseResult.DECISION_MANUAL_REVIEW -> {
-                resultIcon.text = "\u231B"
-                resultIcon.setTextColor(ContextCompat.getColor(this, R.color.usesense_warning))
-                resultText.text = getString(R.string.usesense_manual_review)
-                resultDetails.text = "Your verification is being reviewed."
+                successIcon.setImageResource(R.drawable.usesense_icon_review)
+                successTitle.text = getString(R.string.usesense_manual_review)
+                successSubtitle.text = getString(R.string.usesense_manual_review_detail)
+                showScreen(successScreen)
+            }
+            UseSenseResult.DECISION_REJECT -> {
+                showScreen(deniedScreen)
             }
             else -> {
-                resultIcon.text = "!"
-                resultIcon.setTextColor(ContextCompat.getColor(this, R.color.usesense_error))
-                resultText.text = getString(R.string.usesense_error_generic)
+                failureMessage.text = getString(R.string.usesense_error_generic)
+                showScreen(failureScreen)
             }
         }
     }
 
-    private fun hideAll() {
-        cameraPreview.visibility = View.GONE
+    // ========================================================================
+    // Screen management
+    // ========================================================================
+
+    private val allScreens by lazy {
+        listOf(introScreen, permissionScreen, captureScreen, uploadingScreen,
+            successScreen, deniedScreen, failureScreen, blockedScreen)
+    }
+
+    private fun showScreen(screen: View) {
+        allScreens.forEach { it.visibility = View.GONE }
+        screen.visibility = View.VISIBLE
+
+        // Reset capture sub-views when leaving capture screen
+        if (screen != captureScreen) {
+            hideCaptureOverlays()
+        }
+    }
+
+    private fun hideCaptureOverlays() {
         challengeOverlay.visibility = View.GONE
         faceGuideOverlay.visibility = View.GONE
         countdownOverlay.visibility = View.GONE
-        instructionsLayout.visibility = View.GONE
-        processingLayout.visibility = View.GONE
-        resultLayout.visibility = View.GONE
+        instructionsOverlay.visibility = View.GONE
         dotView.visibility = View.GONE
         directionText.visibility = View.GONE
         directionCircle.visibility = View.GONE
         speakPhraseLayout.visibility = View.GONE
         baselineOvalView.visibility = View.GONE
         phaseBadge.visibility = View.GONE
+        challengeProgress.visibility = View.GONE
+        qualityIndicator.visibility = View.GONE
+        qualityBanner.visibility = View.GONE
     }
 
     private fun onSessionStateChanged(state: SessionState) {
-        // Can be used for logging or additional UI updates
+        // Logged via event emitter
     }
 
     private fun deliverSuccess(result: UseSenseResult) {
@@ -555,12 +857,13 @@ class UseSenseActivity : AppCompatActivity() {
     private fun deliverError(error: UseSenseError) {
         pendingCallback?.onError(error)
         if (!isFinishing) {
-            hideAll()
-            resultLayout.visibility = View.VISIBLE
-            resultIcon.text = "!"
-            resultIcon.setTextColor(ContextCompat.getColor(this, R.color.usesense_error))
-            resultText.text = getString(R.string.usesense_error_generic)
-            resultDetails.text = error.message
+            // Route to appropriate error screen
+            if (error.code == 429 || error.code == UseSenseError.QUOTA_EXCEEDED) {
+                showScreen(blockedScreen)
+            } else {
+                failureMessage.text = error.message
+                showScreen(failureScreen)
+            }
         }
     }
 
@@ -573,6 +876,7 @@ class UseSenseActivity : AppCompatActivity() {
         super.onDestroy()
         mainScope.cancel()
         handler.removeCallbacksAndMessages(null)
+        analysisExecutor.shutdown()
         session.release()
         pendingCallback = null
         pendingConfig = null

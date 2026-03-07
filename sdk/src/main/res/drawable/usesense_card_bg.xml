@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Section 5.1: Screen Card Container - white, 16dp radius, elevation via view -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/usesense_surface" />
+    <corners android:radius="16dp" />
+</shape>

@@ -1,10 +1,106 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.UseSense" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+    <!-- Section 5.5: Full-screen container with edge-to-edge layout -->
+    <style name="Theme.UseSense" parent="Theme.MaterialComponents.Light.NoActionBar">
         <item name="colorPrimary">@color/usesense_primary</item>
         <item name="colorPrimaryVariant">@color/usesense_primary_dark</item>
         <item name="colorOnPrimary">@android:color/white</item>
-        <item name="android:statusBarColor">@android:color/black</item>
-        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@color/usesense_background</item>
+        <!-- Edge-to-edge: let WindowCompat handle insets -->
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+
+    <!-- Section 6.1: Primary Button -->
+    <style name="UseSense.Button.Primary" parent="Widget.MaterialComponents.Button">
+        <item name="android:minHeight">48dp</item>
+        <item name="android:paddingTop">14dp</item>
+        <item name="android:paddingBottom">14dp</item>
+        <item name="android:paddingStart">32dp</item>
+        <item name="android:paddingEnd">32dp</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="cornerRadius">12dp</item>
+        <item name="backgroundTint">@color/usesense_primary</item>
+    </style>
+
+    <!-- Section 6.2: Secondary Button -->
+    <style name="UseSense.Button.Secondary" parent="Widget.MaterialComponents.Button.OutlinedButton">
+        <item name="android:minHeight">48dp</item>
+        <item name="android:paddingTop">14dp</item>
+        <item name="android:paddingBottom">14dp</item>
+        <item name="android:paddingStart">32dp</item>
+        <item name="android:paddingEnd">32dp</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textColor">@color/usesense_text_primary</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="cornerRadius">12dp</item>
+        <item name="strokeColor">@color/usesense_border</item>
+        <item name="strokeWidth">1dp</item>
+    </style>
+
+    <!-- Section 4.2: Screen Title (20sp W600) -->
+    <style name="UseSense.Text.Title">
+        <item name="android:textSize">20sp</item>
+        <item name="android:textColor">@color/usesense_text_primary</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textAlignment">center</item>
+    </style>
+
+    <!-- Section 4.2: Screen Subtitle (14sp W400, line-height 1.5) -->
+    <style name="UseSense.Text.Subtitle">
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">@color/usesense_text_secondary</item>
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:textAlignment">center</item>
+        <item name="android:lineSpacingMultiplier">1.5</item>
+    </style>
+
+    <!-- Section 4.2: Phase Badge (12sp W600, 0.5sp tracking) -->
+    <style name="UseSense.Text.Badge">
+        <item name="android:textSize">12sp</item>
+        <item name="android:textColor">@android:color/white</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:letterSpacing">0.04</item>
+    </style>
+
+    <!-- Section 4.2: Countdown Number (60sp W900) -->
+    <style name="UseSense.Text.Countdown">
+        <item name="android:textSize">60sp</item>
+        <item name="android:textColor">@color/usesense_countdown_number</item>
+        <item name="android:fontFamily">sans-serif-black</item>
+    </style>
+
+    <!-- Section 6.10: Instructions Modal Title (16sp W700) -->
+    <style name="UseSense.Text.InstructionsTitle">
+        <item name="android:textSize">16sp</item>
+        <item name="android:textColor">@color/usesense_instructions_title</item>
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textAlignment">center</item>
+    </style>
+
+    <!-- Section 6.10: Instructions Body (13sp W400, 1.5 line-height) -->
+    <style name="UseSense.Text.InstructionsBody">
+        <item name="android:textSize">13sp</item>
+        <item name="android:textColor">@color/usesense_instructions_body</item>
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:textAlignment">center</item>
+        <item name="android:lineSpacingMultiplier">1.5</item>
+    </style>
+
+    <!-- Section 4.2: Error info caption (12sp, #94A3B8) -->
+    <style name="UseSense.Text.Caption">
+        <item name="android:textSize">12sp</item>
+        <item name="android:textColor">@color/usesense_caption_muted</item>
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:textAlignment">center</item>
+        <item name="android:lineSpacingMultiplier">1.5</item>
     </style>
 </resources>

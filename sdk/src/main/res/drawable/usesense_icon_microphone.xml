@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Section 6.13: Permission icon - microphone, #4F63F5 stroke -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="64dp"
+    android:height="64dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64">
+    <!-- Mic body -->
+    <path
+        android:pathData="M32,8a8,8 0,0 0,-8 8v12a8,8 0,0 0,16 0V16a8,8 0,0 0,-8 -8z"
+        android:strokeColor="#4F63F5"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="@android:color/transparent" />
+    <!-- Mic stand -->
+    <path
+        android:pathData="M16,28a16,16 0,0 0,32 0"
+        android:strokeColor="#4F63F5"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:fillColor="@android:color/transparent" />
+    <!-- Stem -->
+    <path
+        android:pathData="M32,44V52M24,52h16"
+        android:strokeColor="#4F63F5"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="@android:color/transparent" />
+</vector>

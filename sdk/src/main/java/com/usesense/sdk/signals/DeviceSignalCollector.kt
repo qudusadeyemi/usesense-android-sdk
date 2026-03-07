@@ -3,6 +3,7 @@ package com.usesense.sdk.signals
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -17,6 +18,7 @@ import android.view.WindowManager
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.security.MessageDigest
 
 class DeviceSignalCollector(private val context: Context) {
 
@@ -26,6 +28,9 @@ class DeviceSignalCollector(private val context: Context) {
     private var sensorStartMs = 0L
     private var accelListener: SensorEventListener? = null
     private var gyroListener: SensorEventListener? = null
+
+    private val playIntegrityManager = PlayIntegrityManager(context)
+    private var playIntegrityToken: String? = null
 
     fun startSensorCollection() {
         sensorStartMs = SystemClock.elapsedRealtime()
@@ -79,11 +84,79 @@ class DeviceSignalCollector(private val context: Context) {
         gyroListener?.let { sensorManager?.unregisterListener(it) }
     }
 
+    /**
+     * Request a Play Integrity token bound to the session nonce.
+     * Must be called before collectAndroidIntegrity().
+     */
+    suspend fun requestPlayIntegrityToken(nonce: String) {
+        playIntegrityToken = playIntegrityManager.requestIntegrityToken(nonce)
+    }
+
+    /**
+     * Collect Android-specific integrity signals per the spec's AndroidIntegritySignals structure.
+     * This replaces web_integrity for Android platform.
+     */
+    fun collectAndroidIntegrity(): JSONObject {
+        val integrity = JSONObject()
+
+        integrity.put("is_emulator", isEmulator())
+        integrity.put("is_rooted", isRooted())
+        integrity.put("is_debuggable", isDebuggable())
+        integrity.put("play_integrity_token", playIntegrityToken)
+        integrity.put("package_name", context.packageName)
+        integrity.put("signing_certificate_hash", getSigningCertificateHash())
+        integrity.put("device_model", Build.MODEL)
+        integrity.put("os_version", Build.VERSION.SDK_INT.toString())
+
+        // Screen resolution
+        val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        val metrics = DisplayMetrics()
+        @Suppress("DEPRECATION")
+        wm.defaultDisplay.getMetrics(metrics)
+        integrity.put("screen_resolution", "${metrics.widthPixels}x${metrics.heightPixels}")
+
+        integrity.put("hardware_concurrency", Runtime.getRuntime().availableProcessors())
+
+        val runtime = Runtime.getRuntime()
+        integrity.put("total_memory_mb", runtime.maxMemory() / (1024 * 1024))
+
+        // Battery
+        val batteryIntent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        if (batteryIntent != null) {
+            val level = batteryIntent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+            val scale = batteryIntent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+            val status = batteryIntent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+            val battery = JSONObject()
+            if (level >= 0 && scale > 0) {
+                battery.put("level", level.toFloat() / scale)
+            }
+            battery.put("charging",
+                status == BatteryManager.BATTERY_STATUS_CHARGING ||
+                status == BatteryManager.BATTERY_STATUS_FULL)
+            integrity.put("battery", battery)
+        }
+
+        // Connection
+        val connection = JSONObject()
+        connection.put("type", getNetworkType())
+        integrity.put("connection", connection)
+
+        integrity.put("timezone", java.util.TimeZone.getDefault().id)
+        val locale = java.util.Locale.getDefault()
+        integrity.put("locale", "${locale.language}_${locale.country}")
+
+        return integrity
+    }
+
+    /**
+     * Collect legacy web_integrity signals (kept for backward compat with backend).
+     * For new integrations, android_integrity is preferred.
+     */
     fun collectSignals(): JSONObject {
         val signals = JSONObject()
 
         signals.put("platform", "android")
-        signals.put("sdk_version", "1.0.0")
+        signals.put("sdk_version", SDK_VERSION)
         signals.put("device_model", Build.MODEL)
         signals.put("device_manufacturer", Build.MANUFACTURER)
         signals.put("os_version", "Android ${Build.VERSION.RELEASE}")
@@ -193,7 +266,6 @@ class DeviceSignalCollector(private val context: Context) {
     }
 
     fun isRooted(): Boolean {
-        // Check for su binary
         val paths = arrayOf(
             "/system/bin/su", "/system/xbin/su", "/sbin/su",
             "/system/app/Superuser.apk", "/system/app/SuperSU.apk",
@@ -202,9 +274,7 @@ class DeviceSignalCollector(private val context: Context) {
         for (path in paths) {
             if (File(path).exists()) return true
         }
-        // Check build tags
         if (Build.TAGS?.contains("test-keys") == true) return true
-        // Check PATH for su
         val pathEnv = System.getenv("PATH") ?: return false
         for (dir in pathEnv.split(":")) {
             if (File(dir, "su").exists()) return true
@@ -225,9 +295,40 @@ class DeviceSignalCollector(private val context: Context) {
         }
     }
 
+    @Suppress("DEPRECATION", "PackageManagerGetSignatures")
+    private fun getSigningCertificateHash(): String {
+        return try {
+            val signingInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val packageInfo = context.packageManager.getPackageInfo(
+                    context.packageName,
+                    PackageManager.GET_SIGNING_CERTIFICATES
+                )
+                packageInfo.signingInfo?.apkContentsSigners?.firstOrNull()?.toByteArray()
+            } else {
+                val packageInfo = context.packageManager.getPackageInfo(
+                    context.packageName,
+                    PackageManager.GET_SIGNATURES
+                )
+                packageInfo.signatures?.firstOrNull()?.toByteArray()
+            }
+            if (signingInfo != null) {
+                val digest = MessageDigest.getInstance("SHA-256").digest(signingInfo)
+                digest.joinToString("") { "%02x".format(it) }
+            } else {
+                "unknown"
+            }
+        } catch (_: Exception) {
+            "unknown"
+        }
+    }
+
     fun release() {
         stopSensorCollection()
         accelerometerData.clear()
         gyroscopeData.clear()
+    }
+
+    companion object {
+        const val SDK_VERSION = "1.17.7"
     }
 }

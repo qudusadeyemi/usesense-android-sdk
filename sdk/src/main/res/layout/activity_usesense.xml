@@ -1,354 +1,715 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Section 5.5: Full-screen container (#F8F9FA bg, centered card) -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/usesense_background">
+    android:background="@color/usesense_background"
+    android:fitsSystemWindows="true">
 
-    <!-- Camera Preview -->
-    <androidx.camera.view.PreviewView
-        android:id="@+id/cameraPreview"
+    <!-- Section 5.1: Centered Card Container (max 480dp, 16dp radius, 4dp elevation) -->
+    <ScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:visibility="gone"
-        app:scaleType="fillCenter"
-        app:implementationMode="compatible" />
+        android:layout_gravity="center"
+        android:fillViewport="true"
+        android:padding="16dp">
 
-    <!-- Challenge Overlay (dot, arrows, phrase text) -->
-    <FrameLayout
-        android:id="@+id/challengeOverlay"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:visibility="gone">
-
-        <!-- Subtle baseline oval reminder (non-interactive) -->
-        <com.usesense.sdk.ui.BaselineOvalView
-            android:id="@+id/baselineOvalView"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:visibility="gone" />
-
-        <!-- Follow-the-dot (indigo) -->
-        <View
-            android:id="@+id/dotView"
-            android:layout_width="20dp"
-            android:layout_height="20dp"
-            android:background="@drawable/usesense_dot"
-            android:elevation="8dp"
-            android:visibility="gone" />
-
-        <!-- Head turn instruction -->
-        <TextView
-            android:id="@+id/directionText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center_horizontal|top"
-            android:layout_marginTop="80dp"
-            android:textColor="@color/usesense_text_primary"
-            android:textSize="24sp"
-            android:textStyle="bold"
-            android:shadowColor="#AA000000"
-            android:shadowDx="0"
-            android:shadowDy="2"
-            android:shadowRadius="4"
-            android:visibility="gone" />
-
-        <!-- Head turn direction circle (indigo gradient, drawn programmatically) -->
-        <FrameLayout
-            android:id="@+id/directionCircle"
-            android:layout_width="96dp"
-            android:layout_height="96dp"
-            android:layout_gravity="center"
-            android:elevation="12dp"
-            android:visibility="gone">
-
-            <ImageView
-                android:id="@+id/directionArrow"
-                android:layout_width="56dp"
-                android:layout_height="56dp"
-                android:layout_gravity="center"
-                android:tint="@color/usesense_text_primary" />
-        </FrameLayout>
-
-        <!-- Speak phrase -->
         <LinearLayout
-            android:id="@+id/speakPhraseLayout"
+            android:id="@+id/cardContainer"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_gravity="center"
-            android:gravity="center"
+            android:maxWidth="480dp"
+            android:background="@drawable/usesense_card_bg"
+            android:elevation="4dp"
             android:orientation="vertical"
-            android:padding="32dp"
-            android:visibility="gone">
+            android:padding="24dp"
+            android:gravity="center_horizontal">
 
-            <TextView
-                android:id="@+id/speakLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/usesense_speak_now"
-                android:textColor="@color/usesense_text_secondary"
-                android:textSize="16sp" />
+            <!-- ==========================================================
+                 INTRO SCREEN (Section 7.1) — Shown during session creation
+                 ========================================================== -->
+            <LinearLayout
+                android:id="@+id/introScreen"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:visibility="gone">
 
-            <TextView
-                android:id="@+id/phraseText"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:textColor="@color/usesense_text_primary"
-                android:textSize="22sp"
-                android:textStyle="bold"
-                android:textAlignment="center" />
+                <ImageView
+                    android:id="@+id/introLogo"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:src="@drawable/usesense_logo"
+                    android:contentDescription="UseSense" />
 
-            <TextView
-                android:id="@+id/recordingIndicator"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:text="@string/usesense_recording"
-                android:textColor="@color/usesense_error"
-                android:textSize="14sp" />
-        </LinearLayout>
-
-        <!-- Phase badge (baseline / challenge label) -->
-        <TextView
-            android:id="@+id/phaseBadge"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="top|start"
-            android:layout_marginStart="16dp"
-            android:layout_marginTop="16dp"
-            android:paddingHorizontal="12dp"
-            android:paddingVertical="4dp"
-            android:background="@drawable/usesense_badge_bg"
-            android:textColor="@color/usesense_text_primary"
-            android:textSize="12sp"
-            android:textStyle="bold"
-            android:visibility="gone" />
-
-        <!-- Progress bar (time remaining, indigo) -->
-        <ProgressBar
-            android:id="@+id/challengeProgress"
-            style="@android:style/Widget.ProgressBar.Horizontal"
-            android:layout_width="match_parent"
-            android:layout_height="4dp"
-            android:layout_gravity="bottom"
-            android:progressTint="@color/usesense_indigo_500"
-            android:progressBackgroundTint="#33FFFFFF" />
-    </FrameLayout>
-
-    <!-- Face Guide Overlay (v1.17.5+) -->
-    <FrameLayout
-        android:id="@+id/faceGuideOverlay"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:visibility="gone">
-
-        <!-- Semi-transparent bg with oval cutout and pulsing dashed border -->
-        <com.usesense.sdk.ui.FaceGuideOvalView
-            android:id="@+id/faceGuideOvalView"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent" />
-
-        <!-- Top label -->
-        <TextView
-            android:id="@+id/faceGuideLabel"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center_horizontal|top"
-            android:layout_marginTop="24dp"
-            android:paddingHorizontal="16dp"
-            android:paddingVertical="6dp"
-            android:background="@drawable/usesense_pill_bg"
-            android:text="@string/usesense_face_guide_label"
-            android:textColor="@color/usesense_text_primary"
-            android:textSize="14sp"
-            android:textStyle="bold" />
-
-        <!-- Bottom ready button -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/faceGuideReadyButton"
-            android:layout_width="wrap_content"
-            android:layout_height="56dp"
-            android:layout_gravity="center_horizontal|bottom"
-            android:layout_marginBottom="48dp"
-            android:paddingHorizontal="32dp"
-            android:text="@string/usesense_face_guide_ready"
-            android:textAllCaps="false"
-            android:textSize="16sp"
-            android:textStyle="bold"
-            app:cornerRadius="16dp"
-            app:backgroundTint="@color/usesense_indigo_600"
-            android:elevation="8dp" />
-    </FrameLayout>
-
-    <!-- Countdown Overlay (v1.17.5+) -->
-    <FrameLayout
-        android:id="@+id/countdownOverlay"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="@color/usesense_overlay_light"
-        android:visibility="gone">
-
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:gravity="center"
-            android:orientation="vertical">
-
-            <!-- Countdown number circle -->
-            <FrameLayout
-                android:id="@+id/countdownCircle"
-                android:layout_width="112dp"
-                android:layout_height="112dp"
-                android:background="@drawable/usesense_countdown_circle"
-                android:elevation="16dp">
+                <ProgressBar
+                    android:id="@+id/introSpinner"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="32dp"
+                    android:indeterminateTint="@color/usesense_primary" />
 
                 <TextView
-                    android:id="@+id/countdownNumber"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_gravity="center"
-                    android:textColor="@color/usesense_indigo_600"
-                    android:textSize="64sp"
-                    android:textStyle="bold"
-                    android:fontFamily="sans-serif-black" />
-            </FrameLayout>
+                    android:layout_marginTop="24dp"
+                    style="@style/UseSense.Text.Title"
+                    android:text="@string/usesense_verifying" />
 
-            <!-- "Get ready..." sub-label -->
-            <TextView
-                android:id="@+id/countdownLabel"
-                android:layout_width="wrap_content"
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    style="@style/UseSense.Text.Subtitle"
+                    android:text="@string/usesense_verifying_detail" />
+            </LinearLayout>
+
+            <!-- ==========================================================
+                 PERMISSION SCREEN (Section 7.2) — Camera / Microphone
+                 ========================================================== -->
+            <LinearLayout
+                android:id="@+id/permissionScreen"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <ImageView
+                    android:id="@+id/permissionLogo"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:src="@drawable/usesense_logo"
+                    android:contentDescription="UseSense" />
+
+                <ImageView
+                    android:id="@+id/permissionIcon"
+                    android:layout_width="64dp"
+                    android:layout_height="64dp"
+                    android:layout_marginTop="32dp"
+                    android:src="@drawable/usesense_icon_camera" />
+
+                <TextView
+                    android:id="@+id/permissionTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    style="@style/UseSense.Text.Title"
+                    android:text="@string/usesense_camera_permission_title" />
+
+                <TextView
+                    android:id="@+id/permissionMessage"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    style="@style/UseSense.Text.Subtitle"
+                    android:text="@string/usesense_camera_permission_message" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/permissionButton"
+                    style="@style/UseSense.Button.Primary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:text="@string/usesense_continue" />
+            </LinearLayout>
+
+            <!-- ==========================================================
+                 CAPTURE SCREEN (Section 7.3) — Camera preview + quality
+                 ========================================================== -->
+            <LinearLayout
+                android:id="@+id/captureScreen"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:paddingHorizontal="16dp"
-                android:paddingVertical="6dp"
-                android:background="@drawable/usesense_pill_bg"
-                android:text="@string/usesense_countdown_label"
-                android:textColor="@color/usesense_text_primary"
-                android:textSize="14sp"
-                android:textStyle="bold" />
+                android:orientation="vertical"
+                android:gravity="center_horizontal"
+                android:visibility="gone">
+
+                <!-- Logo (small, top-left) -->
+                <ImageView
+                    android:id="@+id/captureLogo"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_gravity="start"
+                    android:src="@drawable/usesense_logo"
+                    android:contentDescription="UseSense" />
+
+                <!-- Section 5.2: Video Container (max 340dp, 16dp radius, black bg) -->
+                <FrameLayout
+                    android:id="@+id/videoContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="380dp"
+                    android:maxWidth="340dp"
+                    android:layout_marginTop="12dp"
+                    android:background="@drawable/usesense_video_container_bg"
+                    android:clipChildren="true"
+                    android:clipToPadding="true">
+
+                    <androidx.camera.view.PreviewView
+                        android:id="@+id/cameraPreview"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        app:scaleType="fillCenter"
+                        app:implementationMode="compatible" />
+
+                    <!-- Challenge Overlay (dot, arrows, oval, quality) -->
+                    <FrameLayout
+                        android:id="@+id/challengeOverlay"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:visibility="gone">
+
+                        <!-- Subtle baseline oval (Section 7.6) -->
+                        <com.usesense.sdk.ui.BaselineOvalView
+                            android:id="@+id/baselineOvalView"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:visibility="gone" />
+
+                        <!-- Follow-the-dot (Section 6.11) -->
+                        <View
+                            android:id="@+id/dotView"
+                            android:layout_width="24dp"
+                            android:layout_height="24dp"
+                            android:background="@drawable/usesense_dot"
+                            android:elevation="8dp"
+                            android:visibility="gone" />
+
+                        <!-- Head turn direction circle (Section 6.12: 96dp) -->
+                        <FrameLayout
+                            android:id="@+id/directionCircle"
+                            android:layout_width="96dp"
+                            android:layout_height="96dp"
+                            android:layout_gravity="center"
+                            android:elevation="12dp"
+                            android:visibility="gone">
+
+                            <TextView
+                                android:id="@+id/directionArrow"
+                                android:layout_width="match_parent"
+                                android:layout_height="match_parent"
+                                android:gravity="center"
+                                android:textSize="48sp"
+                                android:textColor="@android:color/white"
+                                android:textStyle="bold" />
+                        </FrameLayout>
+
+                        <!-- Phase badge (Section 6.5) -->
+                        <TextView
+                            android:id="@+id/phaseBadge"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="top|start"
+                            android:layout_marginStart="12dp"
+                            android:layout_marginTop="12dp"
+                            android:paddingHorizontal="12dp"
+                            android:paddingVertical="4dp"
+                            android:background="@drawable/usesense_badge_bg"
+                            style="@style/UseSense.Text.Badge"
+                            android:visibility="gone" />
+
+                        <!-- Quality indicator overlay (z-index 20, top) -->
+                        <com.usesense.sdk.ui.QualityIndicatorView
+                            android:id="@+id/qualityIndicator"
+                            android:layout_width="match_parent"
+                            android:layout_height="36dp"
+                            android:layout_gravity="top"
+                            android:visibility="gone" />
+                    </FrameLayout>
+
+                    <!-- Face Guide Overlay (Section 7.5) -->
+                    <FrameLayout
+                        android:id="@+id/faceGuideOverlay"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:visibility="gone">
+
+                        <com.usesense.sdk.ui.FaceGuideOvalView
+                            android:id="@+id/faceGuideOvalView"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent" />
+
+                        <!-- Top label pill -->
+                        <TextView
+                            android:id="@+id/faceGuideLabel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="center_horizontal|top"
+                            android:layout_marginTop="16dp"
+                            android:paddingHorizontal="16dp"
+                            android:paddingVertical="8dp"
+                            android:background="@drawable/usesense_pill_bg"
+                            android:text="@string/usesense_face_guide_label"
+                            android:textColor="@android:color/white"
+                            android:textSize="14sp"
+                            android:fontFamily="sans-serif-medium" />
+
+                        <!-- Bottom ready button -->
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/faceGuideReadyButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="center_horizontal|bottom"
+                            android:layout_marginBottom="24dp"
+                            android:paddingHorizontal="32dp"
+                            android:paddingVertical="12dp"
+                            android:text="@string/usesense_face_guide_ready"
+                            android:textAllCaps="false"
+                            android:textSize="16sp"
+                            android:textStyle="bold"
+                            app:cornerRadius="16dp"
+                            app:backgroundTint="@color/usesense_primary_dark"
+                            android:elevation="8dp" />
+                    </FrameLayout>
+
+                    <!-- Countdown Overlay (Section 7.7) -->
+                    <FrameLayout
+                        android:id="@+id/countdownOverlay"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:background="@color/usesense_countdown_overlay"
+                        android:visibility="gone">
+
+                        <LinearLayout
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="center"
+                            android:gravity="center"
+                            android:orientation="vertical">
+
+                            <!-- Section 6.9: 112dp circle, white 95% fill -->
+                            <FrameLayout
+                                android:id="@+id/countdownCircle"
+                                android:layout_width="112dp"
+                                android:layout_height="112dp"
+                                android:background="@drawable/usesense_countdown_circle"
+                                android:elevation="12dp">
+
+                                <!-- Section 4.2: 60sp W900 number, #4F46E5 -->
+                                <TextView
+                                    android:id="@+id/countdownNumber"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_gravity="center"
+                                    style="@style/UseSense.Text.Countdown" />
+                            </FrameLayout>
+
+                            <!-- Label pill -->
+                            <TextView
+                                android:id="@+id/countdownLabel"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="12dp"
+                                android:paddingHorizontal="16dp"
+                                android:paddingVertical="6dp"
+                                android:background="@drawable/usesense_pill_bg"
+                                android:text="@string/usesense_countdown_label"
+                                android:textColor="@android:color/white"
+                                android:textSize="14sp"
+                                android:fontFamily="sans-serif-medium"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+                    </FrameLayout>
+
+                    <!-- Instructions Modal Overlay (Section 7.4) — OVER camera -->
+                    <FrameLayout
+                        android:id="@+id/instructionsOverlay"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:background="@color/usesense_instructions_overlay"
+                        android:visibility="gone">
+
+                        <!-- Section 6.10: Modal card (max 320dp, 90% width) -->
+                        <LinearLayout
+                            android:id="@+id/instructionsModal"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="center"
+                            android:layout_marginHorizontal="16dp"
+                            android:maxWidth="320dp"
+                            android:background="@drawable/usesense_instructions_modal_bg"
+                            android:elevation="12dp"
+                            android:orientation="vertical"
+                            android:gravity="center_horizontal"
+                            android:paddingTop="28dp"
+                            android:paddingBottom="28dp"
+                            android:paddingStart="24dp"
+                            android:paddingEnd="24dp">
+
+                            <!-- Icon circle (48dp, #E0E7FF bg) -->
+                            <TextView
+                                android:id="@+id/instructionsIcon"
+                                android:layout_width="48dp"
+                                android:layout_height="48dp"
+                                android:gravity="center"
+                                android:background="@drawable/usesense_instructions_icon_circle"
+                                android:textSize="24sp" />
+
+                            <TextView
+                                android:id="@+id/instructionsTitle"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="16dp"
+                                style="@style/UseSense.Text.InstructionsTitle" />
+
+                            <TextView
+                                android:id="@+id/instructionsBody"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="8dp"
+                                android:layout_marginBottom="20dp"
+                                style="@style/UseSense.Text.InstructionsBody" />
+
+                            <!-- CTA (Section 6.10: full width, 10dp radius, #4F46E5) -->
+                            <TextView
+                                android:id="@+id/instructionsCta"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:gravity="center"
+                                android:paddingVertical="12dp"
+                                android:paddingHorizontal="24dp"
+                                android:background="@drawable/usesense_instructions_cta_bg"
+                                android:text="@string/usesense_instructions_cta"
+                                android:textColor="@android:color/white"
+                                android:textSize="14sp"
+                                android:fontFamily="sans-serif-medium"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+                    </FrameLayout>
+                </FrameLayout>
+
+                <!-- Quality Warning Banner (Section 6.6) - below video -->
+                <com.usesense.sdk.ui.QualityWarningBanner
+                    android:id="@+id/qualityBanner"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:visibility="gone" />
+
+                <!-- Status text below video -->
+                <TextView
+                    android:id="@+id/captureTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:textSize="18sp"
+                    android:textColor="@color/usesense_text_primary"
+                    android:fontFamily="sans-serif-medium"
+                    android:textStyle="bold"
+                    android:textAlignment="center" />
+
+                <TextView
+                    android:id="@+id/captureSubtitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    style="@style/UseSense.Text.Subtitle" />
+
+                <!-- Head turn text (shown below video during challenge) -->
+                <TextView
+                    android:id="@+id/directionText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:textSize="16sp"
+                    android:textColor="@color/usesense_text_primary"
+                    android:fontFamily="sans-serif-medium"
+                    android:textStyle="bold"
+                    android:visibility="gone" />
+
+                <!-- Speak phrase (Section 7.10) -->
+                <LinearLayout
+                    android:id="@+id/speakPhraseLayout"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:layout_marginTop="12dp"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/usesense_read_phrase"
+                        android:textSize="14sp"
+                        android:textColor="@color/usesense_text_secondary" />
+
+                    <TextView
+                        android:id="@+id/phraseText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:padding="12dp"
+                        android:background="@drawable/usesense_phrase_bg"
+                        android:textSize="15sp"
+                        android:textColor="@color/usesense_text_primary"
+                        android:fontFamily="sans-serif-medium"
+                        android:textStyle="bold"
+                        android:textAlignment="center" />
+
+                    <TextView
+                        android:id="@+id/recordingIndicator"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="@string/usesense_recording"
+                        android:textColor="@color/usesense_error"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+                </LinearLayout>
+
+                <!-- Section 6.3: Progress Bar (4dp, border track, primary fill) -->
+                <ProgressBar
+                    android:id="@+id/challengeProgress"
+                    style="@android:style/Widget.ProgressBar.Horizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="4dp"
+                    android:layout_marginTop="16dp"
+                    android:progressDrawable="@drawable/usesense_progress_track"
+                    android:visibility="gone" />
+            </LinearLayout>
+
+            <!-- ==========================================================
+                 UPLOADING SCREEN (Section 7.11)
+                 ========================================================== -->
+            <LinearLayout
+                android:id="@+id/uploadingScreen"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <ImageView
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:src="@drawable/usesense_logo"
+                    android:contentDescription="UseSense" />
+
+                <ProgressBar
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="32dp"
+                    android:indeterminateTint="@color/usesense_primary" />
+
+                <TextView
+                    android:id="@+id/uploadingTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    style="@style/UseSense.Text.Title"
+                    android:text="@string/usesense_finishing_up" />
+
+                <TextView
+                    android:id="@+id/uploadingSubtitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    style="@style/UseSense.Text.Subtitle"
+                    android:text="@string/usesense_finishing_up_detail" />
+            </LinearLayout>
+
+            <!-- ==========================================================
+                 SUCCESS SCREEN (Section 7.12 / 7.13) — APPROVE or MANUAL_REVIEW
+                 ========================================================== -->
+            <LinearLayout
+                android:id="@+id/successScreen"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <ImageView
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:src="@drawable/usesense_logo"
+                    android:contentDescription="UseSense" />
+
+                <ImageView
+                    android:id="@+id/successIcon"
+                    android:layout_width="64dp"
+                    android:layout_height="64dp"
+                    android:layout_marginTop="32dp" />
+
+                <TextView
+                    android:id="@+id/successTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    style="@style/UseSense.Text.Title" />
+
+                <TextView
+                    android:id="@+id/successSubtitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    style="@style/UseSense.Text.Subtitle" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/successButton"
+                    style="@style/UseSense.Button.Primary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:text="@string/usesense_done" />
+            </LinearLayout>
+
+            <!-- ==========================================================
+                 DENIED SCREEN (Section 7.14) — REJECT
+                 ========================================================== -->
+            <LinearLayout
+                android:id="@+id/deniedScreen"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <ImageView
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:src="@drawable/usesense_logo"
+                    android:contentDescription="UseSense" />
+
+                <ImageView
+                    android:id="@+id/deniedIcon"
+                    android:layout_width="64dp"
+                    android:layout_height="64dp"
+                    android:layout_marginTop="32dp"
+                    android:src="@drawable/usesense_icon_denied" />
+
+                <TextView
+                    android:id="@+id/deniedTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    style="@style/UseSense.Text.Title"
+                    android:text="@string/usesense_rejected" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    style="@style/UseSense.Text.Subtitle"
+                    android:text="@string/usesense_rejected_detail" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/deniedButton"
+                    style="@style/UseSense.Button.Primary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:text="@string/usesense_done" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    style="@style/UseSense.Text.Caption"
+                    android:text="@string/usesense_rejected_support" />
+            </LinearLayout>
+
+            <!-- ==========================================================
+                 FAILURE SCREEN (Section 7.15) — Error
+                 ========================================================== -->
+            <LinearLayout
+                android:id="@+id/failureScreen"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <ImageView
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:src="@drawable/usesense_logo"
+                    android:contentDescription="UseSense" />
+
+                <ImageView
+                    android:layout_width="64dp"
+                    android:layout_height="64dp"
+                    android:layout_marginTop="32dp"
+                    android:src="@drawable/usesense_icon_error" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    style="@style/UseSense.Text.Title"
+                    android:text="@string/usesense_error_generic" />
+
+                <TextView
+                    android:id="@+id/failureMessage"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    style="@style/UseSense.Text.Subtitle" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/failureRetryButton"
+                    style="@style/UseSense.Button.Primary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:text="@string/usesense_retry" />
+            </LinearLayout>
+
+            <!-- ==========================================================
+                 BLOCKED SCREEN (Section 7.16) — Rate limited
+                 ========================================================== -->
+            <LinearLayout
+                android:id="@+id/blockedScreen"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <ImageView
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:src="@drawable/usesense_logo"
+                    android:contentDescription="UseSense" />
+
+                <ImageView
+                    android:layout_width="64dp"
+                    android:layout_height="64dp"
+                    android:layout_marginTop="32dp"
+                    android:src="@drawable/usesense_icon_blocked" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    style="@style/UseSense.Text.Title"
+                    android:text="@string/usesense_blocked" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    style="@style/UseSense.Text.Subtitle"
+                    android:text="@string/usesense_blocked_detail" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/blockedRefreshButton"
+                    style="@style/UseSense.Button.Secondary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:text="@string/usesense_refresh" />
+            </LinearLayout>
+
         </LinearLayout>
-    </FrameLayout>
+    </ScrollView>
 
-    <!-- Instructions Screen -->
-    <LinearLayout
-        android:id="@+id/instructionsLayout"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:gravity="center"
-        android:orientation="vertical"
-        android:padding="32dp"
-        android:background="@color/usesense_background"
-        android:visibility="gone">
-
-        <TextView
-            android:id="@+id/instructionsTitle"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/usesense_title"
-            android:textColor="@color/usesense_text_primary"
-            android:textSize="28sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/instructionsBody"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:textColor="@color/usesense_text_secondary"
-            android:textSize="16sp"
-            android:textAlignment="center"
-            android:lineSpacingExtra="4dp" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/startButton"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:layout_marginTop="48dp"
-            android:text="@string/usesense_start_button"
-            android:textAllCaps="false"
-            android:textSize="16sp"
-            app:cornerRadius="28dp"
-            app:backgroundTint="@color/usesense_indigo_600" />
-    </LinearLayout>
-
-    <!-- Processing / Loading Screen -->
-    <LinearLayout
-        android:id="@+id/processingLayout"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:gravity="center"
-        android:orientation="vertical"
-        android:padding="32dp"
-        android:background="@color/usesense_background"
-        android:visibility="gone">
-
-        <ProgressBar
-            android:id="@+id/processingSpinner"
-            android:layout_width="64dp"
-            android:layout_height="64dp"
-            android:indeterminateTint="@color/usesense_indigo_500" />
-
-        <TextView
-            android:id="@+id/processingText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="@string/usesense_uploading"
-            android:textColor="@color/usesense_text_primary"
-            android:textSize="18sp" />
-    </LinearLayout>
-
-    <!-- Result Screen -->
-    <LinearLayout
-        android:id="@+id/resultLayout"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:gravity="center"
-        android:orientation="vertical"
-        android:padding="32dp"
-        android:background="@color/usesense_background"
-        android:visibility="gone">
-
-        <TextView
-            android:id="@+id/resultIcon"
-            android:layout_width="80dp"
-            android:layout_height="80dp"
-            android:gravity="center"
-            android:textSize="48sp" />
-
-        <TextView
-            android:id="@+id/resultText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:textColor="@color/usesense_text_primary"
-            android:textSize="22sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/resultDetails"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:textColor="@color/usesense_text_secondary"
-            android:textSize="14sp"
-            android:textAlignment="center" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/doneButton"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:layout_marginTop="48dp"
-            android:text="@string/usesense_done"
-            android:textAllCaps="false"
-            android:textSize="16sp"
-            app:cornerRadius="28dp"
-            app:backgroundTint="@color/usesense_indigo_600" />
-    </LinearLayout>
-
-    <!-- Cancel button (floating) -->
+    <!-- Cancel button (floating, top-right) -->
     <ImageButton
         android:id="@+id/cancelButton"
         android:layout_width="48dp"
@@ -358,7 +719,7 @@
         android:background="?attr/selectableItemBackgroundBorderless"
         android:contentDescription="@string/usesense_cancel"
         android:src="@android:drawable/ic_menu_close_clear_cancel"
-        android:tint="@color/usesense_text_primary"
-        android:elevation="4dp" />
+        android:tint="@color/usesense_text_secondary"
+        android:elevation="8dp" />
 
 </FrameLayout>

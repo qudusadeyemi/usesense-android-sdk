@@ -22,6 +22,14 @@ class UseSenseConfigTest {
     }
 
     @Test
+    fun `sandbox detected from dk_ prefix`() {
+        assertEquals(
+            UseSenseEnvironment.SANDBOX,
+            UseSenseEnvironment.fromApiKey("dk_dev_abc123")
+        )
+    }
+
+    @Test
     fun `unknown prefix defaults to production`() {
         assertEquals(
             UseSenseEnvironment.PRODUCTION,
@@ -32,7 +40,7 @@ class UseSenseConfigTest {
     @Test
     fun `default base URL is set`() {
         val config = UseSenseConfig(apiKey = "sk_test_123")
-        assertEquals("https://api.usesense.ai", config.baseUrl)
+        assertEquals(UseSenseConfig.DEFAULT_BASE_URL, config.baseUrl)
     }
 
     @Test
