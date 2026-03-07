@@ -21,7 +21,14 @@
         android:layout_height="match_parent"
         android:visibility="gone">
 
-        <!-- Follow-the-dot -->
+        <!-- Subtle baseline oval reminder (non-interactive) -->
+        <com.usesense.sdk.ui.BaselineOvalView
+            android:id="@+id/baselineOvalView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone" />
+
+        <!-- Follow-the-dot (indigo) -->
         <View
             android:id="@+id/dotView"
             android:layout_width="20dp"
@@ -45,6 +52,23 @@
             android:shadowDy="2"
             android:shadowRadius="4"
             android:visibility="gone" />
+
+        <!-- Head turn direction circle (indigo gradient, drawn programmatically) -->
+        <FrameLayout
+            android:id="@+id/directionCircle"
+            android:layout_width="96dp"
+            android:layout_height="96dp"
+            android:layout_gravity="center"
+            android:elevation="12dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/directionArrow"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:layout_gravity="center"
+                android:tint="@color/usesense_text_primary" />
+        </FrameLayout>
 
         <!-- Speak phrase -->
         <LinearLayout
@@ -85,15 +109,126 @@
                 android:textSize="14sp" />
         </LinearLayout>
 
-        <!-- Progress bar (time remaining) -->
+        <!-- Phase badge (baseline / challenge label) -->
+        <TextView
+            android:id="@+id/phaseBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|start"
+            android:layout_marginStart="16dp"
+            android:layout_marginTop="16dp"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="4dp"
+            android:background="@drawable/usesense_badge_bg"
+            android:textColor="@color/usesense_text_primary"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
+        <!-- Progress bar (time remaining, indigo) -->
         <ProgressBar
             android:id="@+id/challengeProgress"
             style="@android:style/Widget.ProgressBar.Horizontal"
             android:layout_width="match_parent"
             android:layout_height="4dp"
             android:layout_gravity="bottom"
-            android:progressTint="@color/usesense_primary"
+            android:progressTint="@color/usesense_indigo_500"
             android:progressBackgroundTint="#33FFFFFF" />
+    </FrameLayout>
+
+    <!-- Face Guide Overlay (v1.17.5+) -->
+    <FrameLayout
+        android:id="@+id/faceGuideOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone">
+
+        <!-- Semi-transparent bg with oval cutout and pulsing dashed border -->
+        <com.usesense.sdk.ui.FaceGuideOvalView
+            android:id="@+id/faceGuideOvalView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <!-- Top label -->
+        <TextView
+            android:id="@+id/faceGuideLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal|top"
+            android:layout_marginTop="24dp"
+            android:paddingHorizontal="16dp"
+            android:paddingVertical="6dp"
+            android:background="@drawable/usesense_pill_bg"
+            android:text="@string/usesense_face_guide_label"
+            android:textColor="@color/usesense_text_primary"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <!-- Bottom ready button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/faceGuideReadyButton"
+            android:layout_width="wrap_content"
+            android:layout_height="56dp"
+            android:layout_gravity="center_horizontal|bottom"
+            android:layout_marginBottom="48dp"
+            android:paddingHorizontal="32dp"
+            android:text="@string/usesense_face_guide_ready"
+            android:textAllCaps="false"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            app:cornerRadius="16dp"
+            app:backgroundTint="@color/usesense_indigo_600"
+            android:elevation="8dp" />
+    </FrameLayout>
+
+    <!-- Countdown Overlay (v1.17.5+) -->
+    <FrameLayout
+        android:id="@+id/countdownOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/usesense_overlay_light"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <!-- Countdown number circle -->
+            <FrameLayout
+                android:id="@+id/countdownCircle"
+                android:layout_width="112dp"
+                android:layout_height="112dp"
+                android:background="@drawable/usesense_countdown_circle"
+                android:elevation="16dp">
+
+                <TextView
+                    android:id="@+id/countdownNumber"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:textColor="@color/usesense_indigo_600"
+                    android:textSize="64sp"
+                    android:textStyle="bold"
+                    android:fontFamily="sans-serif-black" />
+            </FrameLayout>
+
+            <!-- "Get ready..." sub-label -->
+            <TextView
+                android:id="@+id/countdownLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:paddingHorizontal="16dp"
+                android:paddingVertical="6dp"
+                android:background="@drawable/usesense_pill_bg"
+                android:text="@string/usesense_countdown_label"
+                android:textColor="@color/usesense_text_primary"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+        </LinearLayout>
     </FrameLayout>
 
     <!-- Instructions Screen -->
@@ -135,7 +270,7 @@
             android:textAllCaps="false"
             android:textSize="16sp"
             app:cornerRadius="28dp"
-            app:backgroundTint="@color/usesense_primary" />
+            app:backgroundTint="@color/usesense_indigo_600" />
     </LinearLayout>
 
     <!-- Processing / Loading Screen -->
@@ -153,7 +288,7 @@
             android:id="@+id/processingSpinner"
             android:layout_width="64dp"
             android:layout_height="64dp"
-            android:indeterminateTint="@color/usesense_primary" />
+            android:indeterminateTint="@color/usesense_indigo_500" />
 
         <TextView
             android:id="@+id/processingText"
@@ -210,7 +345,7 @@
             android:textAllCaps="false"
             android:textSize="16sp"
             app:cornerRadius="28dp"
-            app:backgroundTint="@color/usesense_primary" />
+            app:backgroundTint="@color/usesense_indigo_600" />
     </LinearLayout>
 
     <!-- Cancel button (floating) -->

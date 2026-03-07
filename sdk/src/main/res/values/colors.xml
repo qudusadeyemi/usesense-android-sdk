@@ -1,15 +1,46 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="usesense_primary">#FF4B5C</color>
-    <color name="usesense_primary_dark">#D63447</color>
+    <!-- Indigo primary scale (v1.17.5+) -->
+    <color name="usesense_indigo_50">#FFEEF2FF</color>
+    <color name="usesense_indigo_100">#FFE0E7FF</color>
+    <color name="usesense_indigo_200">#FFC7D2FE</color>
+    <color name="usesense_indigo_400">#FF818CF8</color>
+    <color name="usesense_indigo_500">#FF6366F1</color>
+    <color name="usesense_indigo_600">#FF4F46E5</color>
+    <color name="usesense_indigo_700">#FF4338CA</color>
+    <color name="usesense_indigo_800">#FF3730A3</color>
+    <color name="usesense_violet_500">#FF8B5CF6</color>
+
+    <!-- Primary = indigo-600 -->
+    <color name="usesense_primary">#FF4F46E5</color>
+    <color name="usesense_primary_dark">#FF3730A3</color>
+
+    <!-- Backgrounds -->
     <color name="usesense_background">#1A1A2E</color>
     <color name="usesense_surface">#16213E</color>
+
+    <!-- Text -->
     <color name="usesense_text_primary">#FFFFFF</color>
     <color name="usesense_text_secondary">#B0B0CC</color>
+
+    <!-- Status -->
     <color name="usesense_success">#4CAF50</color>
     <color name="usesense_error">#F44336</color>
     <color name="usesense_warning">#FFC107</color>
-    <color name="usesense_dot_color">#FF5050</color>
-    <color name="usesense_dot_glow">#99FF5050</color>
+
+    <!-- Dot (indigo, was red) -->
+    <color name="usesense_dot_color">#FF6366F1</color>
+    <color name="usesense_dot_glow">#806366F1</color>
+
+    <!-- Overlays -->
     <color name="usesense_overlay_bg">#CC000000</color>
+    <color name="usesense_overlay_light">#66000000</color>
+
+    <!-- Phase badges (indigo) -->
+    <color name="usesense_badge_baseline">#E66366F1</color>
+    <color name="usesense_badge_challenge">#E64F46E5</color>
+
+    <!-- Face guide -->
+    <color name="usesense_face_guide_border">#CCFFFFFF</color>
+    <color name="usesense_face_guide_oval_subtle">#4DFFFFFF</color>
 </resources>
