@@ -33,7 +33,17 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
         val builder = original.newBuilder()
 
         sessionToken?.let { builder.addHeader("X-Session-Token", it) }
-        nonce?.let { builder.addHeader("X-Nonce", it) }
+
+        // Nonce dual-delivery (v1.17.5+): send in BOTH header AND query param
+        // to survive proxy/CDN header stripping
+        val currentNonce = nonce
+        if (currentNonce != null) {
+            builder.addHeader("X-Nonce", currentNonce)
+            val urlWithNonce = original.url.newBuilder()
+                .addQueryParameter("nonce", currentNonce)
+                .build()
+            builder.url(urlWithNonce)
+        }
 
         val env = if (config.environment == UseSenseEnvironment.AUTO) {
             UseSenseEnvironment.fromApiKey(config.apiKey)

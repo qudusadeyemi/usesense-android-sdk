@@ -10,10 +10,27 @@ enum class SessionState {
     ERROR;
 }
 
+/**
+ * Sub-phases within the CAPTURING state (v1.17.5+).
+ * FACE_GUIDE and COUNTDOWN are new phases added for challenge sessions.
+ */
+enum class CapturePhase {
+    INSTRUCTIONS,
+    FACE_GUIDE,
+    BASELINE,
+    COUNTDOWN,
+    CHALLENGE,
+    DONE;
+}
+
 class SessionStateMachine {
 
     @Volatile
     var currentState: SessionState = SessionState.IDLE
+        private set
+
+    @Volatile
+    var capturePhase: CapturePhase = CapturePhase.INSTRUCTIONS
         private set
 
     private val validTransitions = mapOf(
@@ -25,9 +42,14 @@ class SessionStateMachine {
     )
 
     private val listeners = mutableListOf<(SessionState, SessionState) -> Unit>()
+    private val phaseListeners = mutableListOf<(CapturePhase) -> Unit>()
 
     fun addListener(listener: (oldState: SessionState, newState: SessionState) -> Unit) {
         listeners.add(listener)
+    }
+
+    fun addPhaseListener(listener: (CapturePhase) -> Unit) {
+        phaseListeners.add(listener)
     }
 
     @Synchronized
@@ -43,7 +65,14 @@ class SessionStateMachine {
     }
 
     @Synchronized
+    fun setCapturePhase(phase: CapturePhase) {
+        capturePhase = phase
+        phaseListeners.forEach { it(phase) }
+    }
+
+    @Synchronized
     fun reset() {
         currentState = SessionState.IDLE
+        capturePhase = CapturePhase.INSTRUCTIONS
     }
 }

@@ -8,6 +8,7 @@ import com.usesense.sdk.capture.AudioCaptureManager
 import com.usesense.sdk.capture.FrameBuffer
 import com.usesense.sdk.capture.FrameCaptureManager
 import com.usesense.sdk.challenge.*
+import com.usesense.sdk.internal.CapturePhase
 import com.usesense.sdk.internal.MultipartUploader
 import com.usesense.sdk.internal.SessionState
 import com.usesense.sdk.internal.SessionStateMachine
@@ -45,10 +46,16 @@ internal class UseSenseSession(
     val requiresAudio: Boolean get() = sessionResponse?.policy?.requiresAudio == true
     val expiresAt: String? get() = sessionResponse?.expiresAt
 
+    val capturePhase: CapturePhase get() = stateMachine.capturePhase
+
     var onStateChanged: ((SessionState) -> Unit)? = null
 
     init {
         stateMachine.addListener { _, newState -> onStateChanged?.invoke(newState) }
+    }
+
+    fun setCapturePhase(phase: CapturePhase) {
+        stateMachine.setCapturePhase(phase)
     }
 
     suspend fun createSession(): Result<CreateSessionResponse> {

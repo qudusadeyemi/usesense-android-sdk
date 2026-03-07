@@ -1,6 +1,8 @@
 package com.usesense.sdk.ui
 
 import android.Manifest
+import android.animation.AnimatorSet
+import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.content.Context
 import android.content.Intent
@@ -9,6 +11,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.View
+import android.view.animation.OvershootInterpolator
 import android.view.animation.PathInterpolator
 import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
@@ -22,6 +25,7 @@ import com.usesense.sdk.*
 import com.usesense.sdk.api.models.ChallengeSpec
 import com.usesense.sdk.capture.FrameCaptureManager
 import com.usesense.sdk.challenge.*
+import com.usesense.sdk.internal.CapturePhase
 import com.usesense.sdk.internal.SessionState
 import kotlinx.coroutines.*
 
@@ -32,12 +36,16 @@ class UseSenseActivity : AppCompatActivity() {
     // Views
     private lateinit var cameraPreview: PreviewView
     private lateinit var challengeOverlay: FrameLayout
+    private lateinit var baselineOvalView: View
     private lateinit var dotView: View
     private lateinit var directionText: TextView
+    private lateinit var directionCircle: FrameLayout
+    private lateinit var directionArrow: ImageView
     private lateinit var speakPhraseLayout: LinearLayout
     private lateinit var phraseText: TextView
     private lateinit var recordingIndicator: TextView
     private lateinit var challengeProgress: ProgressBar
+    private lateinit var phaseBadge: TextView
     private lateinit var instructionsLayout: LinearLayout
     private lateinit var instructionsBody: TextView
     private lateinit var startButton: MaterialButton
@@ -50,17 +58,24 @@ class UseSenseActivity : AppCompatActivity() {
     private lateinit var doneButton: MaterialButton
     private lateinit var cancelButton: ImageButton
 
+    // Face guide views (v1.17.5+)
+    private lateinit var faceGuideOverlay: FrameLayout
+    private lateinit var faceGuideReadyButton: MaterialButton
+
+    // Countdown views (v1.17.5+)
+    private lateinit var countdownOverlay: FrameLayout
+    private lateinit var countdownCircle: FrameLayout
+    private lateinit var countdownNumber: TextView
+
     private val mainScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val handler = Handler(Looper.getMainLooper())
     private var challengePresenter: ChallengePresenter? = null
     private var frameCaptureManager: FrameCaptureManager? = null
-    private var baselineRunnable: Runnable? = null
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         val cameraGranted = permissions[Manifest.permission.CAMERA] == true
-        val micGranted = permissions[Manifest.permission.RECORD_AUDIO] != false
 
         if (cameraGranted) {
             onPermissionsGranted()
@@ -101,12 +116,16 @@ class UseSenseActivity : AppCompatActivity() {
     private fun bindViews() {
         cameraPreview = findViewById(R.id.cameraPreview)
         challengeOverlay = findViewById(R.id.challengeOverlay)
+        baselineOvalView = findViewById(R.id.baselineOvalView)
         dotView = findViewById(R.id.dotView)
         directionText = findViewById(R.id.directionText)
+        directionCircle = findViewById(R.id.directionCircle)
+        directionArrow = findViewById(R.id.directionArrow)
         speakPhraseLayout = findViewById(R.id.speakPhraseLayout)
         phraseText = findViewById(R.id.phraseText)
         recordingIndicator = findViewById(R.id.recordingIndicator)
         challengeProgress = findViewById(R.id.challengeProgress)
+        phaseBadge = findViewById(R.id.phaseBadge)
         instructionsLayout = findViewById(R.id.instructionsLayout)
         instructionsBody = findViewById(R.id.instructionsBody)
         startButton = findViewById(R.id.startButton)
@@ -118,6 +137,15 @@ class UseSenseActivity : AppCompatActivity() {
         resultDetails = findViewById(R.id.resultDetails)
         doneButton = findViewById(R.id.doneButton)
         cancelButton = findViewById(R.id.cancelButton)
+
+        // Face guide views (v1.17.5+)
+        faceGuideOverlay = findViewById(R.id.faceGuideOverlay)
+        faceGuideReadyButton = findViewById(R.id.faceGuideReadyButton)
+
+        // Countdown views (v1.17.5+)
+        countdownOverlay = findViewById(R.id.countdownOverlay)
+        countdownCircle = findViewById(R.id.countdownCircle)
+        countdownNumber = findViewById(R.id.countdownNumber)
     }
 
     private suspend fun beginVerification() {
@@ -154,7 +182,6 @@ class UseSenseActivity : AppCompatActivity() {
     }
 
     private fun onPermissionsGranted() {
-        // Show instructions
         showInstructions()
     }
 
@@ -178,11 +205,9 @@ class UseSenseActivity : AppCompatActivity() {
     private fun startCameraAndCapture() {
         hideAll()
         cameraPreview.visibility = View.VISIBLE
-        challengeOverlay.visibility = View.VISIBLE
 
         frameCaptureManager = session.initCapture()
         challengePresenter = session.createChallengePresenter()
-        setupChallengeUI()
         startCamera()
     }
 
@@ -197,7 +222,7 @@ class UseSenseActivity : AppCompatActivity() {
 
             // Mirror preview for user (selfie feel), but frames are raw
             cameraPreview.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-            cameraPreview.scaleX = -1f // Mirror the preview display
+            cameraPreview.scaleX = -1f
 
             val imageAnalysis = ImageAnalysis.Builder()
                 .setTargetResolution(android.util.Size(640, 480))
@@ -214,33 +239,150 @@ class UseSenseActivity : AppCompatActivity() {
                 cameraProvider.unbindAll()
                 cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalysis)
 
-                // Start baseline phase (2000ms), then challenge
-                session.startCapture()
-                if (session.requiresAudio) {
-                    session.startAudioRecording()
+                val requiresStepup = session.policy?.requiresStepup == true
+
+                if (requiresStepup) {
+                    // v1.17.5+ flow: face guide -> baseline -> countdown -> challenge
+                    showFaceGuide()
+                } else {
+                    // No challenge: start capture immediately, go to baseline
+                    session.startCapture()
+                    if (session.requiresAudio) {
+                        session.startAudioRecording()
+                    }
+                    startBaselinePhase()
                 }
-                startBaselinePhase()
             } catch (e: Exception) {
                 deliverError(UseSenseError.cameraUnavailable())
             }
         }, ContextCompat.getMainExecutor(this))
     }
 
-    private fun startBaselinePhase() {
-        val baselineDurationMs = 2000L
-        baselineRunnable = Runnable { startChallengePhase() }
-        handler.postDelayed(baselineRunnable!!, baselineDurationMs)
+    // ========================================================================
+    // Phase: Face Guide (v1.17.5+ - only for challenge sessions)
+    // Camera preview is active but NO frames are captured.
+    // ========================================================================
+
+    private fun showFaceGuide() {
+        session.setCapturePhase(CapturePhase.FACE_GUIDE)
+        faceGuideOverlay.visibility = View.VISIBLE
+
+        faceGuideReadyButton.setOnClickListener {
+            faceGuideOverlay.visibility = View.GONE
+
+            // Now start frame capture and begin baseline
+            session.startCapture()
+            if (session.requiresAudio) {
+                session.startAudioRecording()
+            }
+            startBaselinePhase()
+        }
     }
 
+    // ========================================================================
+    // Phase: Baseline (2000ms - frames captured at target_fps)
+    // ========================================================================
+
+    private fun startBaselinePhase() {
+        session.setCapturePhase(CapturePhase.BASELINE)
+        challengeOverlay.visibility = View.VISIBLE
+
+        // Show subtle oval reminder during baseline (if challenge session)
+        val requiresStepup = session.policy?.requiresStepup == true
+        if (requiresStepup) {
+            baselineOvalView.visibility = View.VISIBLE
+            showPhaseBadge("Baseline")
+        }
+
+        handler.postDelayed({
+            baselineOvalView.visibility = View.GONE
+
+            if (requiresStepup) {
+                // v1.17.5+: 3-2-1 countdown before challenge
+                startCountdownPhase()
+            } else {
+                startChallengePhase()
+            }
+        }, BASELINE_MS)
+    }
+
+    // ========================================================================
+    // Phase: Countdown 3-2-1 (v1.17.5+ - frames CONTINUE to be captured)
+    // Countdown frames are tagged as baseline (no challenge step).
+    // ========================================================================
+
+    private fun startCountdownPhase() {
+        session.setCapturePhase(CapturePhase.COUNTDOWN)
+        countdownOverlay.visibility = View.VISIBLE
+        phaseBadge.visibility = View.GONE
+
+        showCountdownNumber(3)
+
+        handler.postDelayed({
+            showCountdownNumber(2)
+        }, 1000)
+
+        handler.postDelayed({
+            showCountdownNumber(1)
+        }, 2000)
+
+        handler.postDelayed({
+            countdownOverlay.visibility = View.GONE
+            startChallengePhase()
+        }, COUNTDOWN_MS)
+    }
+
+    private fun showCountdownNumber(number: Int) {
+        countdownNumber.text = number.toString()
+
+        // Pop animation: scale 0.3 -> 1.15 (overshoot) -> 1.0 (settle)
+        countdownCircle.scaleX = 0.3f
+        countdownCircle.scaleY = 0.3f
+        countdownCircle.alpha = 0f
+
+        val scaleUpX = ObjectAnimator.ofFloat(countdownCircle, "scaleX", 0.3f, 1.15f).apply {
+            duration = 400
+            interpolator = OvershootInterpolator(1.5f)
+        }
+        val scaleUpY = ObjectAnimator.ofFloat(countdownCircle, "scaleY", 0.3f, 1.15f).apply {
+            duration = 400
+            interpolator = OvershootInterpolator(1.5f)
+        }
+        val fadeIn = ObjectAnimator.ofFloat(countdownCircle, "alpha", 0f, 1f).apply {
+            duration = 400
+        }
+
+        val settleX = ObjectAnimator.ofFloat(countdownCircle, "scaleX", 1.15f, 1.0f).apply {
+            duration = 500
+            startDelay = 400
+        }
+        val settleY = ObjectAnimator.ofFloat(countdownCircle, "scaleY", 1.15f, 1.0f).apply {
+            duration = 500
+            startDelay = 400
+        }
+
+        AnimatorSet().apply {
+            playTogether(scaleUpX, scaleUpY, fadeIn, settleX, settleY)
+            start()
+        }
+    }
+
+    // ========================================================================
+    // Phase: Challenge (frames captured, challenge UI shown)
+    // ========================================================================
+
     private fun startChallengePhase() {
+        session.setCapturePhase(CapturePhase.CHALLENGE)
+
         val presenter = challengePresenter
         if (presenter == null) {
-            // No challenge, just capture for the remaining duration
-            val remaining = (session.uploadConfig?.captureDurationMs ?: 4500) - 2000L
+            // No challenge - capture for remaining duration
+            val remaining = (session.uploadConfig?.captureDurationMs ?: 4500) - BASELINE_MS
             handler.postDelayed({ onCaptureComplete() }, remaining.coerceAtLeast(1000))
             return
         }
 
+        showPhaseBadge("Challenge")
         presenter.onChallengeComplete = { onCaptureComplete() }
 
         // Configure challenge-specific UI
@@ -307,7 +449,17 @@ class UseSenseActivity : AppCompatActivity() {
         directionText.text = text
     }
 
+    private fun showPhaseBadge(label: String) {
+        phaseBadge.text = label
+        phaseBadge.visibility = View.VISIBLE
+    }
+
+    // ========================================================================
+    // Post-capture: upload and complete
+    // ========================================================================
+
     private fun onCaptureComplete() {
+        session.setCapturePhase(CapturePhase.DONE)
         session.stopCapture()
 
         mainScope.launch {
@@ -379,12 +531,17 @@ class UseSenseActivity : AppCompatActivity() {
     private fun hideAll() {
         cameraPreview.visibility = View.GONE
         challengeOverlay.visibility = View.GONE
+        faceGuideOverlay.visibility = View.GONE
+        countdownOverlay.visibility = View.GONE
         instructionsLayout.visibility = View.GONE
         processingLayout.visibility = View.GONE
         resultLayout.visibility = View.GONE
         dotView.visibility = View.GONE
         directionText.visibility = View.GONE
+        directionCircle.visibility = View.GONE
         speakPhraseLayout.visibility = View.GONE
+        baselineOvalView.visibility = View.GONE
+        phaseBadge.visibility = View.GONE
     }
 
     private fun onSessionStateChanged(state: SessionState) {
@@ -398,7 +555,6 @@ class UseSenseActivity : AppCompatActivity() {
     private fun deliverError(error: UseSenseError) {
         pendingCallback?.onError(error)
         if (!isFinishing) {
-            // Show error on result screen
             hideAll()
             resultLayout.visibility = View.VISIBLE
             resultIcon.text = "!"
@@ -424,6 +580,9 @@ class UseSenseActivity : AppCompatActivity() {
     }
 
     companion object {
+        private const val BASELINE_MS = 2000L
+        private const val COUNTDOWN_MS = 3000L
+
         internal var pendingCallback: UseSenseCallback? = null
         internal var pendingConfig: UseSenseConfig? = null
         internal var pendingRequest: VerificationRequest? = null

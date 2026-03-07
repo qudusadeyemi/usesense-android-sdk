@@ -30,4 +30,11 @@
     <!-- Speak phrase -->
     <string name="usesense_speak_now">Please say:</string>
     <string name="usesense_recording">Recording…</string>
+
+    <!-- Face guide (v1.17.5+) -->
+    <string name="usesense_face_guide_label">Position your face in the oval</string>
+    <string name="usesense_face_guide_ready">My face is ready</string>
+
+    <!-- Countdown (v1.17.5+) -->
+    <string name="usesense_countdown_label">Get ready…</string>
 </resources>
