@@ -15,7 +15,6 @@ import com.usesense.sdk.internal.SessionStateMachine
 import com.usesense.sdk.signals.DeviceSignalCollector
 import com.usesense.sdk.signals.MetadataBuilder
 import kotlinx.coroutines.*
-import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -61,7 +60,7 @@ internal class UseSenseSession(
     suspend fun createSession(): Result<CreateSessionResponse> {
         val createRequest = CreateSessionRequest(
             sessionType = request.sessionType.value,
-            platform = "web", // Use "web" until backend supports "android"
+            platform = "android",
             identityId = request.identityId,
             externalUserId = request.externalUserId,
             metadata = request.metadata,
@@ -71,6 +70,12 @@ internal class UseSenseSession(
         result.onSuccess { response ->
             sessionResponse = response
             stateMachine.transition(SessionState.CREATED)
+            // Request Play Integrity token bound to session nonce
+            try {
+                signalCollector.requestPlayIntegrityToken(response.nonce)
+            } catch (_: Exception) {
+                // Play Integrity is best-effort; don't block verification
+            }
         }
         result.onFailure { e ->
             stateMachine.transition(SessionState.ERROR)
@@ -138,6 +143,7 @@ internal class UseSenseSession(
 
         val challengeResponse = challengePresenter?.responseBuilder?.build()
         val webIntegrity = signalCollector.collectSignals()
+        val androidIntegrity = signalCollector.collectAndroidIntegrity()
         val deviceTelemetry = signalCollector.collectDeviceTelemetry()
 
         val timestamps = buffer.timestamps
@@ -148,6 +154,7 @@ internal class UseSenseSession(
         val metadataJson = metadataBuilder.build(
             challengeResponse = challengeResponse,
             webIntegrity = webIntegrity,
+            androidIntegrity = androidIntegrity,
             deviceTelemetry = deviceTelemetry,
             captureStartTime = captureStartTime ?: Date(),
             captureEndTime = captureEndTime ?: Date(),
@@ -174,18 +181,14 @@ internal class UseSenseSession(
         val result = apiClient.completeSession(sid)
         return result.map { verdict ->
             stateMachine.transition(SessionState.DONE)
+            // Security: redact internal scores, pillar verdicts, reasons,
+            // signature, and all analysis details before exposing to host app
             UseSenseResult(
                 sessionId = verdict.sessionId,
                 sessionType = verdict.sessionType,
                 identityId = verdict.identityId,
                 decision = verdict.decision,
-                channelTrustScore = verdict.channelTrustScore,
-                livenessScore = verdict.livenessScore,
-                dedupeRiskScore = verdict.dedupeRiskScore,
-                reasons = verdict.reasons,
                 timestamp = verdict.timestamp,
-                signature = verdict.signature,
-                rawResponse = try { JSONObject(verdict.toString()) } catch (_: Exception) { null },
             )
         }.onFailure {
             stateMachine.transition(SessionState.ERROR)

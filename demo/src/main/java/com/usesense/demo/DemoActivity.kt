@@ -132,6 +132,17 @@ class DemoActivity : AppCompatActivity() {
                 }
         } else null
 
+        // Subscribe to SDK events for debug logging
+        UseSense.onEvent { event ->
+            runOnUiThread {
+                val logLine = "[${event.type}] ${event.data ?: ""}"
+                val current = resultText.text?.toString() ?: ""
+                if (resultCard.visibility == View.VISIBLE && current.startsWith("[")) {
+                    resultText.text = "$current\n$logLine"
+                }
+            }
+        }
+
         // Start verification
         UseSense.startVerification(
             activity = this,
@@ -165,16 +176,8 @@ class DemoActivity : AppCompatActivity() {
             appendLine("Decision:  ${result.decision}")
             appendLine("Session:   ${result.sessionId}")
             appendLine("Identity:  ${result.identityId ?: "N/A"}")
-            appendLine("Type:      ${result.sessionType}")
-            appendLine("---")
-            appendLine("Channel Trust: ${result.channelTrustScore}")
-            appendLine("Liveness:      ${result.livenessScore}")
-            appendLine("Dedupe Risk:   ${result.dedupeRiskScore}")
-            appendLine("---")
-            appendLine("Reasons:")
-            result.reasons.forEach { appendLine("  - $it") }
-            appendLine("---")
-            appendLine("Signature: ${result.signature.take(40)}...")
+            appendLine("Type:      ${result.sessionType ?: "N/A"}")
+            appendLine("Timestamp: ${result.timestamp}")
         }
     }
 

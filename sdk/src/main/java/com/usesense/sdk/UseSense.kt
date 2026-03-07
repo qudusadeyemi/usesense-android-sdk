@@ -9,6 +9,8 @@ object UseSense {
     private var config: UseSenseConfig? = null
     private var appContext: Context? = null
 
+    internal val eventEmitter = UseSenseEventEmitter()
+
     val isInitialized: Boolean get() = config != null
 
     fun initialize(context: Context, config: UseSenseConfig) {
@@ -36,8 +38,16 @@ object UseSense {
         UseSenseActivity.launch(activity, cfg, request, callback)
     }
 
+    /**
+     * Subscribe to SDK lifecycle events. Returns an unsubscribe function.
+     */
+    fun onEvent(callback: EventCallback): () -> Unit {
+        return eventEmitter.addListener(callback)
+    }
+
     fun reset() {
         config = null
         appContext = null
+        eventEmitter.clear()
     }
 }
