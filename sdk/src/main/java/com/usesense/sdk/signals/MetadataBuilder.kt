@@ -12,8 +12,7 @@ class MetadataBuilder {
 
     fun build(
         challengeResponse: JSONObject?,
-        webIntegrity: JSONObject?,
-        androidIntegrity: JSONObject,
+        channelIntegrity: JSONObject,
         deviceTelemetry: JSONObject,
         captureStartTime: Date,
         captureEndTime: Date,
@@ -27,23 +26,19 @@ class MetadataBuilder {
             metadata.put("challenge_response", it)
         }
 
-        // web_integrity: null on Android (used by web SDK only)
-        metadata.put("web_integrity", JSONObject.NULL)
+        // Add capture timing and frame stats to channel_integrity
+        val captureDurationMs = captureEndTime.time - captureStartTime.time
+        channelIntegrity.put("capture_start_time", isoFormat.format(captureStartTime))
+        channelIntegrity.put("capture_end_time", isoFormat.format(captureEndTime))
+        channelIntegrity.put("capture_duration_ms", captureDurationMs)
+        channelIntegrity.put("frames_captured", framesCaptured)
+        channelIntegrity.put("frames_dropped", framesDropped)
+        channelIntegrity.put("avg_frame_interval_ms", avgFrameIntervalMs)
 
-        // android_integrity: Android-specific device attestation with Play Integrity token
-        metadata.put("android_integrity", androidIntegrity)
+        // channel_integrity: the primary signal object the server reads
+        metadata.put("channel_integrity", channelIntegrity)
 
-        // Device telemetry with capture timing
-        deviceTelemetry.put("capture_start_time", isoFormat.format(captureStartTime))
-        deviceTelemetry.put("capture_end_time", isoFormat.format(captureEndTime))
-        deviceTelemetry.put("capture_duration_ms", captureEndTime.time - captureStartTime.time)
-        deviceTelemetry.put("frames_captured", framesCaptured)
-        deviceTelemetry.put("frames_dropped", framesDropped)
-        deviceTelemetry.put("avg_frame_interval_ms", avgFrameIntervalMs)
         metadata.put("device_telemetry", deviceTelemetry)
-
-        // webauthn_data: not applicable on Android
-        metadata.put("webauthn_data", JSONObject.NULL)
 
         return metadata.toString(2).toByteArray(Charsets.UTF_8)
     }

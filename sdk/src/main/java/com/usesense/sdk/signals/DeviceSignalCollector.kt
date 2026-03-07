@@ -32,6 +32,14 @@ class DeviceSignalCollector(private val context: Context, cloudProjectNumber: Lo
     private val playIntegrityManager = PlayIntegrityManager(context, cloudProjectNumber)
     private var playIntegrityToken: String? = null
 
+    private var cameraFacing: String = "front"
+    private var cameraResolution: String = "640x480"
+
+    fun setCaptureInfo(facing: String, resolution: String) {
+        cameraFacing = facing
+        cameraResolution = resolution
+    }
+
     fun startSensorCollection() {
         sensorStartMs = SystemClock.elapsedRealtime()
         sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
@@ -86,79 +94,25 @@ class DeviceSignalCollector(private val context: Context, cloudProjectNumber: Lo
 
     /**
      * Request a Play Integrity token bound to the session nonce.
-     * Must be called before collectAndroidIntegrity().
+     * Must be called before collectSignals().
      */
     suspend fun requestPlayIntegrityToken(nonce: String) {
         playIntegrityToken = playIntegrityManager.requestIntegrityToken(nonce)
     }
 
     /**
-     * Collect Android-specific integrity signals per the spec's AndroidIntegritySignals structure.
-     * This replaces web_integrity for Android platform.
-     */
-    fun collectAndroidIntegrity(): JSONObject {
-        val integrity = JSONObject()
-
-        integrity.put("is_emulator", isEmulator())
-        integrity.put("is_rooted", isRooted())
-        integrity.put("is_debuggable", isDebuggable())
-        integrity.put("play_integrity_token", playIntegrityToken)
-        integrity.put("package_name", context.packageName)
-        integrity.put("signing_certificate_hash", getSigningCertificateHash())
-        integrity.put("device_model", Build.MODEL)
-        integrity.put("os_version", Build.VERSION.SDK_INT.toString())
-
-        // Screen resolution
-        val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        val metrics = DisplayMetrics()
-        @Suppress("DEPRECATION")
-        wm.defaultDisplay.getMetrics(metrics)
-        integrity.put("screen_resolution", "${metrics.widthPixels}x${metrics.heightPixels}")
-
-        integrity.put("hardware_concurrency", Runtime.getRuntime().availableProcessors())
-
-        val runtime = Runtime.getRuntime()
-        integrity.put("total_memory_mb", runtime.maxMemory() / (1024 * 1024))
-
-        // Battery
-        val batteryIntent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-        if (batteryIntent != null) {
-            val level = batteryIntent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
-            val scale = batteryIntent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
-            val status = batteryIntent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
-            val battery = JSONObject()
-            if (level >= 0 && scale > 0) {
-                battery.put("level", level.toFloat() / scale)
-            }
-            battery.put("charging",
-                status == BatteryManager.BATTERY_STATUS_CHARGING ||
-                status == BatteryManager.BATTERY_STATUS_FULL)
-            integrity.put("battery", battery)
-        }
-
-        // Connection
-        val connection = JSONObject()
-        connection.put("type", getNetworkType())
-        integrity.put("connection", connection)
-
-        integrity.put("timezone", java.util.TimeZone.getDefault().id)
-        val locale = java.util.Locale.getDefault()
-        integrity.put("locale", "${locale.language}_${locale.country}")
-
-        return integrity
-    }
-
-    /**
-     * Collect legacy web_integrity signals (kept for backward compat with backend).
-     * For new integrations, android_integrity is preferred.
+     * Collect all channel integrity signals for the server's DeepSense scorer.
+     * These go into the `channel_integrity` object in the metadata payload.
      */
     fun collectSignals(): JSONObject {
         val signals = JSONObject()
 
         signals.put("platform", "android")
+        signals.put("channel_type", "android")
         signals.put("sdk_version", SDK_VERSION)
         signals.put("device_model", Build.MODEL)
         signals.put("device_manufacturer", Build.MANUFACTURER)
+        signals.put("fingerprint", Build.FINGERPRINT)
         signals.put("os_version", "Android ${Build.VERSION.RELEASE}")
         signals.put("api_level", Build.VERSION.SDK_INT)
 
@@ -171,9 +125,9 @@ class DeviceSignalCollector(private val context: Context, cloudProjectNumber: Lo
         signals.put("screen_height", metrics.heightPixels)
         signals.put("screen_density", metrics.densityDpi)
 
-        // Camera
-        signals.put("camera_facing", "front")
-        signals.put("camera_resolution", "640x480")
+        // Camera — actual values set via setCaptureInfo()
+        signals.put("camera_facing", cameraFacing)
+        signals.put("camera_resolution", cameraResolution)
 
         // Battery
         val batteryIntent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
@@ -194,7 +148,7 @@ class DeviceSignalCollector(private val context: Context, cloudProjectNumber: Lo
 
         // Locale/timezone
         val locale = java.util.Locale.getDefault()
-        signals.put("locale", "${locale.language}-${locale.country}")
+        signals.put("locale", locale.toLanguageTag())
         val tz = java.util.TimeZone.getDefault()
         signals.put("timezone", tz.id)
         signals.put("timezone_offset", tz.rawOffset / 60000)
@@ -207,6 +161,11 @@ class DeviceSignalCollector(private val context: Context, cloudProjectNumber: Lo
         signals.put("is_rooted", isRooted())
         signals.put("is_debuggable", isDebuggable())
         signals.put("has_play_services", hasPlayServices())
+
+        // Play Integrity token
+        if (playIntegrityToken != null) {
+            signals.put("play_integrity_token", playIntegrityToken)
+        }
 
         // Permissions
         signals.put("camera_permission_granted",
@@ -228,11 +187,13 @@ class DeviceSignalCollector(private val context: Context, cloudProjectNumber: Lo
         val telemetry = JSONObject()
         telemetry.put("cpu_abi", Build.SUPPORTED_ABIS.firstOrNull() ?: "unknown")
 
-        val runtime = Runtime.getRuntime()
-        telemetry.put("total_ram_mb", runtime.maxMemory() / (1024 * 1024))
-        telemetry.put("available_ram_mb", runtime.freeMemory() / (1024 * 1024))
+        val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+        val memInfo = android.app.ActivityManager.MemoryInfo()
+        activityManager.getMemoryInfo(memInfo)
+        telemetry.put("total_ram_mb", memInfo.totalMem / (1024 * 1024))
+        telemetry.put("available_ram_mb", memInfo.availMem / (1024 * 1024))
 
-        val stat = android.os.StatFs(context.filesDir.absolutePath)
+        val stat = android.os.StatFs(android.os.Environment.getDataDirectory().path)
         telemetry.put("storage_available_mb", stat.availableBytes / (1024 * 1024))
         telemetry.put("security_patch", Build.VERSION.SECURITY_PATCH)
 
@@ -241,9 +202,9 @@ class DeviceSignalCollector(private val context: Context, cloudProjectNumber: Lo
 
     private fun getNetworkType(): String {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-            ?: return "unknown"
+            ?: return "other"
         val network = cm.activeNetwork ?: return "none"
-        val caps = cm.getNetworkCapabilities(network) ?: return "unknown"
+        val caps = cm.getNetworkCapabilities(network) ?: return "other"
         return when {
             caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
             caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"
@@ -288,9 +249,13 @@ class DeviceSignalCollector(private val context: Context, cloudProjectNumber: Lo
 
     private fun hasPlayServices(): Boolean {
         return try {
-            Class.forName("com.google.android.gms.common.GoogleApiAvailability")
-            true
-        } catch (_: ClassNotFoundException) {
+            val clazz = Class.forName("com.google.android.gms.common.GoogleApiAvailability")
+            val getInstance = clazz.getMethod("getInstance")
+            val instance = getInstance.invoke(null)
+            val isAvailable = clazz.getMethod("isGooglePlayServicesAvailable", Context::class.java)
+            val status = isAvailable.invoke(instance, context) as Int
+            status == 0 // ConnectionResult.SUCCESS
+        } catch (_: Exception) {
             false
         }
     }
