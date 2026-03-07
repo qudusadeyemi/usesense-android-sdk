@@ -358,9 +358,7 @@ class UseSenseActivity : AppCompatActivity() {
                 .build()
                 .also { it.setSurfaceProvider(cameraPreview.surfaceProvider) }
 
-            // Mirror preview for selfie feel, but frames are raw/non-mirrored
             cameraPreview.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-            cameraPreview.scaleX = -1f
 
             val imageAnalysis = ImageAnalysis.Builder()
                 .setTargetResolution(android.util.Size(640, 480))
