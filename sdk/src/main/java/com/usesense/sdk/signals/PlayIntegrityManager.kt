@@ -19,7 +19,7 @@ import kotlin.coroutines.resume
  * - Account details (licensed app check)
  * - App integrity (genuine APK check)
  */
-class PlayIntegrityManager(private val context: Context) {
+class PlayIntegrityManager(private val context: Context, private val cloudProjectNumber: Long) {
 
     companion object {
         private const val TAG = "PlayIntegrity"
@@ -37,6 +37,7 @@ class PlayIntegrityManager(private val context: Context) {
             val integrityManager = IntegrityManagerFactory.create(context)
 
             val tokenRequest = IntegrityTokenRequest.builder()
+                .setCloudProjectNumber(cloudProjectNumber)
                 .setNonce(nonce)
                 .build()
 

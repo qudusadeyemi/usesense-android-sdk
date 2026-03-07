@@ -25,7 +25,7 @@ internal class UseSenseSession(
 ) {
     private val apiClient = UseSenseApiClient(config)
     private val stateMachine = SessionStateMachine()
-    private val signalCollector = DeviceSignalCollector(context)
+    private val signalCollector = DeviceSignalCollector(context, config.googleCloudProjectNumber)
     private val metadataBuilder = MetadataBuilder()
     private val uploader = MultipartUploader(apiClient)
 
