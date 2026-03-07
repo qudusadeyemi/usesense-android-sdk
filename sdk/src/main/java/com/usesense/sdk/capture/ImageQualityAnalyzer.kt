@@ -230,22 +230,22 @@ class ImageQualityAnalyzer {
     ): Double {
         // Brightness score: ideal range 80-180
         val brightnessScore = when {
-            mean < BRIGHTNESS_TOO_DARK -> (mean / BRIGHTNESS_TOO_DARK) * 40
-            mean < BRIGHTNESS_SLIGHTLY_DARK -> 40 + ((mean - BRIGHTNESS_TOO_DARK) / (BRIGHTNESS_SLIGHTLY_DARK - BRIGHTNESS_TOO_DARK)) * 30
-            mean <= BRIGHTNESS_GOOD_MAX -> 70 + ((mean - BRIGHTNESS_SLIGHTLY_DARK) / (BRIGHTNESS_GOOD_MAX - BRIGHTNESS_SLIGHTLY_DARK)) * 30
-            mean <= BRIGHTNESS_TOO_BRIGHT -> 100 - ((mean - BRIGHTNESS_GOOD_MAX) / (BRIGHTNESS_TOO_BRIGHT - BRIGHTNESS_GOOD_MAX)) * 30
-            else -> 30 // too bright
+            mean < BRIGHTNESS_TOO_DARK -> (mean / BRIGHTNESS_TOO_DARK) * 40.0
+            mean < BRIGHTNESS_SLIGHTLY_DARK -> 40.0 + ((mean - BRIGHTNESS_TOO_DARK) / (BRIGHTNESS_SLIGHTLY_DARK - BRIGHTNESS_TOO_DARK)) * 30.0
+            mean <= BRIGHTNESS_GOOD_MAX -> 70.0 + ((mean - BRIGHTNESS_SLIGHTLY_DARK) / (BRIGHTNESS_GOOD_MAX - BRIGHTNESS_SLIGHTLY_DARK)) * 30.0
+            mean <= BRIGHTNESS_TOO_BRIGHT -> 100.0 - ((mean - BRIGHTNESS_GOOD_MAX) / (BRIGHTNESS_TOO_BRIGHT - BRIGHTNESS_GOOD_MAX)) * 30.0
+            else -> 30.0 // too bright
         }
 
         // Contrast score
         val contrastScore = when {
-            stdDev < CONTRAST_VERY_LOW -> (stdDev / CONTRAST_VERY_LOW) * 40
-            stdDev < CONTRAST_LOW -> 40 + ((stdDev - CONTRAST_VERY_LOW) / (CONTRAST_LOW - CONTRAST_VERY_LOW)) * 30
+            stdDev < CONTRAST_VERY_LOW -> (stdDev / CONTRAST_VERY_LOW) * 40.0
+            stdDev < CONTRAST_LOW -> 40.0 + ((stdDev - CONTRAST_VERY_LOW) / (CONTRAST_LOW - CONTRAST_VERY_LOW)) * 30.0
             else -> 100.0
         }
 
         // Exposure penalty
-        val exposurePenalty = ((underRatio + overRatio) * 50).coerceAtMost(50.0)
+        val exposurePenalty = ((underRatio + overRatio) * 50.0).coerceAtMost(50.0)
 
         return ((brightnessScore * 0.5 + contrastScore * 0.5) - exposurePenalty).coerceIn(0.0, 100.0)
     }

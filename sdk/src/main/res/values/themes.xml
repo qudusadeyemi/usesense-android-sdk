@@ -43,6 +43,12 @@
         <item name="strokeWidth">1dp</item>
     </style>
 
+    <!-- Base Style -->
+    <style name="UseSense" />
+
+    <!-- Base Text Style -->
+    <style name="UseSense.Text" />
+
     <!-- Section 4.2: Screen Title (20sp W600) -->
     <style name="UseSense.Text.Title">
         <item name="android:textSize">20sp</item>

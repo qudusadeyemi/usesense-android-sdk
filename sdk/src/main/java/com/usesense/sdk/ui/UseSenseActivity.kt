@@ -4,16 +4,12 @@ import android.Manifest
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
-import android.graphics.LinearGradient
-import android.graphics.Shader
 import android.graphics.drawable.GradientDrawable
-import android.graphics.drawable.PaintDrawable
-import android.graphics.drawable.ShapeDrawable
-import android.graphics.drawable.shapes.OvalShape
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -37,6 +33,7 @@ import com.usesense.sdk.internal.CapturePhase
 import com.usesense.sdk.internal.SessionState
 import kotlinx.coroutines.*
 import java.util.concurrent.Executors
+import com.usesense.sdk.R
 
 class UseSenseActivity : AppCompatActivity() {
 
@@ -240,22 +237,18 @@ class UseSenseActivity : AppCompatActivity() {
         }
     }
 
-    // ========================================================================
-    // Flow: Create Session -> Permissions -> Instructions -> Camera -> Capture
-    // ========================================================================
-
     private suspend fun beginVerification() {
         showScreen(introScreen)
         val createResult = session.createSession()
         createResult.onFailure { e ->
-            eventEmitter.emit(EventType.ERROR, mapOf("error" to e.message))
+            eventEmitter.emit(EventType.ERROR, mapOf("error" to (e.message ?: "")))
             val error = (e as? com.usesense.sdk.api.ApiException)?.useSenseError
                 ?: UseSenseError.networkError(e.message)
             deliverError(error)
             return
         }
 
-        eventEmitter.emit(EventType.SESSION_CREATED, mapOf("session_id" to session.sessionId))
+        eventEmitter.emit(EventType.SESSION_CREATED, mapOf("session_id" to (session.sessionId ?: "")))
         eventEmitter.emit(EventType.PERMISSIONS_REQUESTED)
         checkAndRequestPermissions()
     }
@@ -302,10 +295,6 @@ class UseSenseActivity : AppCompatActivity() {
         showInstructions()
     }
 
-    // ========================================================================
-    // Instructions Modal (Section 7.4) — overlay on top of camera preview
-    // ========================================================================
-
     private fun showInstructions() {
         // Show capture screen first (camera will start behind the modal)
         showScreen(captureScreen)
@@ -350,10 +339,6 @@ class UseSenseActivity : AppCompatActivity() {
         }
     }
 
-    // ========================================================================
-    // Camera Setup
-    // ========================================================================
-
     private fun startCameraAndCapture() {
         frameCaptureManager = session.initCapture()
         challengePresenter = session.createChallengePresenter()
@@ -371,7 +356,7 @@ class UseSenseActivity : AppCompatActivity() {
 
             val preview = Preview.Builder()
                 .build()
-                .also { it.surfaceProvider = cameraPreview.surfaceProvider }
+                .also { it.setSurfaceProvider(cameraPreview.surfaceProvider) }
 
             // Mirror preview for selfie feel, but frames are raw/non-mirrored
             cameraPreview.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
@@ -396,14 +381,18 @@ class UseSenseActivity : AppCompatActivity() {
                         if (shouldAnalyze && now - lastQualityAnalysisMs >= ImageQualityAnalyzer.ANALYSIS_INTERVAL_MS) {
                             lastQualityAnalysisMs = now
                             try {
-                                val report = qualityAnalyzer.analyze(imageProxy.image!!)
-                                runOnUiThread { updateQualityUI(report) }
-                                eventEmitter.emit(EventType.IMAGE_QUALITY_CHECK, mapOf(
-                                    "score" to report.overallScore,
-                                    "acceptable" to report.isAcceptable,
-                                    "blur" to report.blurLevel.name,
-                                    "lighting" to report.lightingLevel.name,
-                                ))
+                                @OptIn(androidx.camera.core.ExperimentalGetImage::class)
+                                val mediaImage = imageProxy.image
+                                if (mediaImage != null) {
+                                    val report = qualityAnalyzer.analyze(mediaImage)
+                                    runOnUiThread { updateQualityUI(report) }
+                                    eventEmitter.emit(EventType.IMAGE_QUALITY_CHECK, mapOf(
+                                        "score" to report.overallScore,
+                                        "acceptable" to report.isAcceptable,
+                                        "blur" to report.blurLevel.name,
+                                        "lighting" to report.lightingLevel.name,
+                                    ))
+                                }
                             } catch (_: Exception) {
                                 // Quality analysis is best-effort
                             }
@@ -438,10 +427,6 @@ class UseSenseActivity : AppCompatActivity() {
         }, ContextCompat.getMainExecutor(this))
     }
 
-    // ========================================================================
-    // Quality UI updates
-    // ========================================================================
-
     private fun updateQualityUI(report: ImageQualityAnalyzer.ImageQualityReport) {
         qualityIndicator.updateQuality(report)
         qualityBanner.updateQuality(report)
@@ -469,10 +454,6 @@ class UseSenseActivity : AppCompatActivity() {
         }
     }
 
-    // ========================================================================
-    // Phase: Face Guide (Section 7.5)
-    // ========================================================================
-
     private fun showFaceGuide() {
         session.setCapturePhase(CapturePhase.FACE_GUIDE)
         faceGuideOverlay.visibility = View.VISIBLE
@@ -492,10 +473,6 @@ class UseSenseActivity : AppCompatActivity() {
             startBaselinePhase()
         }
     }
-
-    // ========================================================================
-    // Phase: Baseline (2000ms)
-    // ========================================================================
 
     private fun startBaselinePhase() {
         session.setCapturePhase(CapturePhase.BASELINE)
@@ -521,10 +498,6 @@ class UseSenseActivity : AppCompatActivity() {
         }, BASELINE_MS)
     }
 
-    // ========================================================================
-    // Phase: Countdown 3-2-1 (Section 7.7)
-    // ========================================================================
-
     private fun startCountdownPhase() {
         session.setCapturePhase(CapturePhase.COUNTDOWN)
         countdownOverlay.visibility = View.VISIBLE
@@ -543,11 +516,6 @@ class UseSenseActivity : AppCompatActivity() {
         }, COUNTDOWN_MS)
     }
 
-    /**
-     * Section 8.6: Countdown Number animation
-     * Phase 1: scale 0.3 -> 1.15 + fade 0 -> 1 (360ms, overshoot)
-     * Phase 2: settle scale 1.15 -> 1.0 (540ms)
-     */
     private fun showCountdownNumber(number: Int) {
         countdownNumber.text = number.toString()
 
@@ -581,14 +549,10 @@ class UseSenseActivity : AppCompatActivity() {
         }
     }
 
-    // ========================================================================
-    // Phase: Challenge
-    // ========================================================================
-
     private fun startChallengePhase() {
         session.setCapturePhase(CapturePhase.CHALLENGE)
         eventEmitter.emit(EventType.CHALLENGE_STARTED, mapOf(
-            "type" to session.challengeSpec?.type
+            "type" to (session.challengeSpec?.type ?: "")
         ))
 
         val presenter = challengePresenter
@@ -657,10 +621,6 @@ class UseSenseActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Section 6.12: Direction Arrow with gradient circle and enter animation.
-     * 96dp circle, indigo gradient bg, arrow Unicode, 350ms enter animation.
-     */
     private fun showDirection(direction: String) {
         // Update text label below video
         val text = when (direction) {
@@ -697,8 +657,6 @@ class UseSenseActivity : AppCompatActivity() {
         directionCircle.background = gradientBg
         directionCircle.visibility = View.VISIBLE
 
-        // Section 8.3: Direction Arrow Enter - 350ms ease-out
-        // scale 0.5 -> 1.1 -> 1.0, opacity 0 -> 1
         playDirectionEnterAnimation()
     }
 
@@ -738,10 +696,6 @@ class UseSenseActivity : AppCompatActivity() {
         phaseBadge.visibility = View.VISIBLE
     }
 
-    // ========================================================================
-    // Post-capture: upload and complete
-    // ========================================================================
-
     private fun onCaptureComplete() {
         session.setCapturePhase(CapturePhase.DONE)
         session.stopCapture()
@@ -754,7 +708,7 @@ class UseSenseActivity : AppCompatActivity() {
 
             val uploadResult = session.uploadSignals()
             uploadResult.onFailure { e ->
-                eventEmitter.emit(EventType.ERROR, mapOf("phase" to "upload", "error" to e.message))
+                eventEmitter.emit(EventType.ERROR, mapOf("phase" to "upload", "error" to (e.message ?: "")))
                 deliverError(
                     (e as? com.usesense.sdk.api.ApiException)?.useSenseError
                         ?: UseSenseError.uploadFailed()
@@ -774,7 +728,7 @@ class UseSenseActivity : AppCompatActivity() {
                 deliverSuccess(result)
             }
             verdictResult.onFailure { e ->
-                eventEmitter.emit(EventType.ERROR, mapOf("phase" to "complete", "error" to e.message))
+                eventEmitter.emit(EventType.ERROR, mapOf("phase" to "complete", "error" to (e.message ?: "")))
                 deliverError(
                     (e as? com.usesense.sdk.api.ApiException)?.useSenseError
                         ?: UseSenseError.networkError(e.message)
@@ -782,10 +736,6 @@ class UseSenseActivity : AppCompatActivity() {
             }
         }
     }
-
-    // ========================================================================
-    // Outcome Screens (Sections 7.12-7.16)
-    // ========================================================================
 
     private fun showOutcomeScreen(result: UseSenseResult) {
         when (result.decision) {
@@ -811,10 +761,6 @@ class UseSenseActivity : AppCompatActivity() {
         }
     }
 
-    // ========================================================================
-    // Screen management
-    // ========================================================================
-
     private val allScreens by lazy {
         listOf(introScreen, permissionScreen, captureScreen, uploadingScreen,
             successScreen, deniedScreen, failureScreen, blockedScreen)
@@ -824,7 +770,6 @@ class UseSenseActivity : AppCompatActivity() {
         allScreens.forEach { it.visibility = View.GONE }
         screen.visibility = View.VISIBLE
 
-        // Reset capture sub-views when leaving capture screen
         if (screen != captureScreen) {
             hideCaptureOverlays()
         }
@@ -857,7 +802,6 @@ class UseSenseActivity : AppCompatActivity() {
     private fun deliverError(error: UseSenseError) {
         pendingCallback?.onError(error)
         if (!isFinishing) {
-            // Route to appropriate error screen
             if (error.code == 429 || error.code == UseSenseError.QUOTA_EXCEEDED) {
                 showScreen(blockedScreen)
             } else {
@@ -891,7 +835,7 @@ class UseSenseActivity : AppCompatActivity() {
         internal var pendingConfig: UseSenseConfig? = null
         internal var pendingRequest: VerificationRequest? = null
 
-        fun launch(
+        fun start(
             context: Context,
             config: UseSenseConfig,
             request: VerificationRequest,
@@ -901,7 +845,9 @@ class UseSenseActivity : AppCompatActivity() {
             pendingRequest = request
             pendingCallback = callback
             val intent = Intent(context, UseSenseActivity::class.java)
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (context !is Activity) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
             context.startActivity(intent)
         }
     }
