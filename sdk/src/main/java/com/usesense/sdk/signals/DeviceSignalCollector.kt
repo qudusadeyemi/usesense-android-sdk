@@ -20,7 +20,7 @@ import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
 
-class DeviceSignalCollector(private val context: Context) {
+class DeviceSignalCollector(private val context: Context, cloudProjectNumber: Long) {
 
     private var sensorManager: SensorManager? = null
     private val accelerometerData = mutableListOf<JSONObject>()
@@ -29,7 +29,7 @@ class DeviceSignalCollector(private val context: Context) {
     private var accelListener: SensorEventListener? = null
     private var gyroListener: SensorEventListener? = null
 
-    private val playIntegrityManager = PlayIntegrityManager(context)
+    private val playIntegrityManager = PlayIntegrityManager(context, cloudProjectNumber)
     private var playIntegrityToken: String? = null
 
     fun startSensorCollection() {
