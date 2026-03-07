@@ -34,6 +34,7 @@ internal class UseSenseSession(
     private var audioCaptureManager: AudioCaptureManager? = null
     private var challengePresenter: ChallengePresenter? = null
     private var audioData: ByteArray? = null
+    private var integrityJob: Job? = null
     private var captureStartTime: Date? = null
     private var captureEndTime: Date? = null
 
@@ -70,11 +71,13 @@ internal class UseSenseSession(
         result.onSuccess { response ->
             sessionResponse = response
             stateMachine.transition(SessionState.CREATED)
-            // Request Play Integrity token bound to session nonce
-            try {
-                signalCollector.requestPlayIntegrityToken(response.nonce)
-            } catch (_: Exception) {
-                // Play Integrity is best-effort; don't block verification
+            // Request Play Integrity token concurrently — don't block session setup
+            integrityJob = CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    signalCollector.requestPlayIntegrityToken(response.nonce)
+                } catch (_: Exception) {
+                    // Play Integrity is best-effort; don't block verification
+                }
             }
         }
         result.onFailure { e ->
@@ -134,6 +137,9 @@ internal class UseSenseSession(
 
     suspend fun uploadSignals(): Result<UploadSignalsResponse> {
         stateMachine.transition(SessionState.UPLOADING)
+
+        // Ensure Play Integrity token is ready before collecting signals
+        integrityJob?.join()
 
         val sid = sessionId ?: return Result.failure(
             ApiException(UseSenseError.invalidConfig("No session ID"))
@@ -209,6 +215,7 @@ internal class UseSenseSession(
     }
 
     fun release() {
+        integrityJob?.cancel()
         frameCaptureManager?.release()
         audioCaptureManager?.release()
         signalCollector.release()
