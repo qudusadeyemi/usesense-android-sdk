@@ -58,6 +58,10 @@ internal class UseSenseSession(
         stateMachine.setCapturePhase(phase)
     }
 
+    fun setCaptureInfo(cameraFacing: String, cameraResolution: String) {
+        signalCollector.setCaptureInfo(cameraFacing, cameraResolution)
+    }
+
     suspend fun createSession(): Result<CreateSessionResponse> {
         val createRequest = CreateSessionRequest(
             sessionType = request.sessionType.value,
@@ -148,8 +152,7 @@ internal class UseSenseSession(
             ?: return Result.failure(ApiException(UseSenseError.captureFailed("No frames captured")))
 
         val challengeResponse = challengePresenter?.responseBuilder?.build()
-        val webIntegrity = signalCollector.collectSignals()
-        val androidIntegrity = signalCollector.collectAndroidIntegrity()
+        val channelIntegrity = signalCollector.collectSignals()
         val deviceTelemetry = signalCollector.collectDeviceTelemetry()
 
         val timestamps = buffer.timestamps
@@ -159,8 +162,7 @@ internal class UseSenseSession(
 
         val metadataJson = metadataBuilder.build(
             challengeResponse = challengeResponse,
-            webIntegrity = webIntegrity,
-            androidIntegrity = androidIntegrity,
+            channelIntegrity = channelIntegrity,
             deviceTelemetry = deviceTelemetry,
             captureStartTime = captureStartTime ?: Date(),
             captureEndTime = captureEndTime ?: Date(),

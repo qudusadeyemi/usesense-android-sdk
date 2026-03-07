@@ -404,7 +404,14 @@ class UseSenseActivity : AppCompatActivity() {
 
             try {
                 cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalysis)
+                val camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalysis)
+
+                // Report actual camera info for channel integrity scoring
+                val resolutionInfo = imageAnalysis.resolutionInfo
+                val resolution = if (resolutionInfo != null) {
+                    "${resolutionInfo.resolution.width}x${resolutionInfo.resolution.height}"
+                } else "640x480"
+                session.setCaptureInfo("front", resolution)
 
                 val requiresStepup = session.policy?.requiresStepup == true
 
