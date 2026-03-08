@@ -70,11 +70,30 @@ class FrameCaptureManager(
 
     private fun imageProxyToJpeg(imageProxy: ImageProxy): ByteArray? {
         return try {
-            val bitmap = imageProxy.toBitmap()
-            // CRITICAL: Do NOT mirror. The preview is mirrored for the user,
-            // but captured frames must be raw/non-mirrored for server analysis.
-            FrameEncoder.bitmapToJpeg(bitmap).also {
-                bitmap.recycle()
+            val rawBitmap = imageProxy.toBitmap()
+            val rotationDegrees = imageProxy.imageInfo.rotationDegrees
+
+            // Apply sensor orientation correction BEFORE JPEG encoding.
+            // The raw pixel buffer is in the sensor's native orientation (landscape).
+            // rotationDegrees indicates how many degrees clockwise to rotate the buffer
+            // to match portrait orientation (typically 270 for front cameras).
+            // CRITICAL: Do NOT mirror. Rotation and mirroring are independent —
+            // frames must be rotation-corrected but raw/non-mirrored for server analysis.
+            val correctedBitmap = if (rotationDegrees != 0) {
+                val matrix = Matrix().apply { postRotate(rotationDegrees.toFloat()) }
+                Bitmap.createBitmap(
+                    rawBitmap, 0, 0,
+                    rawBitmap.width, rawBitmap.height,
+                    matrix, true
+                ).also {
+                    if (it !== rawBitmap) rawBitmap.recycle()
+                }
+            } else {
+                rawBitmap
+            }
+
+            FrameEncoder.bitmapToJpeg(correctedBitmap).also {
+                correctedBitmap.recycle()
             }
         } catch (e: Exception) {
             null
