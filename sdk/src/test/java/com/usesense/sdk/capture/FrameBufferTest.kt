@@ -1,5 +1,10 @@
 package com.usesense.sdk.capture
 
+import android.os.SystemClock
+import io.mockk.every
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
+import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -7,10 +12,19 @@ import org.junit.Test
 class FrameBufferTest {
 
     private lateinit var buffer: FrameBuffer
+    private var mockTime = 0L
 
     @Before
     fun setup() {
+        mockkStatic(SystemClock::class)
+        mockTime = 1000L
+        every { SystemClock.elapsedRealtime() } answers { mockTime }
         buffer = FrameBuffer(maxFrames = 5)
+    }
+
+    @After
+    fun teardown() {
+        unmockkStatic(SystemClock::class)
     }
 
     @Test
@@ -68,7 +82,7 @@ class FrameBufferTest {
     fun `timestamps are recorded`() {
         buffer.startCapture()
         buffer.addFrame(byteArrayOf(1))
-        Thread.sleep(50)
+        mockTime = 1050L
         buffer.addFrame(byteArrayOf(2))
 
         val timestamps = buffer.timestamps
