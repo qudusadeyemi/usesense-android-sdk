@@ -1,21 +1,9 @@
 plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.android")
-    `maven-publish`
 }
 
-afterEvaluate {
-    publishing {
-        publications {
-            create<MavenPublication>("release") {
-                from(components["release"])
-                groupId = "com.usesense"
-                artifactId = "sdk"
-                version = "0.1.0"
-            }
-        }
-    }
-}
+apply(from = "${rootDir}/publish.gradle.kts")
 
 android {
     namespace = "com.usesense.sdk"
@@ -25,6 +13,10 @@ android {
         minSdk = 26
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
+
+        aarMetadata {
+            minCompileSdk = 26
+        }
     }
 
     buildTypes {

@@ -1,12 +1,53 @@
-*.iml
-.gradle
-/local.properties
-/.idea
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
-local.properties
+# Built application files
+*.apk
+*.ap_
+*.aab
+
+# Files for the ART/Dalvik VM
+*.dex
+
+# Java class files
+*.class
+
+# Generated files
+bin/
+gen/
+out/
+
+# Gradle files
+.gradle/
+build/
 sdk/build/
 demo/build/
+example/build/
+example/app/build/
+
+# Local configuration file (sdk path, etc)
+local.properties
+
+# IntelliJ / Android Studio
+*.iml
+.idea/
+.DS_Store
+
+# External tools
+.externalNativeBuild
+.cxx
+
+# Captures
+/captures
+
+# Signing
+signing/
+*.keystore
+*.jks
+
+# Credentials
+*.env
+credentials.json
+
+# AAR files (published artifacts)
+*.aar
+
+# Keep example libs if used for manual install demo
+!example/app/libs/*.aar

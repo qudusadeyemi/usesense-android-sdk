@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 rootProject.name = "usesense-android"
 include(":sdk")
 include(":demo")
+include(":example")
