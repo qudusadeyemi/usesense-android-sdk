@@ -16,6 +16,12 @@
             android:exported="false"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.UseSense" />
+
+        <activity
+            android:name=".ui.HostedPageActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.UseSense" />
     </application>
 
 </manifest>

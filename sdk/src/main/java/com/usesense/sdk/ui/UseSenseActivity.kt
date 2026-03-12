@@ -130,7 +130,8 @@ class UseSenseActivity : AppCompatActivity() {
             onPermissionsGranted()
         } else {
             eventEmitter.emit(EventType.PERMISSIONS_DENIED, mapOf("camera" to false))
-            deliverError(UseSenseError.cameraPermissionDenied())
+            // Section 13.3: Camera errors show retry UI, NOT onError
+            showCameraError(getString(R.string.usesense_camera_denied_message))
         }
     }
 
@@ -295,6 +296,25 @@ class UseSenseActivity : AppCompatActivity() {
         showInstructions()
     }
 
+    /**
+     * Section 13.3: Camera errors show retry UI, NOT onError.
+     * Sets phase to CAMERA_ERROR and shows permission screen with retry button.
+     */
+    private fun showCameraError(message: String) {
+        session.setCapturePhase(CapturePhase.CAMERA_ERROR)
+        permissionIcon.setImageResource(R.drawable.usesense_icon_camera)
+        permissionTitle.text = getString(R.string.usesense_camera_error_title)
+        permissionMessage.text = message
+        permissionButton.text = getString(R.string.usesense_retry)
+
+        showScreen(permissionScreen)
+
+        permissionButton.setOnClickListener {
+            session.setCapturePhase(CapturePhase.CAMERA_REQUEST)
+            checkAndRequestPermissions()
+        }
+    }
+
     private fun showInstructions() {
         // Show capture screen first (camera will start behind the modal)
         showScreen(captureScreen)
@@ -427,7 +447,8 @@ class UseSenseActivity : AppCompatActivity() {
                     startBaselinePhase()
                 }
             } catch (e: Exception) {
-                deliverError(UseSenseError.cameraUnavailable())
+                // Section 13.3: Camera errors show retry UI, NOT onError
+                showCameraError(getString(R.string.usesense_camera_unavailable_message))
             }
         }, ContextCompat.getMainExecutor(this))
     }
@@ -479,28 +500,46 @@ class UseSenseActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Section 13.1: Global Safety Net (CRITICAL).
+     * The entire post-camera capture pipeline is wrapped in try-catch.
+     */
     private fun startBaselinePhase() {
-        session.setCapturePhase(CapturePhase.BASELINE)
-        challengeOverlay.visibility = View.VISIBLE
+        try {
+            session.setCapturePhase(CapturePhase.BASELINE)
+            challengeOverlay.visibility = View.VISIBLE
 
-        captureTitle.text = getString(R.string.usesense_hold_still)
-        captureSubtitle.text = getString(R.string.usesense_keep_still)
+            captureTitle.text = getString(R.string.usesense_hold_still)
+            captureSubtitle.text = getString(R.string.usesense_keep_still)
 
-        val requiresStepup = session.policy?.requiresStepup == true
-        if (requiresStepup) {
-            baselineOvalView.visibility = View.VISIBLE
-            showPhaseBadge("BASELINE")
-        }
-
-        handler.postDelayed({
-            baselineOvalView.visibility = View.GONE
-
+            val requiresStepup = session.policy?.requiresStepup == true
             if (requiresStepup) {
-                startCountdownPhase()
-            } else {
-                startChallengePhase()
+                baselineOvalView.visibility = View.VISIBLE
+                showPhaseBadge("BASELINE")
             }
-        }, BASELINE_MS)
+
+            handler.postDelayed({
+                try {
+                    baselineOvalView.visibility = View.GONE
+
+                    if (requiresStepup) {
+                        startCountdownPhase()
+                    } else {
+                        startChallengePhase()
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e(TAG, "Unhandled error in capture flow", e)
+                    deliverError(UseSenseError.captureFailed(
+                        "Unexpected error: ${e.message ?: "Unknown failure during capture"}"
+                    ))
+                }
+            }, BASELINE_MS)
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Unhandled error in baseline phase", e)
+            deliverError(UseSenseError.captureFailed(
+                "Unexpected error: ${e.message ?: "Unknown failure during capture"}"
+            ))
+        }
     }
 
     private fun startCountdownPhase() {
@@ -701,43 +740,63 @@ class UseSenseActivity : AppCompatActivity() {
         phaseBadge.visibility = View.VISIBLE
     }
 
+    /**
+     * Section 13.1 + 13.2: Global safety net wraps the upload + complete pipeline.
+     * Even if complete fails, we STILL show a result screen (never leave user stuck).
+     */
     private fun onCaptureComplete() {
-        session.setCapturePhase(CapturePhase.DONE)
-        session.stopCapture()
-        eventEmitter.emit(EventType.CAPTURE_COMPLETED)
-        eventEmitter.emit(EventType.CHALLENGE_COMPLETED)
+        try {
+            session.setCapturePhase(CapturePhase.DONE)
+            session.stopCapture()
+            eventEmitter.emit(EventType.CAPTURE_COMPLETED)
+            eventEmitter.emit(EventType.CHALLENGE_COMPLETED)
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Error stopping capture", e)
+        }
 
         mainScope.launch {
-            showScreen(uploadingScreen)
-            eventEmitter.emit(EventType.UPLOAD_STARTED)
+            try {
+                // Upload phase
+                session.setCapturePhase(CapturePhase.UPLOADING)
+                showScreen(uploadingScreen)
+                eventEmitter.emit(EventType.UPLOAD_STARTED)
 
-            val uploadResult = session.uploadSignals()
-            uploadResult.onFailure { e ->
-                eventEmitter.emit(EventType.ERROR, mapOf("phase" to "upload", "error" to (e.message ?: "")))
-                deliverError(
-                    (e as? com.usesense.sdk.api.ApiException)?.useSenseError
-                        ?: UseSenseError.uploadFailed()
-                )
-                return@launch
-            }
-            eventEmitter.emit(EventType.UPLOAD_COMPLETED)
+                val uploadResult = session.uploadSignals()
+                uploadResult.onFailure { e ->
+                    eventEmitter.emit(EventType.ERROR, mapOf("phase" to "upload", "error" to (e.message ?: "")))
+                    deliverError(
+                        (e as? com.usesense.sdk.api.ApiException)?.useSenseError
+                            ?: UseSenseError.uploadFailed()
+                    )
+                    return@launch
+                }
+                eventEmitter.emit(EventType.UPLOAD_COMPLETED)
 
-            eventEmitter.emit(EventType.COMPLETE_STARTED)
-            val verdictResult = session.complete()
-            verdictResult.onSuccess { result ->
-                eventEmitter.emit(EventType.DECISION_RECEIVED, mapOf(
-                    "decision" to result.decision,
-                    "session_id" to result.sessionId,
+                // Complete phase
+                session.setCapturePhase(CapturePhase.COMPLETING)
+                eventEmitter.emit(EventType.COMPLETE_STARTED)
+                val verdictResult = session.complete()
+                verdictResult.onSuccess { result ->
+                    eventEmitter.emit(EventType.DECISION_RECEIVED, mapOf(
+                        "decision" to result.decision,
+                        "session_id" to result.sessionId,
+                    ))
+                    showOutcomeScreen(result)
+                    deliverSuccess(result)
+                }
+                verdictResult.onFailure { e ->
+                    eventEmitter.emit(EventType.ERROR, mapOf("phase" to "complete", "error" to (e.message ?: "")))
+                    deliverError(
+                        (e as? com.usesense.sdk.api.ApiException)?.useSenseError
+                            ?: UseSenseError.networkError(e.message)
+                    )
+                }
+            } catch (e: Exception) {
+                // Section 13.2: Safety net - STILL show result, never leave user stuck
+                android.util.Log.e(TAG, "Unhandled error in upload/complete pipeline", e)
+                deliverError(UseSenseError.captureFailed(
+                    "Unexpected error: ${e.message ?: "Unknown failure"}"
                 ))
-                showOutcomeScreen(result)
-                deliverSuccess(result)
-            }
-            verdictResult.onFailure { e ->
-                eventEmitter.emit(EventType.ERROR, mapOf("phase" to "complete", "error" to (e.message ?: "")))
-                deliverError(
-                    (e as? com.usesense.sdk.api.ApiException)?.useSenseError
-                        ?: UseSenseError.networkError(e.message)
-                )
             }
         }
     }
@@ -833,6 +892,7 @@ class UseSenseActivity : AppCompatActivity() {
     }
 
     companion object {
+        private const val TAG = "UseSenseCaptureEngine"
         private const val BASELINE_MS = 2000L
         private const val COUNTDOWN_MS = 3000L
 

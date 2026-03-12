@@ -1,0 +1,488 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Hosted Page Activity layout (Sections 10-12) -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@android:color/white"
+    android:fitsSystemWindows="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <!-- Section 11.1: Header Component -->
+        <LinearLayout
+            android:id="@+id/headerBar"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:gravity="center"
+            android:paddingHorizontal="16dp"
+            android:background="@android:color/white"
+            android:elevation="1dp">
+
+            <ImageView
+                android:id="@+id/headerLogo"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:adjustViewBounds="true"
+                android:scaleType="fitCenter"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/headerText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                android:textColor="@color/usesense_primary"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#E2E8F0" />
+
+        <!-- Content area -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <!-- ============= LOADING SCREEN (Section 11.3) ============= -->
+            <LinearLayout
+                android:id="@+id/hostedLoadingScreen"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:visibility="visible">
+
+                <ProgressBar
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:indeterminateTint="@color/usesense_primary" />
+
+                <TextView
+                    android:id="@+id/hostedLoadingText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:textSize="16sp"
+                    android:textColor="#475569" />
+            </LinearLayout>
+
+            <!-- ============= ERROR SCREEN (Section 11.4) ============= -->
+            <LinearLayout
+                android:id="@+id/hostedErrorScreen"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:padding="24dp"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/usesense_error_container_bg"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="24dp">
+
+                    <ImageView
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:src="@drawable/usesense_icon_error"
+                        android:tint="#DC2626" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:text="@string/usesense_session_not_available"
+                        android:textSize="20sp"
+                        android:textStyle="bold"
+                        android:textColor="#7F1D1D" />
+
+                    <TextView
+                        android:id="@+id/hostedErrorMessage"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:textSize="14sp"
+                        android:textColor="#B91C1C"
+                        android:textAlignment="center" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ============= INTRODUCTION SCREEN (Section 11.5) ============= -->
+            <ScrollView
+                android:id="@+id/hostedIntroScreen"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:fillViewport="true"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="24dp"
+                    android:gravity="center_horizontal">
+
+                    <TextView
+                        android:id="@+id/introHeadline"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textSize="18sp"
+                        android:textColor="#0F172A"
+                        android:textAlignment="center"
+                        android:layout_marginTop="16dp" />
+
+                    <TextView
+                        android:id="@+id/introDescription"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textSize="14sp"
+                        android:textColor="#475569"
+                        android:textAlignment="center"
+                        android:layout_marginTop="8dp" />
+
+                    <!-- Camera hero icon circle -->
+                    <FrameLayout
+                        android:id="@+id/introIconCircle"
+                        android:layout_width="96dp"
+                        android:layout_height="96dp"
+                        android:layout_marginTop="24dp">
+
+                        <ImageView
+                            android:layout_width="48dp"
+                            android:layout_height="48dp"
+                            android:layout_gravity="center"
+                            android:src="@drawable/usesense_icon_camera"
+                            android:tint="@color/usesense_primary" />
+                    </FrameLayout>
+
+                    <!-- What to expect -->
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="What to expect:"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:textColor="#0F172A"
+                        android:layout_marginTop="24dp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/usesense_intro_step_1"
+                        android:textSize="14sp"
+                        android:textColor="#475569"
+                        android:drawablePadding="8dp"
+                        android:layout_marginTop="8dp"
+                        android:paddingStart="16dp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/usesense_intro_step_2"
+                        android:textSize="14sp"
+                        android:textColor="#475569"
+                        android:drawablePadding="8dp"
+                        android:layout_marginTop="4dp"
+                        android:paddingStart="16dp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/usesense_intro_step_3"
+                        android:textSize="14sp"
+                        android:textColor="#475569"
+                        android:drawablePadding="8dp"
+                        android:layout_marginTop="4dp"
+                        android:paddingStart="16dp" />
+
+                    <!-- Security notice -->
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/usesense_intro_security"
+                        android:textSize="12sp"
+                        android:textColor="#475569"
+                        android:layout_marginTop="16dp"
+                        android:textAlignment="center" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/introGetStartedButton"
+                        style="@style/UseSense.Button.Primary"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="24dp"
+                        android:text="@string/usesense_get_started" />
+                </LinearLayout>
+            </ScrollView>
+
+            <!-- ============= ACTION REVIEW SCREEN (Section 11.6/11.7) ============= -->
+            <ScrollView
+                android:id="@+id/hostedActionReviewScreen"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:fillViewport="true"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="24dp"
+                    android:gravity="center_horizontal">
+
+                    <TextView
+                        android:id="@+id/actionReviewHeadline"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textSize="18sp"
+                        android:textColor="#0F172A"
+                        android:textAlignment="center"
+                        android:layout_marginTop="16dp" />
+
+                    <TextView
+                        android:id="@+id/actionReviewDescription"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textSize="14sp"
+                        android:textColor="#475569"
+                        android:textAlignment="center"
+                        android:layout_marginTop="8dp" />
+
+                    <!-- Action context card (for action authorization) -->
+                    <LinearLayout
+                        android:id="@+id/actionContextCard"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="16dp"
+                        android:layout_marginTop="16dp"
+                        android:visibility="gone">
+
+                        <TextView
+                            android:id="@+id/actionContextText"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:textSize="16sp"
+                            android:textColor="#0F172A"
+                            android:textStyle="bold"
+                            android:textAlignment="center" />
+                    </LinearLayout>
+
+                    <!-- Risk tier badge -->
+                    <TextView
+                        android:id="@+id/riskTierBadge"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:paddingHorizontal="12dp"
+                        android:paddingVertical="4dp"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:visibility="gone" />
+
+                    <!-- CheckCircle icon for plain auth -->
+                    <FrameLayout
+                        android:id="@+id/actionReviewIconCircle"
+                        android:layout_width="96dp"
+                        android:layout_height="96dp"
+                        android:layout_marginTop="16dp"
+                        android:visibility="gone">
+
+                        <ImageView
+                            android:layout_width="48dp"
+                            android:layout_height="48dp"
+                            android:layout_gravity="center"
+                            android:src="@drawable/usesense_icon_success"
+                            android:tint="@color/usesense_primary" />
+                    </FrameLayout>
+
+                    <!-- Security notice -->
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/usesense_intro_security"
+                        android:textSize="12sp"
+                        android:textColor="#475569"
+                        android:layout_marginTop="16dp"
+                        android:textAlignment="center" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/actionReviewVerifyButton"
+                        style="@style/UseSense.Button.Primary"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="24dp" />
+
+                    <!-- Dispute button (action auth only) -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/actionReviewDisputeButton"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="@string/usesense_not_my_request"
+                        android:textColor="#DC2626"
+                        android:textAllCaps="false"
+                        app:strokeColor="#DC2626"
+                        app:cornerRadius="12dp"
+                        android:visibility="gone" />
+                </LinearLayout>
+            </ScrollView>
+
+            <!-- ============= CAPTURE SCREEN (Section 11.8) ============= -->
+            <!-- Reuses the existing UseSenseActivity's capture engine via UseSenseFragment -->
+            <FrameLayout
+                android:id="@+id/hostedCaptureContainer"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@android:color/black"
+                android:visibility="gone" />
+
+            <!-- ============= FINALIZING SCREEN (Section 11.9) ============= -->
+            <LinearLayout
+                android:id="@+id/hostedFinalizingScreen"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <ProgressBar
+                    android:layout_width="64dp"
+                    android:layout_height="64dp"
+                    android:indeterminateTint="@color/usesense_primary" />
+
+                <TextView
+                    android:id="@+id/finalizingTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    android:textColor="#0F172A" />
+
+                <TextView
+                    android:id="@+id/finalizingSubtitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/usesense_finalizing_body"
+                    android:textSize="14sp"
+                    android:textColor="#475569" />
+            </LinearLayout>
+
+            <!-- ============= RESULT SCREEN (Section 12) ============= -->
+            <ScrollView
+                android:id="@+id/hostedResultScreen"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:fillViewport="true"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="24dp"
+                    android:gravity="center_horizontal">
+
+                    <!-- Result icon (80dp circle with colored background) -->
+                    <FrameLayout
+                        android:id="@+id/resultIconCircle"
+                        android:layout_width="80dp"
+                        android:layout_height="80dp"
+                        android:layout_marginTop="32dp">
+
+                        <ImageView
+                            android:id="@+id/resultIcon"
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:layout_gravity="center" />
+                    </FrameLayout>
+
+                    <TextView
+                        android:id="@+id/resultTitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="24dp"
+                        android:textSize="20sp"
+                        android:textStyle="bold"
+                        android:textColor="#0F172A"
+                        android:textAlignment="center" />
+
+                    <TextView
+                        android:id="@+id/resultBody"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:textSize="14sp"
+                        android:textColor="#475569"
+                        android:textAlignment="center" />
+
+                    <!-- Action confirmation box (for action auth success) -->
+                    <LinearLayout
+                        android:id="@+id/resultActionBox"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="12dp"
+                        android:layout_marginTop="16dp"
+                        android:background="@drawable/usesense_card_bg"
+                        android:visibility="gone">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/usesense_result_authorised"
+                            android:textSize="12sp"
+                            android:textColor="#475569" />
+
+                        <TextView
+                            android:id="@+id/resultActionText"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:textSize="14sp"
+                            android:textStyle="bold"
+                            android:textColor="#0F172A" />
+                    </LinearLayout>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/resultButton"
+                        style="@style/UseSense.Button.Secondary"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="24dp" />
+                </LinearLayout>
+            </ScrollView>
+        </FrameLayout>
+
+        <!-- Section 11.2: Footer Component -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#F1F5F9" />
+
+        <TextView
+            android:id="@+id/footerText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:paddingVertical="12dp"
+            android:text="@string/usesense_powered_by"
+            android:textSize="12sp"
+            android:textColor="#64748B" />
+    </LinearLayout>
+</FrameLayout>

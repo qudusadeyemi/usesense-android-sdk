@@ -12,7 +12,9 @@ import com.usesense.sdk.internal.CapturePhase
 import com.usesense.sdk.internal.MultipartUploader
 import com.usesense.sdk.internal.SessionState
 import com.usesense.sdk.internal.SessionStateMachine
+import com.usesense.sdk.signals.CaptureConfigInfo
 import com.usesense.sdk.signals.DeviceSignalCollector
+import com.usesense.sdk.signals.FrameManifestEntry
 import com.usesense.sdk.signals.MetadataBuilder
 import kotlinx.coroutines.*
 import java.text.SimpleDateFormat
@@ -155,20 +157,42 @@ internal class UseSenseSession(
         val channelIntegrity = signalCollector.collectSignals()
         val deviceTelemetry = signalCollector.collectDeviceTelemetry()
 
-        val timestamps = buffer.timestamps
-        val avgInterval = if (timestamps.size > 1) {
-            (timestamps.last() - timestamps.first()) / (timestamps.size - 1)
+        val frameTimestamps = buffer.timestamps
+        val avgInterval = if (frameTimestamps.size > 1) {
+            (frameTimestamps.last() - frameTimestamps.first()) / (frameTimestamps.size - 1)
         } else 0L
 
+        val upload = uploadConfig
+        val captureConfigInfo = CaptureConfigInfo(
+            captureDurationMs = upload?.captureDurationMs ?: 6000,
+            targetFps = upload?.targetFps ?: 5,
+            maxFrames = upload?.maxFrames ?: 30,
+        )
+
+        // Build frames manifest (Section 7.1)
+        val framesManifest = buffer.getFrames().map { frame ->
+            FrameManifestEntry(
+                frameIndex = frame.index,
+                captureTimestampMs = (captureStartTime?.time ?: 0L) + frame.timestampMs,
+                resolutionW = 640,
+                resolutionH = 480,
+            )
+        }
+
         val metadataJson = metadataBuilder.build(
+            sessionId = sid,
+            source = "direct",
             challengeResponse = challengeResponse,
             channelIntegrity = channelIntegrity,
             deviceTelemetry = deviceTelemetry,
             captureStartTime = captureStartTime ?: Date(),
             captureEndTime = captureEndTime ?: Date(),
+            captureConfig = captureConfigInfo,
+            framesManifest = framesManifest,
             framesCaptured = buffer.frameCount,
             framesDropped = 0,
             avgFrameIntervalMs = avgInterval,
+            frameTimestamps = frameTimestamps,
         )
 
         return uploader.upload(
