@@ -11,16 +11,24 @@ enum class SessionState {
 }
 
 /**
- * Sub-phases within the CAPTURING state (v1.17.5+).
- * FACE_GUIDE and COUNTDOWN are new phases added for challenge sessions.
+ * Capture engine phases matching the Web SDK state machine (Section 4).
+ * The full phase flow is:
+ *   INITIALIZING -> CAMERA_REQUEST -> [CAMERA_ERROR -> CAMERA_REQUEST] ->
+ *   INSTRUCTIONS -> FACE_GUIDE -> BASELINE -> COUNTDOWN -> CHALLENGE ->
+ *   UPLOADING -> COMPLETING -> DONE
  */
 enum class CapturePhase {
-    INSTRUCTIONS,
-    FACE_GUIDE,
-    BASELINE,
-    COUNTDOWN,
-    CHALLENGE,
-    DONE;
+    INITIALIZING,     // SDK setup
+    CAMERA_REQUEST,   // Requesting camera permission
+    CAMERA_ERROR,     // Camera denied/unavailable (user can retry)
+    INSTRUCTIONS,     // Pre-challenge instructions (tap "Got it - Start")
+    FACE_GUIDE,       // Oval face positioning guide (tap "I'm Ready")
+    BASELINE,         // 2000ms passive capture, looking straight ahead
+    COUNTDOWN,        // 3-2-1 countdown with continued capture
+    CHALLENGE,        // Active challenge (head_turn / follow_dot / speak_phrase)
+    UPLOADING,        // Uploading frames + metadata to server
+    COMPLETING,       // Server-side evaluation in progress
+    DONE;             // Terminal - onComplete/onError has been called
 }
 
 class SessionStateMachine {

@@ -2,6 +2,7 @@ package com.usesense.sdk
 
 import android.app.Activity
 import android.content.Context
+import com.usesense.sdk.ui.HostedPageActivity
 import com.usesense.sdk.ui.UseSenseActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,6 +42,36 @@ object UseSense {
         }
 
         UseSenseActivity.start(activity, cfg, request, callback)
+    }
+
+    /**
+     * Start a hosted remote enrollment flow (Section 10.1).
+     * Fetches enrollment data from the server, shows introduction screen,
+     * runs capture engine, and displays result.
+     *
+     * @param context Activity or application context
+     * @param remoteEnrollmentId The enrollment ID from the remote enrollment link
+     */
+    fun startRemoteEnrollment(context: Context, remoteEnrollmentId: String) {
+        val cfg = config ?: throw IllegalStateException(
+            "UseSense.initialize() must be called before startRemoteEnrollment()"
+        )
+        HostedPageActivity.startEnrollment(context, cfg, remoteEnrollmentId)
+    }
+
+    /**
+     * Start a hosted remote verification flow (Section 10.2).
+     * Fetches session data from the server, shows action review screen,
+     * runs capture engine, and displays result.
+     *
+     * @param context Activity or application context
+     * @param remoteSessionId The session ID from the remote verification link
+     */
+    fun startRemoteVerification(context: Context, remoteSessionId: String) {
+        val cfg = config ?: throw IllegalStateException(
+            "UseSense.initialize() must be called before startRemoteVerification()"
+        )
+        HostedPageActivity.startVerification(context, cfg, remoteSessionId)
     }
 
     /**

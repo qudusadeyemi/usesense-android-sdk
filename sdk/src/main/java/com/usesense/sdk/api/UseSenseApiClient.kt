@@ -90,7 +90,7 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
             .build()
         builder.url(urlWithEnv)
 
-        builder.addHeader("User-Agent", "UseSense-Android-SDK/1.17.7")
+        builder.addHeader("User-Agent", "UseSense-Android-SDK/1.17.57")
 
         chain.proceed(builder.build())
     }
@@ -205,9 +205,85 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
         return executeCall { service.getSessionStatus(sessionId) }
     }
 
+    // ── Remote Enrollment (Hosted Page) ──
+
+    suspend fun getRemoteEnrollmentData(id: String): Result<RemoteEnrollmentDataWrapper> {
+        return executeCall { service.getRemoteEnrollmentData(id) }
+    }
+
+    suspend fun markEnrollmentOpened(id: String): Result<Unit> {
+        return executeCallAllowEmptyBody { service.markEnrollmentOpened(id) }
+    }
+
+    suspend fun initEnrollmentSession(id: String): Result<HostedInitSessionResponse> {
+        return executeCall { service.initEnrollmentSession(id) }.also { result ->
+            result.getOrNull()?.let {
+                sessionToken = it.sessionToken
+                nonce = it.nonce
+            }
+        }
+    }
+
+    suspend fun completeEnrollment(id: String): Result<HostedCompleteResponse> {
+        return executeCall { service.completeEnrollment(id) }
+    }
+
+    // ── Remote Session / Verification (Hosted Page) ──
+
+    suspend fun getRemoteSessionData(id: String): Result<RemoteSessionDataWrapper> {
+        return executeCall { service.getRemoteSessionData(id) }
+    }
+
+    suspend fun markSessionOpened(id: String): Result<Unit> {
+        return executeCallAllowEmptyBody { service.markSessionOpened(id) }
+    }
+
+    suspend fun initVerificationSession(id: String): Result<HostedInitSessionResponse> {
+        return executeCall { service.initVerificationSession(id) }.also { result ->
+            result.getOrNull()?.let {
+                sessionToken = it.sessionToken
+                nonce = it.nonce
+            }
+        }
+    }
+
+    suspend fun completeRemoteSession(id: String): Result<HostedCompleteResponse> {
+        return executeCall { service.completeRemoteSession(id) }
+    }
+
+    suspend fun disputeSession(id: String): Result<DisputeResponse> {
+        return executeCall { service.disputeSession(id) }
+    }
+
     fun clearSession() {
         sessionToken = null
         nonce = null
+    }
+
+    /**
+     * For endpoints that may return empty body on success (e.g. POST /opened).
+     */
+    @Suppress("UNCHECKED_CAST")
+    private suspend fun <T> executeCallAllowEmptyBody(call: suspend () -> Response<T>): Result<T> {
+        return try {
+            val response = call()
+            if (response.isSuccessful) {
+                Result.success(response.body() ?: Unit as T)
+            } else {
+                val errorBody = response.errorBody()?.string()
+                val parsed = try {
+                    errorBody?.let { moshi.adapter(ErrorResponse::class.java).fromJson(it) }
+                } catch (_: Exception) { null }
+                Result.failure(ApiException(
+                    UseSenseError.fromServerError(response.code(), parsed?.error?.code,
+                        parsed?.error?.message ?: getUserMessage(response.code(), parsed?.error?.code))
+                ))
+            }
+        } catch (e: IOException) {
+            Result.failure(ApiException(UseSenseError.networkError(e.message)))
+        } catch (e: Exception) {
+            Result.failure(ApiException(UseSenseError.networkError(e.message)))
+        }
     }
 
     private suspend fun <T> executeCall(call: suspend () -> Response<T>): Result<T> {

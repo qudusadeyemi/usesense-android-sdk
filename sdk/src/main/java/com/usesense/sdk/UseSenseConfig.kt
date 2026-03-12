@@ -14,11 +14,54 @@ data class UseSenseConfig(
     }
 }
 
+/**
+ * SDK-level branding overrides. Inheritance rule (Section 2):
+ *   SDK-level branding > Organization settings > UseSense defaults
+ *
+ * Null values inherit from server-side org settings.
+ */
 data class BrandingConfig(
-    val logoUrl: String? = null,
-    val primaryColor: String = "#4F63F5",
+    val displayName: String? = null,   // null = inherit from org
+    val logoUrl: String? = null,       // null = inherit from org
+    val primaryColor: String? = null,  // null = inherit from org (#4f46e5 default)
+    val redirectUrl: String? = null,   // null = inherit from org
     val buttonRadius: Int = 12,
     val fontFamily: String? = null,
+) {
+    companion object {
+        const val DEFAULT_PRIMARY_COLOR = "#4f46e5"
+    }
+}
+
+/**
+ * Effective branding after merging SDK overrides with server org settings.
+ */
+data class EffectiveBranding(
+    val displayName: String = "UseSense",
+    val logoUrl: String? = null,
+    val primaryColor: String = BrandingConfig.DEFAULT_PRIMARY_COLOR,
+    val redirectUrl: String? = null,
+) {
+    companion object {
+        fun merge(sdk: BrandingConfig?, server: ServerBranding?): EffectiveBranding {
+            return EffectiveBranding(
+                displayName = sdk?.displayName ?: server?.displayName ?: "UseSense",
+                logoUrl = sdk?.logoUrl ?: server?.logoUrl,
+                primaryColor = sdk?.primaryColor ?: server?.primaryColor ?: BrandingConfig.DEFAULT_PRIMARY_COLOR,
+                redirectUrl = sdk?.redirectUrl ?: server?.redirectUrl,
+            )
+        }
+    }
+}
+
+/**
+ * Branding fields received from the server's org settings.
+ */
+data class ServerBranding(
+    val displayName: String? = null,
+    val logoUrl: String? = null,
+    val primaryColor: String? = null,
+    val redirectUrl: String? = null,
 )
 
 enum class UseSenseEnvironment {

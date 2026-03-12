@@ -54,6 +54,69 @@
     <string name="usesense_blocked">Verification unavailable</string>
     <string name="usesense_blocked_detail">Please try again later or contact support.</string>
 
+    <!-- Section 13.3: Camera Error Recovery -->
+    <string name="usesense_camera_error_title">Camera Access Required</string>
+    <string name="usesense_camera_denied_message">Camera access was denied. Please allow camera access and try again.</string>
+    <string name="usesense_camera_unavailable_message">Could not start the camera. Please try again.</string>
+    <string name="usesense_camera_not_found_message">No camera found on this device.</string>
+
+    <!-- Hosted Page Strings (Section 10-12) -->
+    <string name="usesense_powered_by">Powered by UseSense</string>
+    <string name="usesense_get_started">Get Started</string>
+    <string name="usesense_got_it_start">Got it \u2014 Start</string>
+    <string name="usesense_im_ready">I\'m Ready</string>
+    <string name="usesense_verify_identity">Verify My Identity</string>
+    <string name="usesense_verify_authorise">Verify and Authorise</string>
+    <string name="usesense_not_my_request">This Is Not My Request</string>
+    <string name="usesense_close">Close</string>
+
+    <!-- Introduction Screen (Section 11.5) -->
+    <string name="usesense_intro_title">%s would like to verify your identity.</string>
+    <string name="usesense_intro_body">This is a one-time setup to enable secure remote verification for your account.</string>
+    <string name="usesense_intro_step_1">Allow camera access</string>
+    <string name="usesense_intro_step_2">Follow on-screen instructions</string>
+    <string name="usesense_intro_step_3">Your identity will be verified</string>
+    <string name="usesense_intro_security">End-to-end encrypted</string>
+    <string name="usesense_intro_security_detail">Three-pillar verification</string>
+    <string name="usesense_intro_lighting">Make sure you are in a well-lit area with your face clearly visible.</string>
+
+    <!-- Action Review (Section 11.6/11.7) -->
+    <string name="usesense_action_review_plain">%s has requested you verify your identity.</string>
+    <string name="usesense_action_review_plain_body">Please complete a quick identity check to confirm you are the account holder.</string>
+    <string name="usesense_action_review_action">%s has requested you verify the following action:</string>
+    <string name="usesense_dispute_confirm_title">Report Suspicious Request</string>
+    <string name="usesense_dispute_confirm_message">Are you sure this is not your request? All pending actions will be frozen.</string>
+    <string name="usesense_dispute_success">Your report has been submitted. All pending actions have been frozen.</string>
+
+    <!-- Result Screens (Section 12) -->
+    <string name="usesense_result_success_title">Identity Verified</string>
+    <string name="usesense_result_success_enrollment_title">Enrollment Successful</string>
+    <string name="usesense_result_success_body">Your identity has been confirmed. You may now close this page.</string>
+    <string name="usesense_result_failed_title">Verification Failed</string>
+    <string name="usesense_result_failed_enrollment_title">Enrollment Failed</string>
+    <string name="usesense_result_failed_body">We could not verify your identity. Please contact %s for assistance.</string>
+    <string name="usesense_result_review_title">Pending Review</string>
+    <string name="usesense_result_review_body">Your verification is pending review.</string>
+    <string name="usesense_result_authorised">You have authorised:</string>
+
+    <!-- Finalizing (Section 11.9) -->
+    <string name="usesense_processing_verification">Processing Verification</string>
+    <string name="usesense_processing_enrollment">Finalizing Enrollment</string>
+    <string name="usesense_finalizing_body">Finalizing your identity check\u2026</string>
+
+    <!-- Loading (Section 11.3) -->
+    <string name="usesense_loading_enrollment">Loading enrollment session\u2026</string>
+    <string name="usesense_loading_verification">Loading verification session\u2026</string>
+
+    <!-- Error (Section 11.4) -->
+    <string name="usesense_session_not_available">Session Not Available</string>
+
+    <!-- Risk Tiers (Section 11.7) -->
+    <string name="usesense_risk_critical">CRITICAL RISK</string>
+    <string name="usesense_risk_high">HIGH RISK</string>
+    <string name="usesense_risk_medium">MEDIUM RISK</string>
+    <string name="usesense_risk_low">LOW RISK</string>
+
     <!-- Buttons -->
     <string name="usesense_cancel">Cancel</string>
     <string name="usesense_retry">Try again</string>
