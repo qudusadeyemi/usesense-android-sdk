@@ -1,32 +1,53 @@
 package com.usesense.sdk.ui
 
+import android.Manifest
+import android.animation.AnimatorSet
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.View
+import android.view.animation.OvershootInterpolator
+import android.view.animation.PathInterpolator
 import android.widget.*
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.camera.core.*
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
+import androidx.core.content.ContextCompat
 import com.google.android.material.button.MaterialButton
 import com.usesense.sdk.*
 import com.usesense.sdk.api.UseSenseApiClient
 import com.usesense.sdk.api.models.*
+import com.usesense.sdk.capture.FrameCaptureManager
+import com.usesense.sdk.capture.ImageQualityAnalyzer
+import com.usesense.sdk.challenge.*
+import com.usesense.sdk.internal.CapturePhase
+import com.usesense.sdk.internal.SessionState
 import kotlinx.coroutines.*
+import java.util.concurrent.Executors
 
 /**
- * Hosted Page Activity for remote enrollment and verification flows (Sections 10-12).
+ * Hosted Page Activity — unified UI for all verification flows (Sections 10-12).
  *
- * This Activity handles both:
- *   - Remote Enrollment: /remote-enrollment/{id}/data -> introduction -> capture -> result
- *   - Remote Verification: /remote-session/{id}/data -> action-review -> capture -> result
+ * Handles:
+ *   - Direct SDK flow: intro/review -> permission -> capture -> upload -> result
+ *   - Remote Enrollment: data fetch -> introduction -> permission -> capture -> finalize -> result
+ *   - Remote Verification: data fetch -> action-review -> permission -> capture -> finalize -> result
  *
- * It uses the existing capture engine (via UseSenseActivity) for the camera/challenge phase,
- * and manages the surrounding flow (data fetch, branding, introduction/review, finalizing, result).
+ * The capture engine (camera, challenges, upload) runs inline within this Activity,
+ * keeping the branded header/footer consistent throughout the entire flow.
  */
 class HostedPageActivity : AppCompatActivity() {
 
@@ -42,9 +63,20 @@ class HostedPageActivity : AppCompatActivity() {
     private var actionContext: ActionContext? = null
     private var sessionData: HostedInitSessionResponse? = null
 
-    // Screen views
+    // Capture engine
+    private var session: UseSenseSession? = null
+    private var challengePresenter: ChallengePresenter? = null
+    private var frameCaptureManager: FrameCaptureManager? = null
+    private val qualityAnalyzer = ImageQualityAnalyzer()
+    private var lastQualityAnalysisMs = 0L
+    private val analysisExecutor = Executors.newSingleThreadExecutor()
+    private val handler = Handler(Looper.getMainLooper())
+
+    // Header views
     private lateinit var headerLogo: ImageView
     private lateinit var headerText: TextView
+
+    // Screen views
     private lateinit var loadingScreen: LinearLayout
     private lateinit var loadingText: TextView
     private lateinit var errorScreen: LinearLayout
@@ -63,7 +95,45 @@ class HostedPageActivity : AppCompatActivity() {
     private lateinit var actionReviewIconCircle: FrameLayout
     private lateinit var actionReviewVerifyButton: MaterialButton
     private lateinit var actionReviewDisputeButton: MaterialButton
-    private lateinit var captureContainer: FrameLayout
+
+    // Permission views
+    private lateinit var permissionScreen: LinearLayout
+    private lateinit var permissionIcon: ImageView
+    private lateinit var permissionTitle: TextView
+    private lateinit var permissionMessage: TextView
+    private lateinit var permissionButton: MaterialButton
+
+    // Capture views
+    private lateinit var captureScreen: LinearLayout
+    private lateinit var videoContainer: FrameLayout
+    private lateinit var cameraPreview: PreviewView
+    private lateinit var challengeOverlay: FrameLayout
+    private lateinit var baselineOvalView: View
+    private lateinit var dotView: View
+    private lateinit var directionCircle: FrameLayout
+    private lateinit var directionArrow: TextView
+    private lateinit var phaseBadge: TextView
+    private lateinit var qualityIndicator: QualityIndicatorView
+    private lateinit var faceGuideOverlay: FrameLayout
+    private lateinit var faceGuideReadyButton: MaterialButton
+    private lateinit var countdownOverlay: FrameLayout
+    private lateinit var countdownCircle: FrameLayout
+    private lateinit var countdownNumber: TextView
+    private lateinit var instructionsOverlay: FrameLayout
+    private lateinit var instructionsIcon: TextView
+    private lateinit var instructionsTitle: TextView
+    private lateinit var instructionsBody: TextView
+    private lateinit var instructionsCta: TextView
+    private lateinit var qualityBanner: QualityWarningBanner
+    private lateinit var captureTitle: TextView
+    private lateinit var captureSubtitle: TextView
+    private lateinit var directionText: TextView
+    private lateinit var speakPhraseLayout: LinearLayout
+    private lateinit var phraseText: TextView
+    private lateinit var recordingIndicator: TextView
+    private lateinit var challengeProgress: ProgressBar
+
+    // Finalizing & result views
     private lateinit var finalizingScreen: LinearLayout
     private lateinit var finalizingTitle: TextView
     private lateinit var resultScreen: ScrollView
@@ -77,10 +147,27 @@ class HostedPageActivity : AppCompatActivity() {
     private lateinit var footerText: TextView
 
     private val mainScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val eventEmitter get() = UseSense.eventEmitter
 
     enum class FlowType { ENROLLMENT, VERIFICATION }
 
-    enum class PageStep { LOADING, ERROR, INTRODUCTION, ACTION_REVIEW, CAPTURE, FINALIZING, RESULT }
+    enum class PageStep {
+        LOADING, ERROR, INTRODUCTION, ACTION_REVIEW,
+        PERMISSION, CAPTURE, FINALIZING, RESULT
+    }
+
+    private val permissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val cameraGranted = permissions[Manifest.permission.CAMERA] == true
+        if (cameraGranted) {
+            eventEmitter.emit(EventType.PERMISSIONS_GRANTED, mapOf("camera" to true))
+            onPermissionsGranted()
+        } else {
+            eventEmitter.emit(EventType.PERMISSIONS_DENIED, mapOf("camera" to false))
+            showCameraError(getString(R.string.usesense_camera_denied_message))
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -112,7 +199,6 @@ class HostedPageActivity : AppCompatActivity() {
         applyBranding()
 
         if (isDirectMode) {
-            // Direct SDK flow: skip remote data loading, go straight to intro/review
             when (flowType) {
                 FlowType.ENROLLMENT -> showIntroduction()
                 FlowType.VERIFICATION -> showActionReview()
@@ -143,7 +229,45 @@ class HostedPageActivity : AppCompatActivity() {
         actionReviewIconCircle = findViewById(R.id.actionReviewIconCircle)
         actionReviewVerifyButton = findViewById(R.id.actionReviewVerifyButton)
         actionReviewDisputeButton = findViewById(R.id.actionReviewDisputeButton)
-        captureContainer = findViewById(R.id.hostedCaptureContainer)
+
+        // Permission
+        permissionScreen = findViewById(R.id.hostedPermissionScreen)
+        permissionIcon = findViewById(R.id.hostedPermissionIcon)
+        permissionTitle = findViewById(R.id.hostedPermissionTitle)
+        permissionMessage = findViewById(R.id.hostedPermissionMessage)
+        permissionButton = findViewById(R.id.hostedPermissionButton)
+
+        // Capture
+        captureScreen = findViewById(R.id.hostedCaptureScreen)
+        videoContainer = findViewById(R.id.hostedVideoContainer)
+        cameraPreview = findViewById(R.id.hostedCameraPreview)
+        challengeOverlay = findViewById(R.id.hostedChallengeOverlay)
+        baselineOvalView = findViewById(R.id.hostedBaselineOvalView)
+        dotView = findViewById(R.id.hostedDotView)
+        directionCircle = findViewById(R.id.hostedDirectionCircle)
+        directionArrow = findViewById(R.id.hostedDirectionArrow)
+        phaseBadge = findViewById(R.id.hostedPhaseBadge)
+        qualityIndicator = findViewById(R.id.hostedQualityIndicator)
+        faceGuideOverlay = findViewById(R.id.hostedFaceGuideOverlay)
+        faceGuideReadyButton = findViewById(R.id.hostedFaceGuideReadyButton)
+        countdownOverlay = findViewById(R.id.hostedCountdownOverlay)
+        countdownCircle = findViewById(R.id.hostedCountdownCircle)
+        countdownNumber = findViewById(R.id.hostedCountdownNumber)
+        instructionsOverlay = findViewById(R.id.hostedInstructionsOverlay)
+        instructionsIcon = findViewById(R.id.hostedInstructionsIcon)
+        instructionsTitle = findViewById(R.id.hostedInstructionsTitle)
+        instructionsBody = findViewById(R.id.hostedInstructionsBody)
+        instructionsCta = findViewById(R.id.hostedInstructionsCta)
+        qualityBanner = findViewById(R.id.hostedQualityBanner)
+        captureTitle = findViewById(R.id.hostedCaptureTitle)
+        captureSubtitle = findViewById(R.id.hostedCaptureSubtitle)
+        directionText = findViewById(R.id.hostedDirectionText)
+        speakPhraseLayout = findViewById(R.id.hostedSpeakPhraseLayout)
+        phraseText = findViewById(R.id.hostedPhraseText)
+        recordingIndicator = findViewById(R.id.hostedRecordingIndicator)
+        challengeProgress = findViewById(R.id.hostedChallengeProgress)
+
+        // Finalizing & result
         finalizingScreen = findViewById(R.id.hostedFinalizingScreen)
         finalizingTitle = findViewById(R.id.finalizingTitle)
         resultScreen = findViewById(R.id.hostedResultScreen)
@@ -157,15 +281,14 @@ class HostedPageActivity : AppCompatActivity() {
         footerText = findViewById(R.id.footerText)
     }
 
+    // ─── Branding ────────────────────────────────────────────────────────
+
     private fun applyBranding() {
         val branding = effectiveBranding
 
-        // Header: logo or text
         if (branding.logoUrl != null) {
             headerLogo.visibility = View.VISIBLE
             headerText.visibility = View.GONE
-            // Load logo URL (simple image loading)
-            // For production, use Coil/Glide. Here use basic approach.
             mainScope.launch(Dispatchers.IO) {
                 try {
                     val url = java.net.URL(branding.logoUrl)
@@ -185,13 +308,11 @@ class HostedPageActivity : AppCompatActivity() {
             headerText.text = branding.displayName
         }
 
-        // Apply primary color to header text
         try {
             val primaryColor = Color.parseColor(branding.primaryColor)
             headerText.setTextColor(primaryColor)
         } catch (_: Exception) {}
 
-        // Apply primary color to icon circles at 12% opacity
         try {
             val primaryColor = Color.parseColor(branding.primaryColor)
             val bgColor = Color.argb(31, Color.red(primaryColor), Color.green(primaryColor), Color.blue(primaryColor))
@@ -203,13 +324,14 @@ class HostedPageActivity : AppCompatActivity() {
             actionReviewIconCircle.background = circleDrawable
         } catch (_: Exception) {}
 
-        // Apply primary color to buttons
         try {
             val primaryColor = Color.parseColor(branding.primaryColor)
             introGetStartedButton.setBackgroundColor(primaryColor)
             actionReviewVerifyButton.setBackgroundColor(primaryColor)
         } catch (_: Exception) {}
     }
+
+    // ─── Remote Data Loading ─────────────────────────────────────────────
 
     private suspend fun loadData() {
         setStep(PageStep.LOADING)
@@ -239,10 +361,7 @@ class HostedPageActivity : AppCompatActivity() {
             ServerBranding(it.displayName, it.logoUrl, it.primaryColor, it.redirectUrl)
         })
         applyBranding()
-
-        // Mark opened
         apiClient.markEnrollmentOpened(remoteId)
-
         showIntroduction()
     }
 
@@ -257,12 +376,11 @@ class HostedPageActivity : AppCompatActivity() {
             ServerBranding(it.displayName, it.logoUrl, it.primaryColor, it.redirectUrl)
         })
         applyBranding()
-
-        // Mark opened
         apiClient.markSessionOpened(remoteId)
-
         showActionReview()
     }
+
+    // ─── Introduction & Action Review ────────────────────────────────────
 
     private fun showIntroduction() {
         val orgName = effectiveBranding.displayName
@@ -281,15 +399,11 @@ class HostedPageActivity : AppCompatActivity() {
         val hasAction = actionContext != null
 
         if (hasAction) {
-            // Action authorization (Section 11.7)
             actionReviewHeadline.text = getString(R.string.usesense_action_review_action, orgName)
             actionReviewDescription.visibility = View.GONE
-
-            // Show action context card
             actionContextCard.visibility = View.VISIBLE
             actionContextText.text = actionContext?.displayText ?: ""
 
-            // Apply primary color border to card
             try {
                 val primaryColor = Color.parseColor(effectiveBranding.primaryColor)
                 val cardBg = GradientDrawable().apply {
@@ -301,7 +415,6 @@ class HostedPageActivity : AppCompatActivity() {
                 actionContextCard.background = cardBg
             } catch (_: Exception) {}
 
-            // Risk tier badge
             val riskTier = actionContext?.riskTier
             if (riskTier != null) {
                 riskTierBadge.visibility = View.VISIBLE
@@ -310,12 +423,9 @@ class HostedPageActivity : AppCompatActivity() {
 
             actionReviewIconCircle.visibility = View.GONE
             actionReviewVerifyButton.text = getString(R.string.usesense_verify_authorise)
-
-            // Dispute button
             actionReviewDisputeButton.visibility = View.VISIBLE
             actionReviewDisputeButton.setOnClickListener { showDisputeConfirmation() }
         } else {
-            // Plain auth (Section 11.6)
             actionReviewHeadline.text = getString(R.string.usesense_action_review_plain, orgName)
             actionReviewDescription.text = getString(R.string.usesense_action_review_plain_body)
             actionReviewDescription.visibility = View.VISIBLE
@@ -335,40 +445,21 @@ class HostedPageActivity : AppCompatActivity() {
 
     private fun configureRiskBadge(riskTier: String) {
         val (text, bgColor, textColor) = when (riskTier.lowercase()) {
-            "critical" -> Triple(
-                getString(R.string.usesense_risk_critical),
-                Color.parseColor("#FEE2E2"),
-                Color.parseColor("#991B1B")
-            )
-            "high" -> Triple(
-                getString(R.string.usesense_risk_high),
-                Color.parseColor("#FEF3C7"),
-                Color.parseColor("#92400E")
-            )
-            "medium" -> Triple(
-                getString(R.string.usesense_risk_medium),
-                Color.parseColor("#DBEAFE"),
-                Color.parseColor("#1E40AF")
-            )
-            "low" -> Triple(
-                getString(R.string.usesense_risk_low),
-                Color.parseColor("#DCFCE7"),
-                Color.parseColor("#166534")
-            )
+            "critical" -> Triple(getString(R.string.usesense_risk_critical), Color.parseColor("#FEE2E2"), Color.parseColor("#991B1B"))
+            "high" -> Triple(getString(R.string.usesense_risk_high), Color.parseColor("#FEF3C7"), Color.parseColor("#92400E"))
+            "medium" -> Triple(getString(R.string.usesense_risk_medium), Color.parseColor("#DBEAFE"), Color.parseColor("#1E40AF"))
+            "low" -> Triple(getString(R.string.usesense_risk_low), Color.parseColor("#DCFCE7"), Color.parseColor("#166534"))
             else -> Triple(riskTier.uppercase(), Color.parseColor("#F1F5F9"), Color.parseColor("#475569"))
         }
-
         riskTierBadge.text = text
         riskTierBadge.setTextColor(textColor)
-        val bg = GradientDrawable().apply {
+        riskTierBadge.background = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = 6f * resources.displayMetrics.density
             setColor(bgColor)
         }
-        riskTierBadge.background = bg
     }
 
-    // Section 10.3: Dispute Flow
     private fun showDisputeConfirmation() {
         AlertDialog.Builder(this)
             .setTitle(getString(R.string.usesense_dispute_confirm_title))
@@ -391,6 +482,8 @@ class HostedPageActivity : AppCompatActivity() {
             .show()
     }
 
+    // ─── Capture Engine ──────────────────────────────────────────────────
+
     private suspend fun initAndStartCapture() {
         setStep(PageStep.LOADING)
         loadingText.text = getString(R.string.usesense_getting_ready)
@@ -399,20 +492,17 @@ class HostedPageActivity : AppCompatActivity() {
             val config = pendingConfig ?: run { showError("SDK not configured"); return }
 
             val request = if (isDirectMode) {
-                // Direct mode: use the request passed from the caller
                 pendingRequest ?: run { showError("No verification request"); return }
             } else {
-                // Remote mode: init session via API, then build request
+                // Remote mode: init session via API
                 val initResult = when (flowType) {
                     FlowType.ENROLLMENT -> apiClient.initEnrollmentSession(remoteId)
                     FlowType.VERIFICATION -> apiClient.initVerificationSession(remoteId)
                 }
-
                 initResult.onFailure {
                     showError(it.message ?: "Failed to initialize session")
                     return
                 }
-
                 sessionData = initResult.getOrNull()
                 sessionData ?: run { showError("Empty session response"); return }
 
@@ -421,81 +511,541 @@ class HostedPageActivity : AppCompatActivity() {
                 )
             }
 
-            // Store capture result handler
-            pendingHostedCallback = object : UseSenseCallback {
-                override fun onSuccess(result: UseSenseResult) {
-                    mainScope.launch { handleCaptureComplete(result) }
-                }
-                override fun onError(error: UseSenseError) {
-                    mainScope.launch { handleCaptureComplete(null, error) }
-                }
-                override fun onCancelled() {
-                    if (isDirectMode) {
-                        pendingDirectCallback?.onCancelled()
-                    }
-                    finish()
-                }
+            // Create session
+            val sess = UseSenseSession(this, config, request)
+            session = sess
+            sess.onStateChanged = { state -> onSessionStateChanged(state) }
+
+            val createResult = sess.createSession()
+            createResult.onFailure { e ->
+                eventEmitter.emit(EventType.ERROR, mapOf("error" to (e.message ?: "")))
+                val error = (e as? com.usesense.sdk.api.ApiException)?.useSenseError
+                    ?: UseSenseError.networkError(e.message)
+                deliverError(error)
+                return
             }
 
-            UseSenseActivity.start(this, config, request, pendingHostedCallback!!)
+            eventEmitter.emit(EventType.SESSION_CREATED, mapOf("session_id" to (sess.sessionId ?: "")))
+            eventEmitter.emit(EventType.PERMISSIONS_REQUESTED)
+            checkAndRequestPermissions()
         } catch (e: Exception) {
             showError("Unexpected error: ${e.message}")
         }
     }
 
-    /**
-     * Section 13.2: handleCaptureComplete Safety Net.
-     * Wraps /complete call in try-catch. ALWAYS shows a result screen.
-     */
-    private suspend fun handleCaptureComplete(result: UseSenseResult?, error: UseSenseError? = null) {
-        if (isDirectMode) {
-            // Direct mode: the capture engine already handled upload + /complete.
-            // Show result screen and deliver callback.
-            if (result != null) {
-                showResult(result.decision, result)
-                pendingDirectCallback?.onSuccess(result)
-            } else if (error != null) {
-                pendingDirectCallback?.onError(error)
-                showResult(UseSenseResult.DECISION_REJECT, null)
-            } else {
-                val fallbackError = UseSenseError.captureFailed("Verification failed")
-                pendingDirectCallback?.onError(fallbackError)
-                showResult(UseSenseResult.DECISION_REJECT, null)
+    // ─── Permissions ─────────────────────────────────────────────────────
+
+    private fun checkAndRequestPermissions() {
+        val sess = session ?: return
+        val permsNeeded = mutableListOf(Manifest.permission.CAMERA)
+        if (sess.requiresAudio) {
+            permsNeeded.add(Manifest.permission.RECORD_AUDIO)
+        }
+
+        val notGranted = permsNeeded.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+
+        if (notGranted.isEmpty()) {
+            eventEmitter.emit(EventType.PERMISSIONS_GRANTED, mapOf("camera" to true))
+            onPermissionsGranted()
+        } else {
+            showPermissionScreen(notGranted)
+        }
+    }
+
+    private fun showPermissionScreen(permissions: List<String>) {
+        val needsMic = permissions.contains(Manifest.permission.RECORD_AUDIO)
+        if (needsMic) {
+            permissionIcon.setImageResource(R.drawable.usesense_icon_microphone)
+            permissionTitle.text = getString(R.string.usesense_mic_permission_title)
+            permissionMessage.text = getString(R.string.usesense_mic_permission_message)
+        } else {
+            permissionIcon.setImageResource(R.drawable.usesense_icon_camera)
+            permissionTitle.text = getString(R.string.usesense_camera_permission_title)
+            permissionMessage.text = getString(R.string.usesense_camera_permission_message)
+        }
+
+        setStep(PageStep.PERMISSION)
+        permissionButton.setOnClickListener {
+            permissionLauncher.launch(permissions.toTypedArray())
+        }
+    }
+
+    private fun showCameraError(message: String) {
+        session?.setCapturePhase(CapturePhase.CAMERA_ERROR)
+        permissionIcon.setImageResource(R.drawable.usesense_icon_camera)
+        permissionTitle.text = getString(R.string.usesense_camera_error_title)
+        permissionMessage.text = message
+        permissionButton.text = getString(R.string.usesense_retry)
+
+        setStep(PageStep.PERMISSION)
+        permissionButton.setOnClickListener {
+            session?.setCapturePhase(CapturePhase.CAMERA_REQUEST)
+            checkAndRequestPermissions()
+        }
+    }
+
+    private fun onPermissionsGranted() {
+        showInstructions()
+    }
+
+    // ─── Instructions ────────────────────────────────────────────────────
+
+    private fun showInstructions() {
+        setStep(PageStep.CAPTURE)
+
+        val challengeType = session?.challengeSpec?.type
+
+        instructionsIcon.text = when (challengeType) {
+            ChallengeSpec.TYPE_FOLLOW_DOT -> "\uD83D\uDC41"
+            ChallengeSpec.TYPE_HEAD_TURN -> "\u21C4"
+            ChallengeSpec.TYPE_SPEAK_PHRASE -> "\uD83C\uDFA4"
+            else -> "\uD83D\uDC64"
+        }
+        instructionsTitle.text = when (challengeType) {
+            ChallengeSpec.TYPE_FOLLOW_DOT -> getString(R.string.usesense_instructions_title_follow_dot)
+            ChallengeSpec.TYPE_HEAD_TURN -> getString(R.string.usesense_instructions_title_head_turn)
+            ChallengeSpec.TYPE_SPEAK_PHRASE -> getString(R.string.usesense_instructions_title_speak_phrase)
+            else -> getString(R.string.usesense_verifying)
+        }
+        instructionsBody.text = when (challengeType) {
+            ChallengeSpec.TYPE_FOLLOW_DOT -> getString(R.string.usesense_instruction_follow_dot)
+            ChallengeSpec.TYPE_HEAD_TURN -> getString(R.string.usesense_instruction_head_turn)
+            ChallengeSpec.TYPE_SPEAK_PHRASE -> getString(R.string.usesense_instruction_speak_phrase)
+            else -> getString(R.string.usesense_instruction_default)
+        }
+
+        instructionsOverlay.visibility = View.VISIBLE
+        captureTitle.text = getString(R.string.usesense_getting_ready)
+        captureSubtitle.text = ""
+
+        instructionsCta.setOnClickListener {
+            instructionsOverlay.visibility = View.GONE
+            startCameraAndCapture()
+        }
+    }
+
+    // ─── Camera ──────────────────────────────────────────────────────────
+
+    private fun startCameraAndCapture() {
+        val sess = session ?: return
+        frameCaptureManager = sess.initCapture()
+        challengePresenter = sess.createChallengePresenter()
+
+        captureTitle.text = getString(R.string.usesense_position_face)
+        captureSubtitle.text = getString(R.string.usesense_center_face)
+
+        startCamera()
+    }
+
+    private fun startCamera() {
+        val sess = session ?: return
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
+        cameraProviderFuture.addListener({
+            val cameraProvider = cameraProviderFuture.get()
+
+            val preview = Preview.Builder()
+                .build()
+                .also { it.setSurfaceProvider(cameraPreview.surfaceProvider) }
+
+            cameraPreview.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+
+            val imageAnalysis = ImageAnalysis.Builder()
+                .setTargetResolution(android.util.Size(640, 480))
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .build()
+                .also { analysis ->
+                    analysis.setAnalyzer(analysisExecutor) { imageProxy ->
+                        frameCaptureManager?.createAnalyzer()?.analyze(imageProxy)
+
+                        val now = System.currentTimeMillis()
+                        val phase = sess.capturePhase
+                        val shouldAnalyze = phase in setOf(
+                            CapturePhase.FACE_GUIDE, CapturePhase.BASELINE,
+                            CapturePhase.COUNTDOWN, CapturePhase.CHALLENGE
+                        )
+
+                        if (shouldAnalyze && now - lastQualityAnalysisMs >= ImageQualityAnalyzer.ANALYSIS_INTERVAL_MS) {
+                            lastQualityAnalysisMs = now
+                            try {
+                                @OptIn(androidx.camera.core.ExperimentalGetImage::class)
+                                val mediaImage = imageProxy.image
+                                if (mediaImage != null) {
+                                    val report = qualityAnalyzer.analyze(mediaImage)
+                                    runOnUiThread { updateQualityUI(report) }
+                                    eventEmitter.emit(EventType.IMAGE_QUALITY_CHECK, mapOf(
+                                        "score" to report.overallScore,
+                                        "acceptable" to report.isAcceptable,
+                                        "blur" to report.blurLevel.name,
+                                        "lighting" to report.lightingLevel.name,
+                                    ))
+                                }
+                            } catch (_: Exception) {}
+                        }
+
+                        imageProxy.close()
+                    }
+                }
+
+            val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
+
+            try {
+                cameraProvider.unbindAll()
+                cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalysis)
+
+                val resolutionInfo = imageAnalysis.resolutionInfo
+                val resolution = if (resolutionInfo != null) {
+                    "${resolutionInfo.resolution.width}x${resolutionInfo.resolution.height}"
+                } else "640x480"
+                sess.setCaptureInfo("front", resolution)
+
+                val requiresStepup = sess.policy?.requiresStepup == true
+
+                if (requiresStepup) {
+                    showFaceGuide()
+                } else {
+                    sess.startCapture()
+                    eventEmitter.emit(EventType.CAPTURE_STARTED)
+                    if (sess.requiresAudio) {
+                        sess.startAudioRecording()
+                        eventEmitter.emit(EventType.AUDIO_RECORD_STARTED)
+                    }
+                    startBaselinePhase()
+                }
+            } catch (e: Exception) {
+                showCameraError(getString(R.string.usesense_camera_unavailable_message))
             }
+        }, ContextCompat.getMainExecutor(this))
+    }
+
+    private fun updateQualityUI(report: ImageQualityAnalyzer.ImageQualityReport) {
+        qualityIndicator.updateQuality(report)
+        qualityBanner.updateQuality(report)
+        qualityIndicator.visibility = View.VISIBLE
+        qualityBanner.visibility = if (report.isAcceptable) View.GONE else View.VISIBLE
+
+        val bg = videoContainer.background
+        if (bg is GradientDrawable) {
+            val dp = resources.displayMetrics.density
+            val strokeWidth = (3 * dp).toInt()
+            val borderColor = when {
+                report.overallScore >= 65 -> Color.TRANSPARENT
+                report.overallScore >= 40 -> Color.parseColor("#80A78BFA")
+                else -> Color.parseColor("#997C3AED")
+            }
+            bg.setStroke(if (borderColor == Color.TRANSPARENT) 0 else strokeWidth, borderColor)
+        }
+    }
+
+    // ─── Capture Phases ──────────────────────────────────────────────────
+
+    private fun showFaceGuide() {
+        val sess = session ?: return
+        sess.setCapturePhase(CapturePhase.FACE_GUIDE)
+        faceGuideOverlay.visibility = View.VISIBLE
+
+        captureTitle.text = getString(R.string.usesense_position_face)
+        captureSubtitle.text = getString(R.string.usesense_center_face)
+
+        faceGuideReadyButton.setOnClickListener {
+            faceGuideOverlay.visibility = View.GONE
+            sess.startCapture()
+            eventEmitter.emit(EventType.CAPTURE_STARTED)
+            if (sess.requiresAudio) {
+                sess.startAudioRecording()
+                eventEmitter.emit(EventType.AUDIO_RECORD_STARTED)
+            }
+            startBaselinePhase()
+        }
+    }
+
+    private fun startBaselinePhase() {
+        val sess = session ?: return
+        try {
+            sess.setCapturePhase(CapturePhase.BASELINE)
+            challengeOverlay.visibility = View.VISIBLE
+
+            captureTitle.text = getString(R.string.usesense_hold_still)
+            captureSubtitle.text = getString(R.string.usesense_keep_still)
+
+            val requiresStepup = sess.policy?.requiresStepup == true
+            if (requiresStepup) {
+                baselineOvalView.visibility = View.VISIBLE
+                showPhaseBadge("BASELINE")
+            }
+
+            handler.postDelayed({
+                try {
+                    baselineOvalView.visibility = View.GONE
+                    if (requiresStepup) {
+                        startCountdownPhase()
+                    } else {
+                        startChallengePhase()
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in capture flow", e)
+                    deliverError(UseSenseError.captureFailed("Unexpected error: ${e.message}"))
+                }
+            }, BASELINE_MS)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in baseline phase", e)
+            deliverError(UseSenseError.captureFailed("Unexpected error: ${e.message}"))
+        }
+    }
+
+    private fun startCountdownPhase() {
+        val sess = session ?: return
+        sess.setCapturePhase(CapturePhase.COUNTDOWN)
+        countdownOverlay.visibility = View.VISIBLE
+        phaseBadge.visibility = View.GONE
+
+        captureTitle.text = getString(R.string.usesense_countdown_label)
+        captureSubtitle.text = ""
+
+        showCountdownNumber(3)
+        handler.postDelayed({ showCountdownNumber(2) }, 1000)
+        handler.postDelayed({ showCountdownNumber(1) }, 2000)
+
+        handler.postDelayed({
+            countdownOverlay.visibility = View.GONE
+            startChallengePhase()
+        }, COUNTDOWN_MS)
+    }
+
+    private fun showCountdownNumber(number: Int) {
+        countdownNumber.text = number.toString()
+        countdownCircle.scaleX = 0.3f
+        countdownCircle.scaleY = 0.3f
+        countdownCircle.alpha = 0f
+
+        AnimatorSet().apply {
+            playTogether(
+                ObjectAnimator.ofFloat(countdownCircle, "scaleX", 0.3f, 1.15f).apply {
+                    duration = 360; interpolator = OvershootInterpolator(1.5f)
+                },
+                ObjectAnimator.ofFloat(countdownCircle, "scaleY", 0.3f, 1.15f).apply {
+                    duration = 360; interpolator = OvershootInterpolator(1.5f)
+                },
+                ObjectAnimator.ofFloat(countdownCircle, "alpha", 0f, 1f).apply { duration = 360 },
+                ObjectAnimator.ofFloat(countdownCircle, "scaleX", 1.15f, 1.0f).apply {
+                    duration = 540; startDelay = 360
+                },
+                ObjectAnimator.ofFloat(countdownCircle, "scaleY", 1.15f, 1.0f).apply {
+                    duration = 540; startDelay = 360
+                },
+            )
+            start()
+        }
+    }
+
+    private fun startChallengePhase() {
+        val sess = session ?: return
+        sess.setCapturePhase(CapturePhase.CHALLENGE)
+        eventEmitter.emit(EventType.CHALLENGE_STARTED, mapOf("type" to (sess.challengeSpec?.type ?: "")))
+
+        val presenter = challengePresenter
+        if (presenter == null) {
+            val remaining = (sess.uploadConfig?.captureDurationMs ?: 4500) - BASELINE_MS
+            handler.postDelayed({ onCaptureComplete() }, remaining.coerceAtLeast(1000))
             return
         }
 
-        // Remote mode: call hosted /complete endpoint
-        setStep(PageStep.FINALIZING)
-        finalizingTitle.text = if (flowType == FlowType.ENROLLMENT) {
-            getString(R.string.usesense_processing_enrollment)
-        } else {
-            getString(R.string.usesense_processing_verification)
-        }
+        showPhaseBadge("CHALLENGE")
+        presenter.onChallengeComplete = { onCaptureComplete() }
 
-        try {
-            val completeResult = when (flowType) {
-                FlowType.ENROLLMENT -> apiClient.completeEnrollment(remoteId)
-                FlowType.VERIFICATION -> apiClient.completeRemoteSession(remoteId)
+        when (presenter) {
+            is FollowDotChallenge -> {
+                dotView.visibility = View.VISIBLE
+                captureTitle.text = getString(R.string.usesense_follow_dot)
+                captureSubtitle.text = ""
+                presenter.onDotPositionChanged = { x, y, animate -> moveDot(x, y, animate) }
             }
-
-            completeResult.onSuccess { response ->
-                val decision = result?.decision ?: response.decision ?: "REJECT"
-                showResult(decision, result)
+            is HeadTurnChallenge -> {
+                directionText.visibility = View.VISIBLE
+                captureTitle.text = ""
+                presenter.onDirectionChanged = { dir, _ -> showDirection(dir) }
             }
-            completeResult.onFailure { e ->
-                Log.e(TAG, "Complete error", e)
-                if (result?.decision == UseSenseResult.DECISION_APPROVE) {
-                    showResult(UseSenseResult.DECISION_APPROVE, result)
-                } else {
-                    showResult(UseSenseResult.DECISION_REJECT, result)
+            is SpeakPhraseChallenge -> {
+                speakPhraseLayout.visibility = View.VISIBLE
+                captureTitle.text = ""
+                presenter.onPhraseDisplay = { phrase, isRecording ->
+                    phraseText.text = "\"$phrase\""
+                    recordingIndicator.visibility = if (isRecording) View.VISIBLE else View.GONE
                 }
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "handleCaptureComplete error", e)
-            showResult(result?.decision ?: UseSenseResult.DECISION_REJECT, result)
+        }
+
+        val totalDuration = presenter.spec.totalDurationMs
+        challengeProgress.visibility = View.VISIBLE
+        challengeProgress.max = 1000
+        ValueAnimator.ofInt(0, 1000).apply {
+            duration = totalDuration.toLong()
+            addUpdateListener { challengeProgress.progress = it.animatedValue as Int }
+            start()
+        }
+
+        presenter.start()
+    }
+
+    private fun moveDot(normalizedX: Float, normalizedY: Float, animate: Boolean) {
+        val parentWidth = challengeOverlay.width.toFloat()
+        val parentHeight = challengeOverlay.height.toFloat()
+        val dotSize = dotView.width.toFloat()
+
+        val targetX = normalizedX * parentWidth - dotSize / 2
+        val targetY = normalizedY * parentHeight - dotSize / 2
+
+        if (animate) {
+            dotView.animate()
+                .x(targetX).y(targetY)
+                .setDuration(400)
+                .setInterpolator(PathInterpolator(0.4f, 0f, 0.2f, 1f))
+                .start()
+        } else {
+            dotView.x = targetX
+            dotView.y = targetY
         }
     }
+
+    private fun showDirection(direction: String) {
+        directionText.text = when (direction) {
+            "left" -> getString(R.string.usesense_turn_left)
+            "right" -> getString(R.string.usesense_turn_right)
+            "up" -> getString(R.string.usesense_turn_up)
+            "down" -> getString(R.string.usesense_turn_down)
+            "center" -> getString(R.string.usesense_turn_center)
+            else -> direction
+        }
+
+        directionArrow.text = when (direction) {
+            "left" -> "\u2190"; "right" -> "\u2192"
+            "up" -> "\u2191"; "down" -> "\u2193"
+            "center" -> "\u25CB"; else -> ""
+        }
+
+        val isCenter = direction == "center"
+        val startColor = if (isCenter) Color.parseColor("#6366F1") else Color.parseColor("#4F46E5")
+        val endColor = if (isCenter) Color.parseColor("#8B5CF6") else Color.parseColor("#6366F1")
+        directionCircle.background = GradientDrawable(
+            GradientDrawable.Orientation.TL_BR, intArrayOf(startColor, endColor)
+        ).apply { shape = GradientDrawable.OVAL }
+        directionCircle.visibility = View.VISIBLE
+
+        // Enter animation
+        directionCircle.scaleX = 0.5f; directionCircle.scaleY = 0.5f; directionCircle.alpha = 0f
+        AnimatorSet().apply {
+            playTogether(
+                ObjectAnimator.ofFloat(directionCircle, "scaleX", 0.5f, 1.1f).apply {
+                    duration = 210; interpolator = OvershootInterpolator(1.5f)
+                },
+                ObjectAnimator.ofFloat(directionCircle, "scaleY", 0.5f, 1.1f).apply {
+                    duration = 210; interpolator = OvershootInterpolator(1.5f)
+                },
+                ObjectAnimator.ofFloat(directionCircle, "alpha", 0f, 1f).apply { duration = 210 },
+                ObjectAnimator.ofFloat(directionCircle, "scaleX", 1.1f, 1.0f).apply {
+                    duration = 140; startDelay = 210
+                },
+                ObjectAnimator.ofFloat(directionCircle, "scaleY", 1.1f, 1.0f).apply {
+                    duration = 140; startDelay = 210
+                },
+            )
+            start()
+        }
+    }
+
+    private fun showPhaseBadge(label: String) {
+        phaseBadge.text = label
+        phaseBadge.visibility = View.VISIBLE
+    }
+
+    // ─── Capture Complete → Upload → Result ──────────────────────────────
+
+    private fun onCaptureComplete() {
+        val sess = session ?: return
+        try {
+            sess.setCapturePhase(CapturePhase.DONE)
+            sess.stopCapture()
+            eventEmitter.emit(EventType.CAPTURE_COMPLETED)
+            eventEmitter.emit(EventType.CHALLENGE_COMPLETED)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error stopping capture", e)
+        }
+
+        mainScope.launch {
+            try {
+                // Show finalizing screen
+                setStep(PageStep.FINALIZING)
+                finalizingTitle.text = if (flowType == FlowType.ENROLLMENT) {
+                    getString(R.string.usesense_processing_enrollment)
+                } else {
+                    getString(R.string.usesense_processing_verification)
+                }
+
+                sess.setCapturePhase(CapturePhase.UPLOADING)
+                eventEmitter.emit(EventType.UPLOAD_STARTED)
+
+                val uploadResult = sess.uploadSignals()
+                uploadResult.onFailure { e ->
+                    eventEmitter.emit(EventType.ERROR, mapOf("phase" to "upload", "error" to (e.message ?: "")))
+                    deliverError(
+                        (e as? com.usesense.sdk.api.ApiException)?.useSenseError
+                            ?: UseSenseError.uploadFailed()
+                    )
+                    return@launch
+                }
+                eventEmitter.emit(EventType.UPLOAD_COMPLETED)
+
+                sess.setCapturePhase(CapturePhase.COMPLETING)
+                eventEmitter.emit(EventType.COMPLETE_STARTED)
+                val verdictResult = sess.complete()
+                verdictResult.onSuccess { result ->
+                    eventEmitter.emit(EventType.DECISION_RECEIVED, mapOf(
+                        "decision" to result.decision,
+                        "session_id" to result.sessionId,
+                    ))
+
+                    // For remote mode, also call the hosted complete endpoint
+                    if (!isDirectMode) {
+                        try {
+                            when (flowType) {
+                                FlowType.ENROLLMENT -> apiClient.completeEnrollment(remoteId)
+                                FlowType.VERIFICATION -> apiClient.completeRemoteSession(remoteId)
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Hosted complete error (non-fatal)", e)
+                        }
+                    }
+
+                    showResult(result.decision, result)
+                    pendingDirectCallback?.onSuccess(result)
+                }
+                verdictResult.onFailure { e ->
+                    eventEmitter.emit(EventType.ERROR, mapOf("phase" to "complete", "error" to (e.message ?: "")))
+                    val error = (e as? com.usesense.sdk.api.ApiException)?.useSenseError
+                        ?: UseSenseError.networkError(e.message)
+                    deliverError(error)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Unhandled error in upload/complete pipeline", e)
+                deliverError(UseSenseError.captureFailed("Unexpected error: ${e.message}"))
+            }
+        }
+    }
+
+    private fun deliverError(error: UseSenseError) {
+        pendingDirectCallback?.onError(error)
+        if (!isFinishing) {
+            showResult(UseSenseResult.DECISION_REJECT, null)
+        }
+    }
+
+    @Suppress("UNUSED_PARAMETER")
+    private fun onSessionStateChanged(state: SessionState) {
+        // Logged via event emitter
+    }
+
+    // ─── Result Screen ───────────────────────────────────────────────────
 
     private fun showResult(decision: String, result: UseSenseResult?) {
         val isEnrollment = flowType == FlowType.ENROLLMENT
@@ -503,48 +1053,37 @@ class HostedPageActivity : AppCompatActivity() {
 
         when (decision) {
             UseSenseResult.DECISION_APPROVE -> {
-                // Success (Section 12.1)
                 resultIcon.setImageResource(R.drawable.usesense_icon_success)
                 resultIcon.setColorFilter(Color.parseColor("#16A34A"))
-                val circleBg = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL
-                    setColor(Color.parseColor("#DCFCE7"))
+                resultIconCircle.background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL; setColor(Color.parseColor("#DCFCE7"))
                 }
-                resultIconCircle.background = circleBg
                 resultTitle.text = if (isEnrollment) {
                     getString(R.string.usesense_result_success_enrollment_title)
                 } else {
                     getString(R.string.usesense_result_success_title)
                 }
                 resultBody.text = getString(R.string.usesense_result_success_body)
-
-                // Show action confirmation for action auth
                 if (actionContext != null) {
                     resultActionBox.visibility = View.VISIBLE
                     resultActionText.text = actionContext?.displayText
                 }
             }
             UseSenseResult.DECISION_MANUAL_REVIEW -> {
-                // Manual review (Section 12.3)
                 resultIcon.setImageResource(R.drawable.usesense_icon_review)
                 resultIcon.setColorFilter(Color.parseColor("#D97706"))
-                val circleBg = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL
-                    setColor(Color.parseColor("#FEF3C7"))
+                resultIconCircle.background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL; setColor(Color.parseColor("#FEF3C7"))
                 }
-                resultIconCircle.background = circleBg
                 resultTitle.text = getString(R.string.usesense_result_review_title)
                 resultBody.text = getString(R.string.usesense_result_review_body)
             }
             else -> {
-                // Failed (Section 12.2)
                 resultIcon.setImageResource(R.drawable.usesense_icon_denied)
                 resultIcon.setColorFilter(Color.parseColor("#DC2626"))
-                val circleBg = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL
-                    setColor(Color.parseColor("#FEE2E2"))
+                resultIconCircle.background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL; setColor(Color.parseColor("#FEE2E2"))
                 }
-                resultIconCircle.background = circleBg
                 resultTitle.text = if (isEnrollment) {
                     getString(R.string.usesense_result_failed_enrollment_title)
                 } else {
@@ -554,14 +1093,11 @@ class HostedPageActivity : AppCompatActivity() {
             }
         }
 
-        // Close/Continue button logic (Section 12)
         val redirectUrl = effectiveBranding.redirectUrl
         if (redirectUrl != null) {
             resultButton.text = getString(R.string.usesense_continue)
             resultButton.setOnClickListener {
-                try {
-                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(redirectUrl)))
-                } catch (_: Exception) {}
+                try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(redirectUrl))) } catch (_: Exception) {}
                 finish()
             }
         } else {
@@ -577,9 +1113,11 @@ class HostedPageActivity : AppCompatActivity() {
         setStep(PageStep.ERROR)
     }
 
+    // ─── Screen Management ───────────────────────────────────────────────
+
     private val allScreens by lazy {
         listOf(loadingScreen, errorScreen, introScreen, actionReviewScreen,
-            captureContainer, finalizingScreen, resultScreen)
+            permissionScreen, captureScreen, finalizingScreen, resultScreen)
     }
 
     private fun setStep(step: PageStep) {
@@ -589,19 +1127,43 @@ class HostedPageActivity : AppCompatActivity() {
             PageStep.ERROR -> errorScreen.visibility = View.VISIBLE
             PageStep.INTRODUCTION -> introScreen.visibility = View.VISIBLE
             PageStep.ACTION_REVIEW -> actionReviewScreen.visibility = View.VISIBLE
-            PageStep.CAPTURE -> captureContainer.visibility = View.VISIBLE
+            PageStep.PERMISSION -> permissionScreen.visibility = View.VISIBLE
+            PageStep.CAPTURE -> captureScreen.visibility = View.VISIBLE
             PageStep.FINALIZING -> finalizingScreen.visibility = View.VISIBLE
             PageStep.RESULT -> resultScreen.visibility = View.VISIBLE
         }
+
+        // Reset capture overlays when leaving capture
+        if (step != PageStep.CAPTURE) {
+            hideCaptureOverlays()
+        }
+    }
+
+    private fun hideCaptureOverlays() {
+        challengeOverlay.visibility = View.GONE
+        faceGuideOverlay.visibility = View.GONE
+        countdownOverlay.visibility = View.GONE
+        instructionsOverlay.visibility = View.GONE
+        dotView.visibility = View.GONE
+        directionText.visibility = View.GONE
+        directionCircle.visibility = View.GONE
+        speakPhraseLayout.visibility = View.GONE
+        baselineOvalView.visibility = View.GONE
+        phaseBadge.visibility = View.GONE
+        challengeProgress.visibility = View.GONE
+        qualityIndicator.visibility = View.GONE
+        qualityBanner.visibility = View.GONE
     }
 
     override fun onDestroy() {
         super.onDestroy()
         mainScope.cancel()
+        handler.removeCallbacksAndMessages(null)
+        analysisExecutor.shutdown()
+        session?.release()
         pendingConfig = null
         pendingRequest = null
         pendingDirectCallback = null
-        pendingHostedCallback = null
     }
 
     companion object {
@@ -609,16 +1171,15 @@ class HostedPageActivity : AppCompatActivity() {
         private const val EXTRA_FLOW_TYPE = "flow_type"
         private const val EXTRA_REMOTE_ID = "remote_id"
         private const val EXTRA_DIRECT_MODE = "direct_mode"
+        private const val BASELINE_MS = 2000L
+        private const val COUNTDOWN_MS = 3000L
 
         internal var pendingConfig: UseSenseConfig? = null
         internal var pendingRequest: VerificationRequest? = null
         internal var pendingDirectCallback: UseSenseCallback? = null
-        internal var pendingHostedCallback: UseSenseCallback? = null
 
         /**
          * Launch the hosted page UI for a direct SDK verification/enrollment flow.
-         * This provides the same UI experience as the hosted page flows (intro screen,
-         * branding, result screen) but driven by the app's VerificationRequest.
          */
         fun startDirect(
             context: Context,

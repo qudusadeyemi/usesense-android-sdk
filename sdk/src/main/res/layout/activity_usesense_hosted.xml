@@ -341,14 +341,380 @@
                 </LinearLayout>
             </ScrollView>
 
-            <!-- ============= CAPTURE SCREEN (Section 11.8) ============= -->
-            <!-- Reuses the existing UseSenseActivity's capture engine via UseSenseFragment -->
-            <FrameLayout
-                android:id="@+id/hostedCaptureContainer"
+            <!-- ============= PERMISSION SCREEN ============= -->
+            <LinearLayout
+                android:id="@+id/hostedPermissionScreen"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:background="@android:color/black"
-                android:visibility="gone" />
+                android:gravity="center"
+                android:orientation="vertical"
+                android:padding="24dp"
+                android:visibility="gone">
+
+                <ImageView
+                    android:id="@+id/hostedPermissionIcon"
+                    android:layout_width="64dp"
+                    android:layout_height="64dp"
+                    android:src="@drawable/usesense_icon_camera"
+                    android:tint="@color/usesense_primary" />
+
+                <TextView
+                    android:id="@+id/hostedPermissionTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    android:textColor="#0F172A"
+                    android:textAlignment="center"
+                    android:text="@string/usesense_camera_permission_title" />
+
+                <TextView
+                    android:id="@+id/hostedPermissionMessage"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:textSize="14sp"
+                    android:textColor="#475569"
+                    android:textAlignment="center"
+                    android:text="@string/usesense_camera_permission_message" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/hostedPermissionButton"
+                    style="@style/UseSense.Button.Primary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:text="@string/usesense_continue" />
+            </LinearLayout>
+
+            <!-- ============= CAPTURE SCREEN (Section 11.8) ============= -->
+            <LinearLayout
+                android:id="@+id/hostedCaptureScreen"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="vertical"
+                android:gravity="center_horizontal"
+                android:padding="16dp"
+                android:visibility="gone">
+
+                <!-- Video Container -->
+                <FrameLayout
+                    android:id="@+id/hostedVideoContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/usesense_video_container_bg"
+                    android:clipChildren="true"
+                    android:clipToPadding="true">
+
+                    <androidx.camera.view.PreviewView
+                        android:id="@+id/hostedCameraPreview"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        app:scaleType="fillCenter"
+                        app:implementationMode="compatible" />
+
+                    <!-- Challenge Overlay -->
+                    <FrameLayout
+                        android:id="@+id/hostedChallengeOverlay"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:visibility="gone">
+
+                        <com.usesense.sdk.ui.BaselineOvalView
+                            android:id="@+id/hostedBaselineOvalView"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:visibility="gone" />
+
+                        <View
+                            android:id="@+id/hostedDotView"
+                            android:layout_width="24dp"
+                            android:layout_height="24dp"
+                            android:background="@drawable/usesense_dot"
+                            android:elevation="8dp"
+                            android:visibility="gone" />
+
+                        <FrameLayout
+                            android:id="@+id/hostedDirectionCircle"
+                            android:layout_width="96dp"
+                            android:layout_height="96dp"
+                            android:layout_gravity="center"
+                            android:elevation="12dp"
+                            android:visibility="gone">
+
+                            <TextView
+                                android:id="@+id/hostedDirectionArrow"
+                                android:layout_width="match_parent"
+                                android:layout_height="match_parent"
+                                android:gravity="center"
+                                android:textSize="48sp"
+                                android:textColor="@android:color/white"
+                                android:textStyle="bold" />
+                        </FrameLayout>
+
+                        <TextView
+                            android:id="@+id/hostedPhaseBadge"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="top|start"
+                            android:layout_marginStart="12dp"
+                            android:layout_marginTop="12dp"
+                            android:paddingHorizontal="12dp"
+                            android:paddingVertical="4dp"
+                            android:background="@drawable/usesense_badge_bg"
+                            style="@style/UseSense.Text.Badge"
+                            android:visibility="gone" />
+
+                        <com.usesense.sdk.ui.QualityIndicatorView
+                            android:id="@+id/hostedQualityIndicator"
+                            android:layout_width="match_parent"
+                            android:layout_height="36dp"
+                            android:layout_gravity="top"
+                            android:visibility="gone" />
+                    </FrameLayout>
+
+                    <!-- Face Guide Overlay -->
+                    <FrameLayout
+                        android:id="@+id/hostedFaceGuideOverlay"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:visibility="gone">
+
+                        <com.usesense.sdk.ui.FaceGuideOvalView
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="center_horizontal|top"
+                            android:layout_marginTop="16dp"
+                            android:paddingHorizontal="16dp"
+                            android:paddingVertical="8dp"
+                            android:background="@drawable/usesense_pill_bg"
+                            android:text="@string/usesense_face_guide_label"
+                            android:textColor="@android:color/white"
+                            android:textSize="14sp"
+                            android:fontFamily="sans-serif-medium" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/hostedFaceGuideReadyButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="center_horizontal|bottom"
+                            android:layout_marginBottom="24dp"
+                            android:paddingHorizontal="32dp"
+                            android:paddingVertical="12dp"
+                            android:text="@string/usesense_face_guide_ready"
+                            android:textAllCaps="false"
+                            android:textSize="16sp"
+                            android:textStyle="bold"
+                            app:cornerRadius="16dp"
+                            app:backgroundTint="@color/usesense_primary_dark"
+                            android:elevation="8dp" />
+                    </FrameLayout>
+
+                    <!-- Countdown Overlay -->
+                    <FrameLayout
+                        android:id="@+id/hostedCountdownOverlay"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:background="@color/usesense_countdown_overlay"
+                        android:visibility="gone">
+
+                        <LinearLayout
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="center"
+                            android:gravity="center"
+                            android:orientation="vertical">
+
+                            <FrameLayout
+                                android:id="@+id/hostedCountdownCircle"
+                                android:layout_width="112dp"
+                                android:layout_height="112dp"
+                                android:background="@drawable/usesense_countdown_circle"
+                                android:elevation="12dp">
+
+                                <TextView
+                                    android:id="@+id/hostedCountdownNumber"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_gravity="center"
+                                    style="@style/UseSense.Text.Countdown" />
+                            </FrameLayout>
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="12dp"
+                                android:paddingHorizontal="16dp"
+                                android:paddingVertical="6dp"
+                                android:background="@drawable/usesense_pill_bg"
+                                android:text="@string/usesense_countdown_label"
+                                android:textColor="@android:color/white"
+                                android:textSize="14sp"
+                                android:fontFamily="sans-serif-medium"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+                    </FrameLayout>
+
+                    <!-- Instructions Modal Overlay -->
+                    <FrameLayout
+                        android:id="@+id/hostedInstructionsOverlay"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:background="@color/usesense_instructions_overlay"
+                        android:visibility="gone">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="center"
+                            android:layout_marginHorizontal="16dp"
+                            android:maxWidth="320dp"
+                            android:background="@drawable/usesense_instructions_modal_bg"
+                            android:elevation="12dp"
+                            android:orientation="vertical"
+                            android:gravity="center_horizontal"
+                            android:paddingTop="28dp"
+                            android:paddingBottom="28dp"
+                            android:paddingStart="24dp"
+                            android:paddingEnd="24dp">
+
+                            <TextView
+                                android:id="@+id/hostedInstructionsIcon"
+                                android:layout_width="48dp"
+                                android:layout_height="48dp"
+                                android:gravity="center"
+                                android:background="@drawable/usesense_instructions_icon_circle"
+                                android:textSize="24sp" />
+
+                            <TextView
+                                android:id="@+id/hostedInstructionsTitle"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="16dp"
+                                style="@style/UseSense.Text.InstructionsTitle" />
+
+                            <TextView
+                                android:id="@+id/hostedInstructionsBody"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="8dp"
+                                android:layout_marginBottom="20dp"
+                                style="@style/UseSense.Text.InstructionsBody" />
+
+                            <TextView
+                                android:id="@+id/hostedInstructionsCta"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:gravity="center"
+                                android:paddingVertical="12dp"
+                                android:paddingHorizontal="24dp"
+                                android:background="@drawable/usesense_instructions_cta_bg"
+                                android:text="@string/usesense_instructions_cta"
+                                android:textColor="@android:color/white"
+                                android:textSize="14sp"
+                                android:fontFamily="sans-serif-medium"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+                    </FrameLayout>
+                </FrameLayout>
+
+                <!-- Quality Warning Banner -->
+                <com.usesense.sdk.ui.QualityWarningBanner
+                    android:id="@+id/hostedQualityBanner"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:visibility="gone" />
+
+                <!-- Status text -->
+                <TextView
+                    android:id="@+id/hostedCaptureTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:textSize="16sp"
+                    android:textColor="#0F172A"
+                    android:fontFamily="sans-serif-medium"
+                    android:textStyle="bold"
+                    android:textAlignment="center" />
+
+                <TextView
+                    android:id="@+id/hostedCaptureSubtitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:textSize="14sp"
+                    android:textColor="#475569" />
+
+                <!-- Head turn direction text -->
+                <TextView
+                    android:id="@+id/hostedDirectionText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:textSize="16sp"
+                    android:textColor="#0F172A"
+                    android:fontFamily="sans-serif-medium"
+                    android:textStyle="bold"
+                    android:visibility="gone" />
+
+                <!-- Speak phrase -->
+                <LinearLayout
+                    android:id="@+id/hostedSpeakPhraseLayout"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:layout_marginTop="8dp"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/usesense_read_phrase"
+                        android:textSize="14sp"
+                        android:textColor="#475569" />
+
+                    <TextView
+                        android:id="@+id/hostedPhraseText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:padding="12dp"
+                        android:background="@drawable/usesense_phrase_bg"
+                        android:textSize="15sp"
+                        android:textColor="#0F172A"
+                        android:fontFamily="sans-serif-medium"
+                        android:textStyle="bold"
+                        android:textAlignment="center" />
+
+                    <TextView
+                        android:id="@+id/hostedRecordingIndicator"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="@string/usesense_recording"
+                        android:textColor="@color/usesense_error"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+                </LinearLayout>
+
+                <!-- Progress bar -->
+                <ProgressBar
+                    android:id="@+id/hostedChallengeProgress"
+                    style="@android:style/Widget.ProgressBar.Horizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="4dp"
+                    android:layout_marginTop="12dp"
+                    android:progressDrawable="@drawable/usesense_progress_track"
+                    android:visibility="gone" />
+            </LinearLayout>
 
             <!-- ============= FINALIZING SCREEN (Section 11.9) ============= -->
             <LinearLayout
