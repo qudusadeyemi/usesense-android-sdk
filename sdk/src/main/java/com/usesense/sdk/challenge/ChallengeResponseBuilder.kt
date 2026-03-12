@@ -37,11 +37,11 @@ class ChallengeResponseBuilder(private val spec: ChallengeSpec) {
         frameTimestamps.add(timestampMs)
     }
 
-    fun build(): JSONObject {
-        val json = JSONObject()
-        json.put("type", spec.type)
-        json.put("seed", spec.seed)
-        json.put("completed", completed)
+    fun buildAsMap(): Map<String, Any> {
+        val map = mutableMapOf<String, Any>()
+        map["type"] = spec.type
+        map["seed"] = spec.seed
+        map["completed"] = completed
 
         val framesKey = when (spec.type) {
             ChallengeSpec.TYPE_FOLLOW_DOT -> "waypoint_frames"
@@ -50,17 +50,37 @@ class ChallengeResponseBuilder(private val spec: ChallengeSpec) {
         }
 
         framesKey?.let { key ->
-            val framesObj = JSONObject()
+            val framesMap = mutableMapOf<String, List<Int>>()
             waypointFrames.forEach { (stepIdx, frameList) ->
-                framesObj.put(stepIdx.toString(), JSONArray(frameList))
+                framesMap[stepIdx.toString()] = frameList.toList()
             }
-            json.put(key, framesObj)
+            map[key] = framesMap
         }
 
-        startedAt?.let { json.put("started_at", it) }
-        completedAt?.let { json.put("completed_at", it) }
-        json.put("frame_timestamps", JSONArray(frameTimestamps))
+        startedAt?.let { map["started_at"] = it }
+        completedAt?.let { map["completed_at"] = it }
+        map["frame_timestamps"] = frameTimestamps.toList()
 
+        return map
+    }
+
+    fun build(): JSONObject {
+        val data = buildAsMap()
+        val json = JSONObject()
+        for ((key, value) in data) {
+            when (value) {
+                is Map<*, *> -> {
+                    val inner = JSONObject()
+                    @Suppress("UNCHECKED_CAST")
+                    for ((k, v) in value as Map<String, Any>) {
+                        inner.put(k, if (v is List<*>) JSONArray(v) else v)
+                    }
+                    json.put(key, inner)
+                }
+                is List<*> -> json.put(key, JSONArray(value))
+                else -> json.put(key, value)
+            }
+        }
         return json
     }
 }

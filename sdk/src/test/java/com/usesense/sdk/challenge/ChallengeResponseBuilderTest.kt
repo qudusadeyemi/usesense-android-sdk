@@ -29,16 +29,17 @@ class ChallengeResponseBuilderTest {
         builder.recordFrame(3, 1700L)
         builder.markCompleted()
 
-        val json = builder.build()
-        assertEquals("follow_dot", json.getString("type"))
-        assertEquals("test_seed_123", json.getString("seed"))
-        assertTrue(json.getBoolean("completed"))
-        assertTrue(json.has("waypoint_frames"))
-        assertFalse(json.has("step_frames"))
+        val result = builder.buildAsMap()
+        assertEquals("follow_dot", result["type"])
+        assertEquals("test_seed_123", result["seed"])
+        assertEquals(true, result["completed"])
+        assertTrue(result.containsKey("waypoint_frames"))
+        assertFalse(result.containsKey("step_frames"))
 
-        val wpFrames = json.getJSONObject("waypoint_frames")
-        assertEquals(2, wpFrames.getJSONArray("0").length())
-        assertEquals(2, wpFrames.getJSONArray("1").length())
+        @Suppress("UNCHECKED_CAST")
+        val wpFrames = result["waypoint_frames"] as Map<String, List<Int>>
+        assertEquals(2, wpFrames["0"]!!.size)
+        assertEquals(2, wpFrames["1"]!!.size)
     }
 
     @Test
@@ -55,10 +56,10 @@ class ChallengeResponseBuilderTest {
         builder.recordFrame(0, 0L)
         builder.markCompleted()
 
-        val json = builder.build()
-        assertEquals("head_turn", json.getString("type"))
-        assertTrue(json.has("step_frames"))
-        assertFalse(json.has("waypoint_frames"))
+        val result = builder.buildAsMap()
+        assertEquals("head_turn", result["type"])
+        assertTrue(result.containsKey("step_frames"))
+        assertFalse(result.containsKey("waypoint_frames"))
     }
 
     @Test
@@ -71,8 +72,8 @@ class ChallengeResponseBuilderTest {
         )
 
         val builder = ChallengeResponseBuilder(spec)
-        val json = builder.build()
-        assertEquals(seed, json.getString("seed"))
+        val result = builder.buildAsMap()
+        assertEquals(seed, result["seed"])
     }
 
     @Test
@@ -84,11 +85,12 @@ class ChallengeResponseBuilderTest {
         builder.recordFrame(1, 100L)
         builder.recordFrame(2, 200L)
 
-        val json = builder.build()
-        val timestamps = json.getJSONArray("frame_timestamps")
-        assertEquals(3, timestamps.length())
-        assertEquals(0L, timestamps.getLong(0))
-        assertEquals(100L, timestamps.getLong(1))
-        assertEquals(200L, timestamps.getLong(2))
+        val result = builder.buildAsMap()
+        @Suppress("UNCHECKED_CAST")
+        val timestamps = result["frame_timestamps"] as List<Long>
+        assertEquals(3, timestamps.size)
+        assertEquals(0L, timestamps[0])
+        assertEquals(100L, timestamps[1])
+        assertEquals(200L, timestamps[2])
     }
 }

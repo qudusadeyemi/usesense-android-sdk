@@ -27,6 +27,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import com.google.android.material.button.MaterialButton
+import com.usesense.sdk.R
 import com.usesense.sdk.*
 import com.usesense.sdk.api.UseSenseApiClient
 import com.usesense.sdk.api.models.*
