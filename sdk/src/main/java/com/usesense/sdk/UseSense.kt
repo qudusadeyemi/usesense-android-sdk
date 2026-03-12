@@ -3,7 +3,6 @@ package com.usesense.sdk
 import android.app.Activity
 import android.content.Context
 import com.usesense.sdk.ui.HostedPageActivity
-import com.usesense.sdk.ui.UseSenseActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -41,7 +40,7 @@ object UseSense {
             return
         }
 
-        UseSenseActivity.start(activity, cfg, request, callback)
+        HostedPageActivity.startDirect(activity, cfg, request, callback)
     }
 
     /**

@@ -33,6 +33,7 @@ class HostedPageActivity : AppCompatActivity() {
     // Flow config
     private var flowType: FlowType = FlowType.VERIFICATION
     private var remoteId: String = ""
+    private var isDirectMode: Boolean = false
     private lateinit var apiClient: UseSenseApiClient
 
     // Server data
@@ -96,7 +97,10 @@ class HostedPageActivity : AppCompatActivity() {
         } else {
             FlowType.VERIFICATION
         }
-        remoteId = intent.getStringExtra(EXTRA_REMOTE_ID) ?: run {
+        isDirectMode = intent.getBooleanExtra(EXTRA_DIRECT_MODE, false)
+        remoteId = intent.getStringExtra(EXTRA_REMOTE_ID) ?: ""
+
+        if (!isDirectMode && remoteId.isEmpty()) {
             showError("No remote session ID provided")
             return
         }
@@ -107,7 +111,15 @@ class HostedPageActivity : AppCompatActivity() {
         effectiveBranding = EffectiveBranding.merge(config.branding, null)
         applyBranding()
 
-        mainScope.launch { loadData() }
+        if (isDirectMode) {
+            // Direct SDK flow: skip remote data loading, go straight to intro/review
+            when (flowType) {
+                FlowType.ENROLLMENT -> showIntroduction()
+                FlowType.VERIFICATION -> showActionReview()
+            }
+        } else {
+            mainScope.launch { loadData() }
+        }
     }
 
     private fun bindViews() {
@@ -384,24 +396,30 @@ class HostedPageActivity : AppCompatActivity() {
         loadingText.text = getString(R.string.usesense_getting_ready)
 
         try {
-            val initResult = when (flowType) {
-                FlowType.ENROLLMENT -> apiClient.initEnrollmentSession(remoteId)
-                FlowType.VERIFICATION -> apiClient.initVerificationSession(remoteId)
-            }
-
-            initResult.onFailure {
-                showError(it.message ?: "Failed to initialize session")
-                return
-            }
-
-            sessionData = initResult.getOrNull()
-            val session = sessionData ?: run { showError("Empty session response"); return }
-
-            // Launch the existing capture Activity with the session credentials
             val config = pendingConfig ?: run { showError("SDK not configured"); return }
-            val request = VerificationRequest(
-                sessionType = if (flowType == FlowType.ENROLLMENT) SessionType.ENROLLMENT else SessionType.AUTHENTICATION,
-            )
+
+            val request = if (isDirectMode) {
+                // Direct mode: use the request passed from the caller
+                pendingRequest ?: run { showError("No verification request"); return }
+            } else {
+                // Remote mode: init session via API, then build request
+                val initResult = when (flowType) {
+                    FlowType.ENROLLMENT -> apiClient.initEnrollmentSession(remoteId)
+                    FlowType.VERIFICATION -> apiClient.initVerificationSession(remoteId)
+                }
+
+                initResult.onFailure {
+                    showError(it.message ?: "Failed to initialize session")
+                    return
+                }
+
+                sessionData = initResult.getOrNull()
+                sessionData ?: run { showError("Empty session response"); return }
+
+                VerificationRequest(
+                    sessionType = if (flowType == FlowType.ENROLLMENT) SessionType.ENROLLMENT else SessionType.AUTHENTICATION,
+                )
+            }
 
             // Store capture result handler
             pendingHostedCallback = object : UseSenseCallback {
@@ -412,6 +430,9 @@ class HostedPageActivity : AppCompatActivity() {
                     mainScope.launch { handleCaptureComplete(null, error) }
                 }
                 override fun onCancelled() {
+                    if (isDirectMode) {
+                        pendingDirectCallback?.onCancelled()
+                    }
                     finish()
                 }
             }
@@ -427,6 +448,24 @@ class HostedPageActivity : AppCompatActivity() {
      * Wraps /complete call in try-catch. ALWAYS shows a result screen.
      */
     private suspend fun handleCaptureComplete(result: UseSenseResult?, error: UseSenseError? = null) {
+        if (isDirectMode) {
+            // Direct mode: the capture engine already handled upload + /complete.
+            // Show result screen and deliver callback.
+            if (result != null) {
+                showResult(result.decision, result)
+                pendingDirectCallback?.onSuccess(result)
+            } else if (error != null) {
+                pendingDirectCallback?.onError(error)
+                showResult(UseSenseResult.DECISION_REJECT, null)
+            } else {
+                val fallbackError = UseSenseError.captureFailed("Verification failed")
+                pendingDirectCallback?.onError(fallbackError)
+                showResult(UseSenseResult.DECISION_REJECT, null)
+            }
+            return
+        }
+
+        // Remote mode: call hosted /complete endpoint
         setStep(PageStep.FINALIZING)
         finalizingTitle.text = if (flowType == FlowType.ENROLLMENT) {
             getString(R.string.usesense_processing_enrollment)
@@ -435,7 +474,6 @@ class HostedPageActivity : AppCompatActivity() {
         }
 
         try {
-            // Call the hosted page /complete endpoint
             val completeResult = when (flowType) {
                 FlowType.ENROLLMENT -> apiClient.completeEnrollment(remoteId)
                 FlowType.VERIFICATION -> apiClient.completeRemoteSession(remoteId)
@@ -447,7 +485,6 @@ class HostedPageActivity : AppCompatActivity() {
             }
             completeResult.onFailure { e ->
                 Log.e(TAG, "Complete error", e)
-                // STILL show a result screen, never leave user stuck
                 if (result?.decision == UseSenseResult.DECISION_APPROVE) {
                     showResult(UseSenseResult.DECISION_APPROVE, result)
                 } else {
@@ -562,6 +599,8 @@ class HostedPageActivity : AppCompatActivity() {
         super.onDestroy()
         mainScope.cancel()
         pendingConfig = null
+        pendingRequest = null
+        pendingDirectCallback = null
         pendingHostedCallback = null
     }
 
@@ -569,9 +608,37 @@ class HostedPageActivity : AppCompatActivity() {
         private const val TAG = "HostedPageActivity"
         private const val EXTRA_FLOW_TYPE = "flow_type"
         private const val EXTRA_REMOTE_ID = "remote_id"
+        private const val EXTRA_DIRECT_MODE = "direct_mode"
 
         internal var pendingConfig: UseSenseConfig? = null
+        internal var pendingRequest: VerificationRequest? = null
+        internal var pendingDirectCallback: UseSenseCallback? = null
         internal var pendingHostedCallback: UseSenseCallback? = null
+
+        /**
+         * Launch the hosted page UI for a direct SDK verification/enrollment flow.
+         * This provides the same UI experience as the hosted page flows (intro screen,
+         * branding, result screen) but driven by the app's VerificationRequest.
+         */
+        fun startDirect(
+            context: Context,
+            config: UseSenseConfig,
+            request: VerificationRequest,
+            callback: UseSenseCallback,
+        ) {
+            pendingConfig = config
+            pendingRequest = request
+            pendingDirectCallback = callback
+            val flowType = if (request.sessionType == SessionType.ENROLLMENT) "enrollment" else "verification"
+            val intent = Intent(context, HostedPageActivity::class.java).apply {
+                putExtra(EXTRA_FLOW_TYPE, flowType)
+                putExtra(EXTRA_DIRECT_MODE, true)
+            }
+            if (context !is Activity) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        }
 
         fun startEnrollment(context: Context, config: UseSenseConfig, remoteEnrollmentId: String) {
             pendingConfig = config
