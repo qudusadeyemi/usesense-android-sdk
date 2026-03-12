@@ -133,6 +133,18 @@ class HostedPageActivity : AppCompatActivity() {
     private lateinit var recordingIndicator: TextView
     private lateinit var challengeProgress: ProgressBar
 
+    // Upload/completing overlay (Section 5.8/5.9 — dark overlay on camera)
+    private lateinit var uploadOverlay: FrameLayout
+    private lateinit var uploadOverlayTitle: TextView
+    private lateinit var uploadOverlaySubtitle: TextView
+
+    // Capture footer (Section 11.8)
+    private lateinit var captureFooterText: TextView
+
+    // Header bar reference for hide/show
+    private lateinit var headerBar: LinearLayout
+    private lateinit var headerDivider: View
+
     // Finalizing & result views
     private lateinit var finalizingScreen: LinearLayout
     private lateinit var finalizingTitle: TextView
@@ -145,6 +157,7 @@ class HostedPageActivity : AppCompatActivity() {
     private lateinit var resultActionText: TextView
     private lateinit var resultButton: MaterialButton
     private lateinit var footerText: TextView
+    private lateinit var footerDivider: View
 
     private val mainScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val eventEmitter get() = UseSense.eventEmitter
@@ -209,6 +222,8 @@ class HostedPageActivity : AppCompatActivity() {
     }
 
     private fun bindViews() {
+        headerBar = findViewById(R.id.headerBar)
+        headerDivider = findViewById(R.id.headerDivider)
         headerLogo = findViewById(R.id.headerLogo)
         headerText = findViewById(R.id.headerText)
         loadingScreen = findViewById(R.id.hostedLoadingScreen)
@@ -267,6 +282,14 @@ class HostedPageActivity : AppCompatActivity() {
         recordingIndicator = findViewById(R.id.hostedRecordingIndicator)
         challengeProgress = findViewById(R.id.hostedChallengeProgress)
 
+        // Upload overlay (Section 5.8/5.9)
+        uploadOverlay = findViewById(R.id.hostedUploadOverlay)
+        uploadOverlayTitle = findViewById(R.id.hostedUploadOverlayTitle)
+        uploadOverlaySubtitle = findViewById(R.id.hostedUploadOverlaySubtitle)
+
+        // Capture footer
+        captureFooterText = findViewById(R.id.captureFooterText)
+
         // Finalizing & result
         finalizingScreen = findViewById(R.id.hostedFinalizingScreen)
         finalizingTitle = findViewById(R.id.finalizingTitle)
@@ -279,6 +302,7 @@ class HostedPageActivity : AppCompatActivity() {
         resultActionText = findViewById(R.id.resultActionText)
         resultButton = findViewById(R.id.resultButton)
         footerText = findViewById(R.id.footerText)
+        footerDivider = findViewById(R.id.footerDivider)
     }
 
     // ─── Branding ────────────────────────────────────────────────────────
@@ -650,6 +674,9 @@ class HostedPageActivity : AppCompatActivity() {
                 .also { it.setSurfaceProvider(cameraPreview.surfaceProvider) }
 
             cameraPreview.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+            // Mirror front camera preview for natural appearance (spec Section 5.2)
+            // Frames sent to server are NOT mirrored — only the preview is.
+            cameraPreview.scaleX = -1f
 
             val imageAnalysis = ImageAnalysis.Builder()
                 .setTargetResolution(android.util.Size(640, 480))
@@ -974,13 +1001,13 @@ class HostedPageActivity : AppCompatActivity() {
 
         mainScope.launch {
             try {
-                // Show finalizing screen
-                setStep(PageStep.FINALIZING)
-                finalizingTitle.text = if (flowType == FlowType.ENROLLMENT) {
+                // Section 5.8/5.9: Show dark overlay on camera during upload/completing
+                uploadOverlayTitle.text = if (flowType == FlowType.ENROLLMENT) {
                     getString(R.string.usesense_processing_enrollment)
                 } else {
                     getString(R.string.usesense_processing_verification)
                 }
+                setStep(PageStep.FINALIZING)
 
                 sess.setCapturePhase(CapturePhase.UPLOADING)
                 eventEmitter.emit(EventType.UPLOAD_STARTED)
@@ -1121,20 +1148,39 @@ class HostedPageActivity : AppCompatActivity() {
     }
 
     private fun setStep(step: PageStep) {
-        allScreens.forEach { it.visibility = View.GONE }
+        // FINALIZING stays on the capture screen with an overlay (Section 5.8/5.9)
+        val isCaptureMode = step == PageStep.CAPTURE || step == PageStep.FINALIZING
+
+        if (step != PageStep.FINALIZING) {
+            allScreens.forEach { it.visibility = View.GONE }
+        }
+
         when (step) {
             PageStep.LOADING -> loadingScreen.visibility = View.VISIBLE
             PageStep.ERROR -> errorScreen.visibility = View.VISIBLE
             PageStep.INTRODUCTION -> introScreen.visibility = View.VISIBLE
             PageStep.ACTION_REVIEW -> actionReviewScreen.visibility = View.VISIBLE
             PageStep.PERMISSION -> permissionScreen.visibility = View.VISIBLE
-            PageStep.CAPTURE -> captureScreen.visibility = View.VISIBLE
-            PageStep.FINALIZING -> finalizingScreen.visibility = View.VISIBLE
+            PageStep.CAPTURE -> {
+                captureScreen.visibility = View.VISIBLE
+                uploadOverlay.visibility = View.GONE
+            }
+            PageStep.FINALIZING -> {
+                // Keep capture screen visible — show dark overlay on camera
+                captureScreen.visibility = View.VISIBLE
+                uploadOverlay.visibility = View.VISIBLE
+            }
             PageStep.RESULT -> resultScreen.visibility = View.VISIBLE
         }
 
+        // Section 11.8: Hide branded header/footer during capture, show capture footer
+        headerBar.visibility = if (isCaptureMode) View.GONE else View.VISIBLE
+        headerDivider.visibility = if (isCaptureMode) View.GONE else View.VISIBLE
+        footerText.visibility = if (isCaptureMode) View.GONE else View.VISIBLE
+        footerDivider.visibility = if (isCaptureMode) View.GONE else View.VISIBLE
+
         // Reset capture overlays when leaving capture
-        if (step != PageStep.CAPTURE) {
+        if (!isCaptureMode) {
             hideCaptureOverlays()
         }
     }
@@ -1144,6 +1190,7 @@ class HostedPageActivity : AppCompatActivity() {
         faceGuideOverlay.visibility = View.GONE
         countdownOverlay.visibility = View.GONE
         instructionsOverlay.visibility = View.GONE
+        uploadOverlay.visibility = View.GONE
         dotView.visibility = View.GONE
         directionText.visibility = View.GONE
         directionCircle.visibility = View.GONE
