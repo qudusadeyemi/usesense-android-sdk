@@ -1,0 +1,96 @@
+# Release workflow - publishes the SDK to Maven Central and GitHub Packages
+#
+# Triggers on git tags matching the v* pattern (e.g., v1.0.0, v1.2.3-beta01)
+#
+# Required secrets:
+#   ORG_GRADLE_PROJECT_signingKey        - GPG private key (ASCII armored)
+#   ORG_GRADLE_PROJECT_signingPassword   - GPG key passphrase
+#   ORG_GRADLE_PROJECT_sonatypeUsername  - Sonatype OSSRH username
+#   ORG_GRADLE_PROJECT_sonatypePassword  - Sonatype OSSRH password
+#   GITHUB_TOKEN                         - Auto-provided by GitHub Actions
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: false
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build SDK
+        run: ./gradlew :sdk:assembleRelease
+
+      - name: Run tests
+        run: ./gradlew :sdk:test
+
+      - name: Run lint
+        run: ./gradlew :sdk:lintRelease
+
+      - name: Publish to Maven Central (Sonatype OSSRH)
+        run: ./gradlew :sdk:publishReleasePublicationToSonatypeRepository
+        env:
+          ORG_GRADLE_PROJECT_signingKey: ${{ secrets.ORG_GRADLE_PROJECT_signingKey }}
+          ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.ORG_GRADLE_PROJECT_signingPassword }}
+          ORG_GRADLE_PROJECT_sonatypeUsername: ${{ secrets.ORG_GRADLE_PROJECT_sonatypeUsername }}
+          ORG_GRADLE_PROJECT_sonatypePassword: ${{ secrets.ORG_GRADLE_PROJECT_sonatypePassword }}
+
+      - name: Publish to GitHub Packages
+        run: ./gradlew :sdk:publishReleasePublicationToGitHubPackagesRepository
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ORG_GRADLE_PROJECT_signingKey: ${{ secrets.ORG_GRADLE_PROJECT_signingKey }}
+          ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.ORG_GRADLE_PROJECT_signingPassword }}
+
+      - name: Find AAR artifact
+        id: find_aar
+        run: |
+          AAR_PATH=$(find sdk/build/outputs/aar -name "*.aar" -type f | head -1)
+          echo "aar_path=$AAR_PATH" >> "$GITHUB_OUTPUT"
+          echo "aar_name=usesense-sdk-${{ steps.version.outputs.version }}.aar" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: ${{ steps.find_aar.outputs.aar_path }}
+          body: |
+            ## Installation
+
+            ### Maven Central (Recommended)
+            ```kotlin
+            dependencies {
+                implementation("ai.usesense:sdk:${{ steps.version.outputs.version }}")
+            }
+            ```
+
+            ### Manual Installation
+            Download the AAR from the assets below and follow the [manual installation instructions](https://github.com/usesense/usesense-android-sdk#manual-installation) in the README.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
