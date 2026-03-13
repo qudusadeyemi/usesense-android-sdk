@@ -43,10 +43,6 @@ jobs:
           name: lint-results
           path: sdk/build/reports/lint-results*.html
 
-      - name: Build example app
-        working-directory: example
-        run: chmod +x gradlew && ./gradlew :app:assembleDebug
-
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
