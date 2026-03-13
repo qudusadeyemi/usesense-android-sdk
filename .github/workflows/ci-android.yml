@@ -24,6 +24,8 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: false
 
       - name: Build SDK
         run: ./gradlew :sdk:build
@@ -42,7 +44,8 @@ jobs:
           path: sdk/build/reports/lint-results*.html
 
       - name: Build example app
-        run: ./gradlew :example:assembleDebug
+        working-directory: example
+        run: chmod +x gradlew && ./gradlew :app:assembleDebug
 
       - name: Upload test results
         if: always()
