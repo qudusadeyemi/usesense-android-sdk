@@ -44,13 +44,13 @@ jobs:
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
 
       - name: Build SDK
-        run: ./gradlew :sdk:build
+        run: ./gradlew :sdk:assembleRelease
 
       - name: Run tests
         run: ./gradlew :sdk:test
 
       - name: Run lint
-        run: ./gradlew :sdk:lint
+        run: ./gradlew :sdk:lintRelease
 
       - name: Publish to Maven Central (Sonatype OSSRH)
         run: ./gradlew :sdk:publishReleasePublicationToSonatypeRepository

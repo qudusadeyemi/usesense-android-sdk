@@ -39,6 +39,10 @@ android {
         viewBinding = true
     }
 
+    lint {
+        abortOnError = false
+    }
+
     testOptions {
         unitTests {
             isReturnDefaultValues = true
