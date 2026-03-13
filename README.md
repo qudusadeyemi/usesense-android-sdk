@@ -111,7 +111,7 @@ UseSense.startVerification(
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `apiKey` | `String` | Yes | — | Your API key from the [UseSense dashboard](https://app.usesense.ai) |
+| `apiKey` | `String` | Yes | — | Your API key from the [UseSense dashboard](https://watchtower.usesense.ai) |
 | `environment` | `UseSenseEnvironment` | No | `AUTO` | `SANDBOX`, `PRODUCTION`, or `AUTO` (detects from key prefix) |
 | `baseUrl` | `String` | No | UseSense default | API base URL override |
 | `gatewayKey` | `String?` | No | `null` | Optional gateway authentication key |
@@ -582,7 +582,7 @@ Ensure you're on the latest SDK version which uses a different result delivery m
 
 ## API Reference
 
-Full generated API documentation is available at [docs.usesense.ai/android](https://docs.usesense.ai/android).
+Full generated API documentation is available at [docs.usesense.ai/android](https://watchtower.usesense.ai/developer-docs).
 
 ## Changelog
 
@@ -594,6 +594,6 @@ Proprietary. See [LICENSE](LICENSE).
 
 ## Support
 
-- Documentation: https://docs.usesense.ai
-- Dashboard: https://app.usesense.ai
+- Documentation: https://watchtower.usesense.ai/developer-docs
+- Dashboard: https://watchtower.usesense.ai
 - Email: support@usesense.ai
