@@ -71,7 +71,6 @@ jobs:
         run: ./gradlew :sdk:lintRelease
 
       - name: Publish to Maven Central (Sonatype OSSRH)
-        if: ${{ secrets.ORG_GRADLE_PROJECT_sonatypeUsername != '' }}
         continue-on-error: true
         run: ./gradlew :sdk:publishReleasePublicationToSonatypeRepository
         env:
