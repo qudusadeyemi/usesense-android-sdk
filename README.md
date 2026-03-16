@@ -12,41 +12,44 @@ Native Android SDK for human presence verification. Verify real humans, detect d
 
 ## Installation
 
-### Gradle (Maven Central)
+### Gradle (GitHub Packages) — Recommended
 
-Add to your module-level `build.gradle.kts`:
-
-```kotlin
-dependencies {
-    implementation("ai.usesense:sdk:1.0.0")
-}
-```
-
-Make sure `mavenCentral()` is in your repositories block (it's included by default in most projects).
-
-### Gradle (GitHub Packages)
-
-If Maven Central is unavailable in your environment, add the GitHub Packages registry:
+Add the GitHub Packages repository to your `settings.gradle.kts`:
 
 ```kotlin
-repositories {
-    maven {
-        url = uri("https://maven.pkg.github.com/usesense/usesense-android-sdk")
-        credentials {
-            username = project.findProperty("gpr.user") as String? ?: System.getenv("GITHUB_ACTOR")
-            password = project.findProperty("gpr.token") as String? ?: System.getenv("GITHUB_TOKEN")
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+        maven {
+            url = uri("https://maven.pkg.github.com/qudusadeyemi/usesense-android-sdk")
+            credentials {
+                username = providers.gradleProperty("gpr.user").getOrElse(System.getenv("GITHUB_ACTOR") ?: "")
+                password = providers.gradleProperty("gpr.token").getOrElse(System.getenv("GITHUB_TOKEN") ?: "")
+            }
         }
     }
 }
+```
 
+Then add to your module-level `build.gradle.kts`:
+
+```kotlin
 dependencies {
     implementation("ai.usesense:sdk:1.0.0")
 }
 ```
 
+> **Authentication:** GitHub Packages requires authentication. Add your credentials to `~/.gradle/gradle.properties`:
+> ```properties
+> gpr.user=YOUR_GITHUB_USERNAME
+> gpr.token=YOUR_GITHUB_PERSONAL_ACCESS_TOKEN
+> ```
+> The token needs the `read:packages` scope. [Create one here](https://github.com/settings/tokens/new?scopes=read:packages).
+
 ### Manual Installation
 
-1. Download the AAR from the [latest GitHub Release](https://github.com/usesense/usesense-android-sdk/releases/latest)
+1. Download the AAR from the [latest GitHub Release](https://github.com/qudusadeyemi/usesense-android-sdk/releases/latest)
 2. Copy it to your module's `libs/` directory
 3. Add to `build.gradle.kts`:
 

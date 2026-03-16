@@ -1,13 +1,11 @@
-# Release workflow - publishes the SDK to Maven Central and GitHub Packages
+# Release workflow - publishes the SDK to GitHub Packages and creates a GitHub Release
 #
-# Triggers on git tags matching the v* pattern (e.g., v1.0.0, v1.2.3-beta01)
+# Triggers:
+#   - Git tags matching v* pattern (e.g., v1.0.0, v1.2.3-beta01)
+#   - Manual dispatch via workflow_dispatch (specify version without 'v' prefix)
 #
 # Required secrets:
-#   ORG_GRADLE_PROJECT_signingKey        - GPG private key (ASCII armored)
-#   ORG_GRADLE_PROJECT_signingPassword   - GPG key passphrase
-#   ORG_GRADLE_PROJECT_sonatypeUsername  - Sonatype OSSRH username
-#   ORG_GRADLE_PROJECT_sonatypePassword  - Sonatype OSSRH password
-#   GITHUB_TOKEN                         - Auto-provided by GitHub Actions
+#   GITHUB_TOKEN - Auto-provided by GitHub Actions
 
 name: Release
 
@@ -15,6 +13,12 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (without v prefix, e.g. 1.0.0)'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -39,9 +43,17 @@ jobs:
         with:
           validate-wrappers: false
 
-      - name: Extract version from tag
+      - name: Extract version
         id: version
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set SDK version
+        run: sed -i "s/sdkVersion=.*/sdkVersion=${{ steps.version.outputs.version }}/" gradle.properties
 
       - name: Build SDK
         run: ./gradlew :sdk:assembleRelease
@@ -52,21 +64,11 @@ jobs:
       - name: Run lint
         run: ./gradlew :sdk:lintRelease
 
-      - name: Publish to Maven Central (Sonatype OSSRH)
-        run: ./gradlew :sdk:publishReleasePublicationToSonatypeRepository
-        env:
-          ORG_GRADLE_PROJECT_signingKey: ${{ secrets.ORG_GRADLE_PROJECT_signingKey }}
-          ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.ORG_GRADLE_PROJECT_signingPassword }}
-          ORG_GRADLE_PROJECT_sonatypeUsername: ${{ secrets.ORG_GRADLE_PROJECT_sonatypeUsername }}
-          ORG_GRADLE_PROJECT_sonatypePassword: ${{ secrets.ORG_GRADLE_PROJECT_sonatypePassword }}
-
       - name: Publish to GitHub Packages
         run: ./gradlew :sdk:publishReleasePublicationToGitHubPackagesRepository
         env:
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ORG_GRADLE_PROJECT_signingKey: ${{ secrets.ORG_GRADLE_PROJECT_signingKey }}
-          ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.ORG_GRADLE_PROJECT_signingPassword }}
 
       - name: Find AAR artifact
         id: find_aar
@@ -78,19 +80,34 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ steps.version.outputs.version }}
           generate_release_notes: true
           files: ${{ steps.find_aar.outputs.aar_path }}
           body: |
             ## Installation
 
-            ### Maven Central (Recommended)
+            ### GitHub Packages
             ```kotlin
+            // In settings.gradle.kts, add the repository:
+            dependencyResolutionManagement {
+                repositories {
+                    maven {
+                        url = uri("https://maven.pkg.github.com/qudusadeyemi/usesense-android-sdk")
+                        credentials {
+                            username = providers.gradleProperty("gpr.user").getOrElse(System.getenv("GITHUB_ACTOR"))
+                            password = providers.gradleProperty("gpr.token").getOrElse(System.getenv("GITHUB_TOKEN"))
+                        }
+                    }
+                }
+            }
+
+            // In app/build.gradle.kts:
             dependencies {
                 implementation("ai.usesense:sdk:${{ steps.version.outputs.version }}")
             }
             ```
 
             ### Manual Installation
-            Download the AAR from the assets below and follow the [manual installation instructions](https://github.com/usesense/usesense-android-sdk#manual-installation) in the README.
+            Download the AAR from the assets below and follow the [manual installation instructions](https://github.com/qudusadeyemi/usesense-android-sdk#manual-installation) in the README.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
