@@ -27,12 +27,12 @@ afterEvaluate {
                 pom {
                     name.set("UseSense Android SDK")
                     description.set("Native Android SDK for human presence verification. Verify real humans, detect deepfakes, and prevent identity fraud.")
-                    url.set("https://usesense.ai")
+                    url.set("https://github.com/qudusadeyemi/usesense-android-sdk")
 
                     licenses {
                         license {
                             name.set("Proprietary")
-                            url.set("https://github.com/usesense/usesense-android-sdk/blob/main/LICENSE")
+                            url.set("https://github.com/qudusadeyemi/usesense-android-sdk/blob/main/LICENSE")
                         }
                     }
 
@@ -45,9 +45,9 @@ afterEvaluate {
                     }
 
                     scm {
-                        connection.set("scm:git:git://github.com/usesense/usesense-android-sdk.git")
-                        developerConnection.set("scm:git:ssh://github.com/usesense/usesense-android-sdk.git")
-                        url.set("https://github.com/usesense/usesense-android-sdk")
+                        connection.set("scm:git:git://github.com/qudusadeyemi/usesense-android-sdk.git")
+                        developerConnection.set("scm:git:ssh://github.com/qudusadeyemi/usesense-android-sdk.git")
+                        url.set("https://github.com/qudusadeyemi/usesense-android-sdk")
                     }
                 }
             }
@@ -72,7 +72,7 @@ afterEvaluate {
             // GitHub Packages (fallback)
             maven {
                 name = "GitHubPackages"
-                url = uri("https://maven.pkg.github.com/usesense/usesense-android-sdk")
+                url = uri("https://maven.pkg.github.com/qudusadeyemi/usesense-android-sdk")
                 credentials {
                     username = System.getenv("GITHUB_ACTOR")
                     password = System.getenv("GITHUB_TOKEN")
