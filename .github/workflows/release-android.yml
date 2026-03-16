@@ -6,12 +6,6 @@
 #
 # Required secrets:
 #   GITHUB_TOKEN - Auto-provided by GitHub Actions
-#
-# Optional secrets (for Maven Central publishing):
-#   ORG_GRADLE_PROJECT_signingKey        - GPG private key (ASCII armored)
-#   ORG_GRADLE_PROJECT_signingPassword   - GPG key passphrase
-#   ORG_GRADLE_PROJECT_sonatypeUsername  - Sonatype OSSRH username
-#   ORG_GRADLE_PROJECT_sonatypePassword  - Sonatype OSSRH password
 
 name: Release
 
@@ -69,15 +63,6 @@ jobs:
 
       - name: Run lint
         run: ./gradlew :sdk:lintRelease
-
-      - name: Publish to Maven Central (Sonatype OSSRH)
-        continue-on-error: true
-        run: ./gradlew :sdk:publishReleasePublicationToSonatypeRepository
-        env:
-          ORG_GRADLE_PROJECT_signingKey: ${{ secrets.ORG_GRADLE_PROJECT_signingKey }}
-          ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.ORG_GRADLE_PROJECT_signingPassword }}
-          ORG_GRADLE_PROJECT_sonatypeUsername: ${{ secrets.ORG_GRADLE_PROJECT_sonatypeUsername }}
-          ORG_GRADLE_PROJECT_sonatypePassword: ${{ secrets.ORG_GRADLE_PROJECT_sonatypePassword }}
 
       - name: Publish to GitHub Packages
         run: ./gradlew :sdk:publishReleasePublicationToGitHubPackagesRepository

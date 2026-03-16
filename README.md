@@ -47,18 +47,6 @@ dependencies {
 > ```
 > The token needs the `read:packages` scope. [Create one here](https://github.com/settings/tokens/new?scopes=read:packages).
 
-### Gradle (Maven Central)
-
-If available on Maven Central, you can use:
-
-```kotlin
-dependencies {
-    implementation("ai.usesense:sdk:1.0.0")
-}
-```
-
-Make sure `mavenCentral()` is in your repositories block (it's included by default in most projects).
-
 ### Manual Installation
 
 1. Download the AAR from the [latest GitHub Release](https://github.com/qudusadeyemi/usesense-android-sdk/releases/latest)
