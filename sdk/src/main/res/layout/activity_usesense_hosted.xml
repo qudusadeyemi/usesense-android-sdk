@@ -97,7 +97,7 @@
                         android:layout_width="48dp"
                         android:layout_height="48dp"
                         android:src="@drawable/usesense_icon_error"
-                        android:tint="#DC2626" />
+                        android:tint="@color/usesense_error" />
 
                     <TextView
                         android:layout_width="wrap_content"
@@ -106,7 +106,7 @@
                         android:text="@string/usesense_session_not_available"
                         android:textSize="20sp"
                         android:textStyle="bold"
-                        android:textColor="#7F1D1D" />
+                        android:textColor="@color/usesense_error_dark" />
 
                     <TextView
                         android:id="@+id/hostedErrorMessage"
@@ -334,10 +334,10 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
                         android:text="@string/usesense_not_my_request"
-                        android:textColor="#DC2626"
+                        android:textColor="@color/usesense_error"
                         android:textAllCaps="false"
-                        app:strokeColor="#DC2626"
-                        app:cornerRadius="12dp"
+                        app:strokeColor="@color/usesense_error"
+                        app:cornerRadius="10dp"
                         android:visibility="gone" />
                 </LinearLayout>
             </ScrollView>

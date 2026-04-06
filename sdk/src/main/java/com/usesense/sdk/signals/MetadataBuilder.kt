@@ -1,13 +1,14 @@
 package com.usesense.sdk.signals
 
+import com.usesense.sdk.liveness.SuspicionSnapshot
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.*
 
 /**
- * Builds the metadata JSON payload per Section 7.1 of the spec.
- * All fields match the canonical TypeScript type definitions (Section 14).
+ * Builds the complete metadata JSON payload per spec Chapter 8.2.
+ * All fields match the v4.1 unified spec.
  */
 class MetadataBuilder {
 
@@ -17,7 +18,7 @@ class MetadataBuilder {
 
     fun build(
         sessionId: String,
-        source: String = "direct",
+        source: String = "sdk",
         challengeResponse: JSONObject?,
         channelIntegrity: JSONObject,
         deviceTelemetry: JSONObject,
@@ -29,10 +30,17 @@ class MetadataBuilder {
         framesDropped: Int,
         avgFrameIntervalMs: Long,
         frameTimestamps: List<Long>? = null,
+        frameHashes: List<String>? = null,
+        faceMeshSignals: JSONObject? = null,
+        verificationPackage: JSONObject? = null,
+        suspicion: SuspicionSnapshot? = null,
+        suspicionTriggered: Boolean = false,
+        inlineStepUp: JSONObject? = null,
+        screenDetection: JSONObject? = null,
     ): ByteArray {
         val metadata = JSONObject()
 
-        // Top-level fields (Section 7.1)
+        // Top-level fields
         metadata.put("session_id", sessionId)
         metadata.put("sdk_version", DeviceSignalCollector.SDK_VERSION)
         metadata.put("platform", "android")
@@ -66,6 +74,11 @@ class MetadataBuilder {
         }
         metadata.put("frames_manifest", manifestArray)
 
+        // Frame hashes (SHA-256 per frame, required in v4.1)
+        if (frameHashes != null && frameHashes.isNotEmpty()) {
+            metadata.put("frame_hashes", JSONArray(frameHashes))
+        }
+
         // Challenge response (only present if challenge was issued)
         challengeResponse?.let {
             metadata.put("challenge_response", it)
@@ -80,15 +93,42 @@ class MetadataBuilder {
         channelIntegrity.put("frames_dropped", framesDropped)
         channelIntegrity.put("avg_frame_interval_ms", avgFrameIntervalMs)
 
-        // Frame timestamps for timing regularity analysis
+        // Frame timestamps
         if (frameTimestamps != null && frameTimestamps.isNotEmpty()) {
             channelIntegrity.put("frame_timestamps", JSONArray(frameTimestamps))
         }
 
-        // channel_integrity: the primary signal object the server reads
-        metadata.put("channel_integrity", channelIntegrity)
+        // Screen detection signals
+        if (screenDetection != null) {
+            channelIntegrity.put("screen_detection", screenDetection)
+        }
 
+        metadata.put("channel_integrity", channelIntegrity)
         metadata.put("device_telemetry", deviceTelemetry)
+
+        // Face mesh signals (when MediaPipe available)
+        faceMeshSignals?.let {
+            metadata.put("face_mesh_signals", it)
+        }
+
+        // Verification package (when geometric_coherence.dual_path_enabled)
+        verificationPackage?.let {
+            metadata.put("verification_package", it)
+        }
+
+        // Suspicion data (always included, even if not triggered)
+        if (suspicion != null) {
+            metadata.put("suspicion", JSONObject().apply {
+                put("final_score", suspicion.score)
+                put("triggered", suspicionTriggered)
+                put("snapshot", suspicion.toJson())
+            })
+        }
+
+        // Inline step-up evidence (null if not triggered)
+        if (inlineStepUp != null) {
+            metadata.put("inline_step_up", inlineStepUp)
+        }
 
         return metadata.toString(2).toByteArray(Charsets.UTF_8)
     }

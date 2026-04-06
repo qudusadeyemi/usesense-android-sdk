@@ -4,11 +4,12 @@ Native Android SDK for human presence verification. Verify real humans, detect d
 
 ## Requirements
 
-- Android 8.0+ (API level 26)
+- Android 9.0+ (API level 28)
 - Android Studio Hedgehog (2023.1) or later
 - Kotlin 1.9+
 - Device with front-facing camera (required)
 - Google Play Services (recommended, required for Play Integrity attestation)
+- Internet connection (required for model download on first use and API calls)
 
 ## Installation
 
@@ -36,7 +37,7 @@ Then add to your module-level `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("ai.usesense:sdk:1.0.0")
+    implementation("ai.usesense:sdk:4.1.0")
 }
 ```
 
@@ -55,7 +56,7 @@ dependencies {
 
 ```kotlin
 dependencies {
-    implementation(files("libs/usesense-sdk-1.0.0.aar"))
+    implementation(files("libs/usesense-sdk-4.1.0.aar"))
 }
 ```
 
@@ -114,10 +115,9 @@ UseSense.startVerification(
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `apiKey` | `String` | Yes | — | Your API key from the [UseSense dashboard](https://watchtower.usesense.ai) |
+| `apiKey` | `String` | Yes | — | Your API key from the [UseSense dashboard](https://app.usesense.ai) |
 | `environment` | `UseSenseEnvironment` | No | `AUTO` | `SANDBOX`, `PRODUCTION`, or `AUTO` (detects from key prefix) |
-| `baseUrl` | `String` | No | UseSense default | API base URL override |
-| `gatewayKey` | `String?` | No | `null` | Optional gateway authentication key |
+| `baseUrl` | `String` | No | `https://api.usesense.ai/v1` | API base URL (override for staging/testing) |
 | `branding` | `BrandingConfig?` | No | `null` | UI customization (colors, logo, fonts) |
 | `googleCloudProjectNumber` | `Long` | No | UseSense default | Google Cloud project for Play Integrity |
 
@@ -127,7 +127,7 @@ UseSense.startVerification(
 |-----------|------|---------|-------------|
 | `displayName` | `String?` | Org setting | Display name shown in UI |
 | `logoUrl` | `String?` | Org setting | Logo URL |
-| `primaryColor` | `String?` | `"#4f46e5"` | Primary brand color (hex) |
+| `primaryColor` | `String?` | `"#4F7CFF"` | Primary brand color (hex) |
 | `redirectUrl` | `String?` | Org setting | Redirect URL after hosted flows |
 | `buttonRadius` | `Int` | `12` | Button corner radius in dp |
 | `fontFamily` | `String?` | System default | Custom font family |
@@ -517,19 +517,28 @@ If you encounter issues with minified builds, add these rules to your app's `pro
 -keep class com.usesense.sdk.** { *; }
 -keep interface com.usesense.sdk.** { *; }
 -dontwarn com.usesense.sdk.**
+
+# MediaPipe (3D liveness)
+-keep class com.google.mediapipe.** { *; }
+-dontwarn com.google.mediapipe.**
+
+# ML Kit Face Detection (inline step-up)
+-keep class com.google.mlkit.vision.face.** { *; }
+-dontwarn com.google.mlkit.vision.face.**
 ```
 
 ## Sandbox vs Production
 
 | | Sandbox | Production |
 |---|---------|-----------|
-| API keys | Separate key (prefix `sk_` or `dk_`) | Separate key (prefix `pk_`) |
+| API keys | `sk_sandbox_*` / `pk_sandbox_*` / `dk_*` | `sk_prod_*` / `pk_prod_*` |
 | Cost | Free and unlimited | One credit per completed session |
 | Features | Identical | Identical |
 | Face collection | Shared (higher dedup scores expected) | Isolated per organization |
 
 - Use sandbox for all development and testing.
 - Switch environments by changing the `environment` parameter in `UseSenseConfig`, or use `AUTO` to detect from the API key prefix.
+- The SDK sends `x-environment: sandbox` or `x-environment: production` on every request.
 
 ## Troubleshooting
 

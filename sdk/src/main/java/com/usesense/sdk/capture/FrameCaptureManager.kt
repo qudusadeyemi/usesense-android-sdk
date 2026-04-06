@@ -51,12 +51,12 @@ class FrameCaptureManager(
             }
             lastFrameTimeMs = now
 
-            // Convert ImageProxy to non-mirrored JPEG
-            val jpegData = imageProxyToJpeg(imageProxy)
+            // Convert ImageProxy to non-mirrored JPEG and compute luminance in one pass
+            val (jpegData, luminance) = imageProxyToJpegWithLuminance(imageProxy)
             imageProxy.close()
 
             if (jpegData != null) {
-                val frame = frameBuffer.addFrame(jpegData)
+                val frame = frameBuffer.addFrame(jpegData, luminance)
                 if (frame != null) {
                     onFrameCaptured?.invoke(frame)
                 }
@@ -68,17 +68,15 @@ class FrameCaptureManager(
         }
     }
 
-    private fun imageProxyToJpeg(imageProxy: ImageProxy): ByteArray? {
+    /**
+     * Convert ImageProxy to JPEG and compute luminance in a single pass,
+     * avoiding the overhead of calling toBitmap() twice.
+     */
+    private fun imageProxyToJpegWithLuminance(imageProxy: ImageProxy): Pair<ByteArray?, Double> {
         return try {
             val rawBitmap = imageProxy.toBitmap()
             val rotationDegrees = imageProxy.imageInfo.rotationDegrees
 
-            // Apply sensor orientation correction BEFORE JPEG encoding.
-            // The raw pixel buffer is in the sensor's native orientation (landscape).
-            // rotationDegrees indicates how many degrees clockwise to rotate the buffer
-            // to match portrait orientation (typically 270 for front cameras).
-            // CRITICAL: Do NOT mirror. Rotation and mirroring are independent —
-            // frames must be rotation-corrected but raw/non-mirrored for server analysis.
             val correctedBitmap = if (rotationDegrees != 0) {
                 val matrix = Matrix().apply { postRotate(rotationDegrees.toFloat()) }
                 Bitmap.createBitmap(
@@ -92,11 +90,43 @@ class FrameCaptureManager(
                 rawBitmap
             }
 
-            FrameEncoder.bitmapToJpeg(correctedBitmap).also {
-                correctedBitmap.recycle()
-            }
+            // Compute luminance from the corrected bitmap before JPEG encoding
+            val luminance = computeLuminanceFromBitmap(correctedBitmap)
+            val jpegData = FrameEncoder.bitmapToJpeg(correctedBitmap)
+            correctedBitmap.recycle()
+
+            Pair(jpegData, luminance)
         } catch (e: Exception) {
-            null
+            Pair(null, 0.0)
+        }
+    }
+
+    /**
+     * Compute average luminance from a bitmap (downscaled to 64x48).
+     * Uses ITU-R BT.601: L = 0.299*R + 0.587*G + 0.114*B
+     * This feeds the Suspicion Engine's brightness stability signal.
+     */
+    private fun computeLuminanceFromBitmap(bitmap: Bitmap): Double {
+        return try {
+            val scaled = Bitmap.createScaledBitmap(bitmap, 64, 48, true)
+
+            var totalLuminance = 0.0
+            val width = scaled.width
+            val height = scaled.height
+            val pixelCount = width * height
+            val pixels = IntArray(pixelCount)
+            scaled.getPixels(pixels, 0, width, 0, 0, width, height)
+            if (scaled !== bitmap) scaled.recycle()
+
+            for (pixel in pixels) {
+                val r = (pixel shr 16) and 0xFF
+                val g = (pixel shr 8) and 0xFF
+                val b = pixel and 0xFF
+                totalLuminance += 0.299 * r + 0.587 * g + 0.114 * b
+            }
+            totalLuminance / pixelCount
+        } catch (e: Exception) {
+            0.0
         }
     }
 

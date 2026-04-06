@@ -294,6 +294,6 @@ class DeviceSignalCollector(private val context: Context, cloudProjectNumber: Lo
     }
 
     companion object {
-        const val SDK_VERSION = "1.17.57"
+        const val SDK_VERSION = "4.1.0"
     }
 }

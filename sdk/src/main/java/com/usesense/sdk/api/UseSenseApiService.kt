@@ -15,6 +15,11 @@ internal interface UseSenseApiService {
         @Body request: CreateSessionRequest,
     ): Response<CreateSessionResponse>
 
+    @POST("v1/sessions/exchange-token")
+    suspend fun exchangeToken(
+        @Body request: ExchangeTokenRequest,
+    ): Response<CreateSessionResponse>
+
     @Multipart
     @POST("v1/sessions/{sessionId}/signals")
     suspend fun uploadSignals(

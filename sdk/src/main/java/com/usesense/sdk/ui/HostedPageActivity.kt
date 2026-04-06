@@ -470,11 +470,11 @@ class HostedPageActivity : AppCompatActivity() {
 
     private fun configureRiskBadge(riskTier: String) {
         val (text, bgColor, textColor) = when (riskTier.lowercase()) {
-            "critical" -> Triple(getString(R.string.usesense_risk_critical), Color.parseColor("#FEE2E2"), Color.parseColor("#991B1B"))
-            "high" -> Triple(getString(R.string.usesense_risk_high), Color.parseColor("#FEF3C7"), Color.parseColor("#92400E"))
-            "medium" -> Triple(getString(R.string.usesense_risk_medium), Color.parseColor("#DBEAFE"), Color.parseColor("#1E40AF"))
-            "low" -> Triple(getString(R.string.usesense_risk_low), Color.parseColor("#DCFCE7"), Color.parseColor("#166534"))
-            else -> Triple(riskTier.uppercase(), Color.parseColor("#F1F5F9"), Color.parseColor("#475569"))
+            "critical" -> Triple(getString(R.string.usesense_risk_critical), Color.parseColor("#FFF0EC"), Color.parseColor("#B73520"))
+            "high" -> Triple(getString(R.string.usesense_risk_high), Color.parseColor("#FFF7E8"), Color.parseColor("#B77829"))
+            "medium" -> Triple(getString(R.string.usesense_risk_medium), Color.parseColor("#EBF0FF"), Color.parseColor("#2C4AB7"))
+            "low" -> Triple(getString(R.string.usesense_risk_low), Color.parseColor("#E6FBF5"), Color.parseColor("#008066"))
+            else -> Triple(riskTier.uppercase(), Color.parseColor("#F5F3EF"), Color.parseColor("#6B6760"))
         }
         riskTierBadge.text = text
         riskTierBadge.setTextColor(textColor)
@@ -759,8 +759,8 @@ class HostedPageActivity : AppCompatActivity() {
             val strokeWidth = (3 * dp).toInt()
             val borderColor = when {
                 report.overallScore >= 65 -> Color.TRANSPARENT
-                report.overallScore >= 40 -> Color.parseColor("#80A78BFA")
-                else -> Color.parseColor("#997C3AED")
+                report.overallScore >= 40 -> Color.parseColor("#807C5CFC") // LiveSense Purple 50%
+                else -> Color.parseColor("#994F7CFF") // DeepSense Blue 60%
             }
             bg.setStroke(if (borderColor == Color.TRANSPARENT) 0 else strokeWidth, borderColor)
         }
@@ -953,8 +953,8 @@ class HostedPageActivity : AppCompatActivity() {
         }
 
         val isCenter = direction == "center"
-        val startColor = if (isCenter) Color.parseColor("#6366F1") else Color.parseColor("#4F46E5")
-        val endColor = if (isCenter) Color.parseColor("#8B5CF6") else Color.parseColor("#6366F1")
+        val startColor = if (isCenter) Color.parseColor("#4F7CFF") else Color.parseColor("#3D63DB")
+        val endColor = if (isCenter) Color.parseColor("#7C5CFC") else Color.parseColor("#4F7CFF")
         directionCircle.background = GradientDrawable(
             GradientDrawable.Orientation.TL_BR, intArrayOf(startColor, endColor)
         ).apply { shape = GradientDrawable.OVAL }
@@ -1082,9 +1082,9 @@ class HostedPageActivity : AppCompatActivity() {
         when (decision) {
             UseSenseResult.DECISION_APPROVE -> {
                 resultIcon.setImageResource(R.drawable.usesense_icon_success)
-                resultIcon.setColorFilter(Color.parseColor("#16A34A"))
+                resultIcon.setColorFilter(Color.parseColor("#00AA88")) // MatchSense Green-6
                 resultIconCircle.background = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL; setColor(Color.parseColor("#DCFCE7"))
+                    shape = GradientDrawable.OVAL; setColor(Color.parseColor("#E6FBF5")) // green-0
                 }
                 resultTitle.text = if (isEnrollment) {
                     getString(R.string.usesense_result_success_enrollment_title)
@@ -1099,18 +1099,18 @@ class HostedPageActivity : AppCompatActivity() {
             }
             UseSenseResult.DECISION_MANUAL_REVIEW -> {
                 resultIcon.setImageResource(R.drawable.usesense_icon_review)
-                resultIcon.setColorFilter(Color.parseColor("#D97706"))
+                resultIcon.setColorFilter(Color.parseColor("#DB973A")) // warning-6
                 resultIconCircle.background = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL; setColor(Color.parseColor("#FEF3C7"))
+                    shape = GradientDrawable.OVAL; setColor(Color.parseColor("#FFF7E8")) // warning-0
                 }
                 resultTitle.text = getString(R.string.usesense_result_review_title)
                 resultBody.text = getString(R.string.usesense_result_review_body)
             }
             else -> {
                 resultIcon.setImageResource(R.drawable.usesense_icon_denied)
-                resultIcon.setColorFilter(Color.parseColor("#DC2626"))
+                resultIcon.setColorFilter(Color.parseColor("#DB4E33")) // error-6
                 resultIconCircle.background = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL; setColor(Color.parseColor("#FEE2E2"))
+                    shape = GradientDrawable.OVAL; setColor(Color.parseColor("#FFF0EC")) // error-0
                 }
                 resultTitle.text = if (isEnrollment) {
                     getString(R.string.usesense_result_failed_enrollment_title)

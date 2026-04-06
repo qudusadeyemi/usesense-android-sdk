@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Section 6.13: Success icon - circle + checkmark, #10B981 stroke -->
+<!-- Section 6.13: Success icon - circle + checkmark, #00D4AA stroke -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="64dp"
     android:height="64dp"
@@ -8,7 +8,7 @@
     <!-- Outer circle -->
     <path
         android:pathData="M32,32m-28,0a28,28 0,1 1,56 0a28,28 0,1 1,-56 0"
-        android:strokeColor="#10B981"
+        android:strokeColor="#00D4AA"
         android:strokeWidth="2"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
@@ -16,7 +16,7 @@
     <!-- Checkmark -->
     <path
         android:pathData="M20,33L28,41L44,23"
-        android:strokeColor="#10B981"
+        android:strokeColor="#00D4AA"
         android:strokeWidth="2"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"

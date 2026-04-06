@@ -10,12 +10,12 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        minSdk = 26
+        minSdk = 28
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
 
         aarMetadata {
-            minCompileSdk = 26
+            minCompileSdk = 28
         }
     }
 
@@ -77,6 +77,12 @@ dependencies {
 
     // Play Integrity
     implementation("com.google.android.play:integrity:1.4.0")
+
+    // MediaPipe FaceMesh (v4.1: 3D liveness / Geometric Coherence)
+    implementation("com.google.mediapipe:tasks-vision:0.20230731")
+
+    // ML Kit Face Detection (v4.1: RMAS action validation in inline step-up)
+    implementation("com.google.mlkit:face-detection:16.1.5")
 
     // Testing
     testImplementation("junit:junit:4.13.2")

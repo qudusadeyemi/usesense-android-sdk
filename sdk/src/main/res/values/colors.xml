@@ -1,75 +1,129 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- ============================================================ -->
-    <!-- Section 3.1: Brand & Primary Colors                          -->
+    <!-- UseSense Brand Manual v3.0 — Color System                    -->
+    <!-- Three pillar colors, warm neutrals, semantic hues.           -->
     <!-- ============================================================ -->
-    <color name="usesense_primary">#FF4F63F5</color>
-    <color name="usesense_primary_dark">#FF4F46E5</color>
-    <color name="usesense_primary_light">#FF6366F1</color>
 
-    <!-- ============================================================ -->
-    <!-- Section 3.2: Indigo Guidance Theme (Quality + Challenge ONLY) -->
-    <!-- ============================================================ -->
-    <color name="usesense_guidance_critical">#E67C3AED</color>       <!-- rgba(124,58,237,0.9)  -->
-    <color name="usesense_guidance_warning">#E6A78BFA</color>        <!-- rgba(167,139,250,0.9) -->
-    <color name="usesense_guidance_info">#E66366F1</color>           <!-- rgba(99,102,241,0.9)  -->
-    <color name="usesense_guidance_critical_bg">#1A7C3AED</color>    <!-- rgba(124,58,237,0.1)  -->
-    <color name="usesense_guidance_warning_bg">#1AA78BFA</color>     <!-- rgba(167,139,250,0.1) -->
-    <color name="usesense_guidance_critical_text">#FF6D28D9</color>
-    <color name="usesense_guidance_warning_text">#FF7C3AED</color>
-    <color name="usesense_guidance_critical_border">#337C3AED</color> <!-- rgba(124,58,237,0.2) -->
-    <color name="usesense_guidance_warning_border">#33A78BFA</color>  <!-- rgba(167,139,250,0.2) -->
-    <color name="usesense_guidance_critical_glow">#997C3AED</color>  <!-- rgba(124,58,237,0.6)  -->
-    <color name="usesense_guidance_acceptable_glow">#80A78BFA</color> <!-- rgba(167,139,250,0.5) -->
+    <!-- ═══ Pillar Colors ═══ -->
+    <!-- DeepSense Blue: Channel integrity, brand primary, CTAs -->
+    <color name="usesense_blue_0">#FFEBF0FF</color>
+    <color name="usesense_blue_1">#FFD6E0FF</color>
+    <color name="usesense_blue_5">#FF4F7CFF</color>  <!-- Primary -->
+    <color name="usesense_blue_6">#FF3D63DB</color>
+    <color name="usesense_blue_7">#FF2C4AB7</color>
+    <color name="usesense_blue_8">#FF1E3493</color>
 
-    <!-- ============================================================ -->
-    <!-- Section 3.3: Semantic Outcome Colors (Outcome Screens ONLY)  -->
-    <!-- CRITICAL: These must NOT be used for guidance/quality UI     -->
-    <!-- ============================================================ -->
-    <color name="usesense_success">#FF10B981</color>
-    <color name="usesense_error">#FFEF4444</color>
-    <color name="usesense_warning">#FFF59E0B</color>
+    <!-- LiveSense Purple: Multimodal liveness, AI features -->
+    <color name="usesense_purple_0">#FFF2EFFE</color>
+    <color name="usesense_purple_1">#FFE5DFFD</color>
+    <color name="usesense_purple_5">#FF7C5CFC</color>
+    <color name="usesense_purple_6">#FF6347D6</color>
+    <color name="usesense_purple_7">#FF4C35B0</color>
 
-    <!-- ============================================================ -->
-    <!-- Section 3.4: Neutral Palette                                 -->
-    <!-- ============================================================ -->
-    <color name="usesense_background">#FFF8F9FA</color>
-    <color name="usesense_surface">#FFFFFFFF</color>
-    <color name="usesense_text_primary">#FF1A1A1A</color>
-    <color name="usesense_text_secondary">#FF6B7280</color>
-    <color name="usesense_border">#FFE5E7EB</color>
-    <color name="usesense_video_bg">#FF000000</color>
+    <!-- MatchSense Green: Identity collision, verified states -->
+    <color name="usesense_green_0">#FFE6FBF5</color>
+    <color name="usesense_green_1">#FFCCF7EB</color>
+    <color name="usesense_green_5">#FF00D4AA</color>
+    <color name="usesense_green_6">#FF00AA88</color>
+    <color name="usesense_green_7">#FF008066</color>
 
-    <!-- ============================================================ -->
-    <!-- Section 3.5: Challenge-Specific Colors                       -->
-    <!-- ============================================================ -->
-    <color name="usesense_dot_color">#FF6366F1</color>
-    <color name="usesense_dot_glow">#806366F1</color>       <!-- rgba(99,102,241,0.5)  -->
-    <color name="usesense_countdown_overlay">#66000000</color> <!-- rgba(0,0,0,0.4)      -->
-    <color name="usesense_countdown_circle">#F2FFFFFF</color>  <!-- rgba(255,255,255,0.95) -->
-    <color name="usesense_countdown_number">#FF4F46E5</color>
-    <color name="usesense_countdown_label_bg">#99000000</color> <!-- rgba(0,0,0,0.6) -->
-    <color name="usesense_face_guide_overlay">#99000000</color> <!-- rgba(0,0,0,0.6) -->
-    <color name="usesense_face_guide_border">#CCFFFFFF</color>  <!-- rgba(255,255,255,0.8) -->
-    <color name="usesense_face_guide_label_bg">#99000000</color>
-    <color name="usesense_instructions_overlay">#BF000000</color> <!-- rgba(0,0,0,0.75) -->
-    <color name="usesense_instructions_icon_bg">#FFE0E7FF</color>
-    <color name="usesense_instructions_icon_color">#FF4F46E5</color>
-    <color name="usesense_instructions_title">#FF1E293B</color>
-    <color name="usesense_instructions_body">#FF64748B</color>
+    <!-- ═══ Brand Primary Aliases ═══ -->
+    <color name="usesense_primary">#FF4F7CFF</color>
+    <color name="usesense_primary_dark">#FF3D63DB</color>
+    <color name="usesense_primary_light">#FFD6E0FF</color>
+
+    <!-- ═══ Semantic Colors ═══ -->
+    <!-- Critical / Error: #FF6B4A -->
+    <color name="usesense_error">#FFFF6B4A</color>
+    <color name="usesense_error_dark">#FFDB4E33</color>
+    <color name="usesense_error_light">#FFFFF0EC</color>
+
+    <!-- Success / Approved: MatchSense Green -->
+    <color name="usesense_success">#FF00D4AA</color>
+    <color name="usesense_success_dark">#FF00AA88</color>
+    <color name="usesense_success_light">#FFE6FBF5</color>
+
+    <!-- Warning / Review: #FFB84D -->
+    <color name="usesense_warning">#FFFFB84D</color>
+    <color name="usesense_warning_dark">#FFDB973A</color>
+    <color name="usesense_warning_light">#FFFFF7E8</color>
+
+    <!-- ═══ Warm Neutral Palette ═══ -->
+    <color name="usesense_n0">#FFFFFFFF</color>
+    <color name="usesense_n50">#FFFDFCFA</color>
+    <color name="usesense_n1">#FFF5F3EF</color>
+    <color name="usesense_n2">#FFE8E5DE</color>
+    <color name="usesense_n3">#FFD0CCBF</color>
+    <color name="usesense_n4">#FF9E9A92</color>
+    <color name="usesense_n5">#FF6B6760</color>
+    <color name="usesense_n6">#FF3D3A35</color>
+    <color name="usesense_n7">#FF2A2723</color>
+    <color name="usesense_n8">#FF1C1A17</color>
+    <color name="usesense_n9">#FF0C0B09</color>
+
+    <!-- ═══ Functional Aliases ═══ -->
+    <color name="usesense_background">#FFFDFCFA</color>       <!-- n50 -->
+    <color name="usesense_surface">#FFFFFFFF</color>           <!-- n0 -->
+    <color name="usesense_text_primary">#FF1C1A17</color>      <!-- n8 -->
+    <color name="usesense_text_secondary">#FF6B6760</color>    <!-- n5 -->
+    <color name="usesense_text_muted">#FF9E9A92</color>        <!-- n4 -->
+    <color name="usesense_border">#FFE8E5DE</color>            <!-- n2 -->
+    <color name="usesense_video_bg">#FF0C0B09</color>          <!-- n9 -->
+
+    <!-- ═══ Guidance Theme (Quality + Challenge UI) ═══ -->
+    <!-- Uses DeepSense Blue instead of old indigo -->
+    <color name="usesense_guidance_critical">#E64F7CFF</color>        <!-- blue 90% -->
+    <color name="usesense_guidance_warning">#E67C5CFC</color>         <!-- purple 90% -->
+    <color name="usesense_guidance_info">#E64F7CFF</color>            <!-- blue 90% -->
+    <color name="usesense_guidance_critical_bg">#144F7CFF</color>     <!-- blue 8% -->
+    <color name="usesense_guidance_warning_bg">#147C5CFC</color>      <!-- purple 8% -->
+    <color name="usesense_guidance_critical_text">#FF3D63DB</color>   <!-- blue-6 -->
+    <color name="usesense_guidance_warning_text">#FF6347D6</color>    <!-- purple-6 -->
+    <color name="usesense_guidance_critical_border">#334F7CFF</color> <!-- blue 20% -->
+    <color name="usesense_guidance_warning_border">#337C5CFC</color>  <!-- purple 20% -->
+    <color name="usesense_guidance_critical_glow">#994F7CFF</color>   <!-- blue 60% -->
+    <color name="usesense_guidance_acceptable_glow">#807C5CFC</color> <!-- purple 50% -->
+
+    <!-- ═══ Challenge-Specific Colors ═══ -->
+    <color name="usesense_dot_color">#FF4F7CFF</color>          <!-- DeepSense Blue -->
+    <color name="usesense_dot_glow">#804F7CFF</color>           <!-- blue 50% -->
+    <color name="usesense_countdown_overlay">#66000000</color>   <!-- black 40% -->
+    <color name="usesense_countdown_circle">#F2FFFFFF</color>    <!-- white 95% -->
+    <color name="usesense_countdown_number">#FF4F7CFF</color>    <!-- DeepSense Blue -->
+    <color name="usesense_countdown_label_bg">#991C1A17</color>  <!-- n8 60% -->
+    <color name="usesense_face_guide_overlay">#991C1A17</color>  <!-- n8 60% -->
+    <color name="usesense_face_guide_border">#CCFFFFFF</color>   <!-- white 80% -->
+    <color name="usesense_face_guide_label_bg">#991C1A17</color> <!-- n8 60% -->
+    <color name="usesense_instructions_overlay">#BF1C1A17</color> <!-- n8 75% -->
+    <color name="usesense_instructions_icon_bg">#FFEBF0FF</color> <!-- blue-0 -->
+    <color name="usesense_instructions_icon_color">#FF4F7CFF</color> <!-- DeepSense Blue -->
+    <color name="usesense_instructions_title">#FF1C1A17</color>  <!-- n8 -->
+    <color name="usesense_instructions_body">#FF6B6760</color>   <!-- n5 -->
 
     <!-- Phase badges -->
-    <color name="usesense_badge_baseline">#E66366F1</color>    <!-- rgba(99,102,241,0.9)  -->
-    <color name="usesense_badge_challenge">#E64F46E5</color>   <!-- rgba(79,70,229,0.9)   -->
-    <color name="usesense_badge_complete_bg">#266366F1</color>  <!-- rgba(99,102,241,0.15) -->
-    <color name="usesense_badge_complete_text">#FF4F46E5</color>
+    <color name="usesense_badge_baseline">#E64F7CFF</color>      <!-- blue 90% -->
+    <color name="usesense_badge_challenge">#E63D63DB</color>      <!-- blue-6 90% -->
+    <color name="usesense_badge_complete_bg">#264F7CFF</color>    <!-- blue 15% -->
+    <color name="usesense_badge_complete_text">#FF4F7CFF</color>  <!-- DeepSense Blue -->
 
-    <!-- Baseline oval: subtle -->
-    <color name="usesense_baseline_oval">#4DFFFFFF</color>      <!-- rgba(255,255,255,0.3) -->
+    <!-- Step-up specific -->
+    <color name="usesense_stepup_intro_bg">#FF1C1A17</color>      <!-- n8 -->
+    <color name="usesense_stepup_shield">#FF4F7CFF</color>        <!-- blue -->
+    <color name="usesense_stepup_success">#FF00D4AA</color>       <!-- green -->
 
-    <!-- Error info caption -->
-    <color name="usesense_caption_muted">#FF94A3B8</color>
+    <!-- Baseline oval -->
+    <color name="usesense_baseline_oval">#4DFFFFFF</color>        <!-- white 30% -->
 
-    <!-- Arrow circle glow -->
-    <color name="usesense_arrow_glow">#806366F1</color>
+    <!-- Captions -->
+    <color name="usesense_caption_muted">#FF9E9A92</color>        <!-- n4 -->
+
+    <!-- Arrow glow -->
+    <color name="usesense_arrow_glow">#804F7CFF</color>           <!-- blue 50% -->
+
+    <!-- ═══ Shadows (reference values for code) ═══ -->
+    <!-- sh-sm: 0 1px 3px rgba(0,0,0,.06) -->
+    <!-- sh-md: 0 4px 12px rgba(0,0,0,.07) -->
+    <!-- sh-lg: 0 8px 32px rgba(0,0,0,.08) -->
+    <!-- sh-focus: 0 0 0 3px rgba(79,124,255,.15) -->
 </resources>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Section 6.10: Instructions CTA button - #4F46E5 fill, 10dp radius -->
+<!-- Section 6.10: Instructions CTA button - #4F7CFF fill, 10dp radius -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="@color/usesense_primary_dark" />
+    <solid android:color="@color/usesense_primary" />
     <corners android:radius="10dp" />
 </shape>

@@ -89,4 +89,55 @@ class FrameBufferTest {
         assertEquals(2, timestamps.size)
         assertTrue(timestamps[1] >= timestamps[0])
     }
+
+    @Test
+    fun `frame hashes are SHA-256 hex strings`() {
+        buffer.startCapture()
+        buffer.addFrame(byteArrayOf(1, 2, 3))
+
+        val hashes = buffer.frameHashes
+        assertEquals(1, hashes.size)
+        // SHA-256 hex is 64 characters
+        assertEquals(64, hashes[0].length)
+        // Should be lowercase hex
+        assertTrue(hashes[0].matches(Regex("[0-9a-f]{64}")))
+    }
+
+    @Test
+    fun `computeSha256 produces consistent hashes`() {
+        val data = byteArrayOf(0x48, 0x65, 0x6c, 0x6c, 0x6f) // "Hello"
+        val hash1 = FrameBuffer.computeSha256(data)
+        val hash2 = FrameBuffer.computeSha256(data)
+        assertEquals(hash1, hash2)
+        assertEquals(64, hash1.length)
+    }
+
+    @Test
+    fun `different data produces different hashes`() {
+        val hash1 = FrameBuffer.computeSha256(byteArrayOf(1, 2, 3))
+        val hash2 = FrameBuffer.computeSha256(byteArrayOf(4, 5, 6))
+        assertNotEquals(hash1, hash2)
+    }
+
+    @Test
+    fun `luminance is stored in frame`() {
+        buffer.startCapture()
+        val frame = buffer.addFrame(byteArrayOf(1, 2, 3), luminance = 128.5)
+        assertNotNull(frame)
+        assertEquals(128.5, frame!!.luminance, 0.01)
+    }
+
+    @Test
+    fun `frameLuminances returns all luminance values`() {
+        buffer.startCapture()
+        buffer.addFrame(byteArrayOf(1), luminance = 100.0)
+        buffer.addFrame(byteArrayOf(2), luminance = 120.0)
+        buffer.addFrame(byteArrayOf(3), luminance = 110.0)
+
+        val luminances = buffer.frameLuminances
+        assertEquals(3, luminances.size)
+        assertEquals(100.0, luminances[0], 0.01)
+        assertEquals(120.0, luminances[1], 0.01)
+        assertEquals(110.0, luminances[2], 0.01)
+    }
 }

@@ -78,9 +78,15 @@ class MockUseSenseServer {
                 put("policy_source", "sensei")
             })
             put("upload", JSONObject().apply {
-                put("max_frames", 65)
-                put("target_fps", 10)
-                put("capture_duration_ms", 4500)
+                put("max_frames", 30)
+                put("target_fps", 3)
+                put("capture_duration_ms", 8000)
+            })
+            put("geometric_coherence", JSONObject().apply {
+                put("dual_path_enabled", false)
+                put("screen_illumination_enabled", false)
+                put("on_device_3dmm_required", false)
+                put("mesh_binding_challenge", "")
             })
         }
 
@@ -137,26 +143,18 @@ class MockUseSenseServer {
             put("liveness_score", scores.second)
             put("dedupe_risk_score", scores.third)
             put("pillar_verdicts", JSONObject().apply {
-                put("deepsense", JSONObject().apply {
-                    put("score", scores.first)
-                    put("verdict", if (scores.first >= 50) "APPROVE" else "REJECT")
-                })
-                put("livesense", JSONObject().apply {
-                    put("score", scores.second)
-                    put("verdict", if (scores.second >= 50) "APPROVE" else "REJECT")
-                })
-                put("dedupe", JSONObject().apply {
-                    put("score", scores.third)
-                    put("verdict", if (scores.third <= 50) "APPROVE" else "REJECT")
-                })
+                put("channel_trust", if (scores.first >= 50) "PASS" else "FAIL")
+                put("liveness", if (scores.second >= 50) "PASS" else "FAIL")
+                put("dedupe", if (scores.third <= 50) "PASS" else "FAIL")
             })
             put("verdict_metadata", JSONObject().apply {
-                put("source", "verdict_matrix")
+                put("source", "matrix")
                 put("logic", "weakest_link")
+                put("hard_gate_tripped", false)
+                put("risk_band", if (mockDecision == "APPROVE") "low" else "high")
             })
             put("reasons", reasons)
             put("timestamp", java.time.Instant.now().toString())
-            put("signature", "mock_hmac_sha256_${UUID.randomUUID()}")
         }
 
         return MockResponse()
@@ -183,7 +181,7 @@ class MockUseSenseServer {
                 put("type", "follow_dot")
                 put("seed", UUID.randomUUID().toString().take(12))
                 put("total_duration_ms", 6000)
-                put("frames_per_step", 3)
+                put("frames_per_step", 2)
                 put("capture_fps_hint", 10)
                 put("dot_size_px", 20)
                 put("waypoints", JSONArray().apply {
@@ -197,7 +195,7 @@ class MockUseSenseServer {
                 put("type", "head_turn")
                 put("seed", UUID.randomUUID().toString().take(12))
                 put("total_duration_ms", 5500)
-                put("frames_per_step", 3)
+                put("frames_per_step", 2)
                 put("capture_fps_hint", 10)
                 put("sequence", JSONArray().apply {
                     put(JSONObject().apply { put("direction", "left"); put("duration_ms", 2000); put("index", 0) })
