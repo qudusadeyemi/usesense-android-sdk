@@ -13,22 +13,14 @@ import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import java.io.IOException
-import java.net.URLEncoder
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 internal class UseSenseApiClient(private val config: UseSenseConfig) {
 
-    companion object {
-        // Default Supabase anonymous key (public, safe to bundle)
-        const val DEFAULT_GATEWAY_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR6ZnNycXNqZ3hjcHN4eXB4am9mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEyMDQ5MjgsImV4cCI6MjA4Njc4MDkyOH0._PM_8RU9a6-l10mchYv5eipIhwWwt4gh8G1vdJgWcXw"
-    }
-
     private val moshi: Moshi = Moshi.Builder()
         .addLast(KotlinJsonAdapterFactory())
         .build()
-
-    private val gatewayKey: String = config.gatewayKey ?: DEFAULT_GATEWAY_KEY
 
     @Volatile
     var sessionToken: String? = null
@@ -37,22 +29,9 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
     var nonce: String? = null
 
     /**
-     * Layer 1: Supabase Gateway Auth - applied to ALL requests.
-     * Both Authorization and apikey headers are required by Supabase Edge Functions.
-     */
-    private val gatewayInterceptor = Interceptor { chain ->
-        val original = chain.request()
-        val builder = original.newBuilder()
-
-        // Supabase gateway headers (Layer 1)
-        builder.addHeader("Authorization", "Bearer $gatewayKey")
-        builder.addHeader("apikey", gatewayKey)
-
-        chain.proceed(builder.build())
-    }
-
-    /**
-     * Layer 2: Endpoint-specific auth headers + environment + nonce dual-delivery.
+     * Auth interceptor: adds x-environment header, session token, nonce dual-delivery.
+     * Supabase gateway headers are NO LONGER sent -- the Cloudflare Worker proxy
+     * at api.usesense.ai injects them server-side.
      */
     private val sessionInterceptor = Interceptor { chain ->
         val original = chain.request()
@@ -61,8 +40,7 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
         // Session token (for upload, complete, status endpoints)
         sessionToken?.let { builder.addHeader("X-Session-Token", it) }
 
-        // Nonce dual-delivery (v1.17.5+): send in BOTH header AND query param
-        // to survive proxy/CDN header stripping
+        // Nonce dual-delivery: send in BOTH header AND query param
         val currentNonce = nonce
         if (currentNonce != null) {
             builder.addHeader("X-Nonce", currentNonce)
@@ -72,7 +50,7 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
             builder.url(urlWithNonce)
         }
 
-        // Environment query parameter
+        // Environment
         val env = if (config.environment == UseSenseEnvironment.AUTO) {
             UseSenseEnvironment.fromApiKey(config.apiKey)
         } else {
@@ -83,14 +61,17 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
             else -> "production"
         }
 
-        // Add env as query parameter
+        // x-environment header (required on all requests)
+        builder.addHeader("x-environment", envValue)
+
+        // env query parameter
         val currentUrl = builder.build().url
         val urlWithEnv = currentUrl.newBuilder()
             .addQueryParameter("env", envValue)
             .build()
         builder.url(urlWithEnv)
 
-        builder.addHeader("User-Agent", "UseSense-Android-SDK/1.17.57")
+        builder.addHeader("User-Agent", "UseSense-Android-SDK/4.1.0")
 
         chain.proceed(builder.build())
     }
@@ -102,7 +83,6 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
         val request = chain.request()
         val path = request.url.encodedPath
 
-        // Add idempotency key for upload and complete endpoints
         if (path.contains("/signals") || path.contains("/complete")) {
             val sessionId = sessionToken ?: "unknown"
             val idempotencyKey = "${sessionId}_${System.currentTimeMillis()}_${UUID.randomUUID()}"
@@ -115,32 +95,54 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
         }
     }
 
+    /**
+     * Retry interceptor per spec 1.7:
+     * - Network errors: up to 3 retries with 1s, 2s, 4s backoff
+     * - 5xx: up to 2 retries with 2s delay
+     * - 429: respect Retry-After header
+     * - Other 4xx: do NOT retry
+     */
     private val retryInterceptor = Interceptor { chain ->
         val request = chain.request()
         var response: okhttp3.Response? = null
         var exception: IOException? = null
-        val delays = longArrayOf(0, 1000, 3000)
+        val maxAttempts = 4 // initial + 3 retries
+        val backoffDelays = longArrayOf(0, 1000, 2000, 4000)
 
-        for (attempt in delays.indices) {
+        for (attempt in 0 until maxAttempts) {
             try {
                 if (attempt > 0) {
-                    Thread.sleep(delays[attempt])
+                    Thread.sleep(backoffDelays[attempt])
                 }
                 response?.close()
                 response = chain.proceed(request)
-                if (response.isSuccessful || response.code != 500) {
-                    return@Interceptor response
+
+                when {
+                    response.isSuccessful -> return@Interceptor response
+                    response.code == 429 -> {
+                        val retryAfter = response.header("Retry-After")?.toLongOrNull() ?: 2L
+                        response.close()
+                        Thread.sleep(retryAfter * 1000)
+                        continue
+                    }
+                    response.code in 500..599 -> {
+                        if (attempt >= 2) return@Interceptor response // max 2 retries for 5xx
+                        response.close()
+                        Thread.sleep(2000)
+                        continue
+                    }
+                    else -> return@Interceptor response // 4xx: don't retry
                 }
             } catch (e: IOException) {
                 exception = e
                 response?.close()
+                response = null
             }
         }
         response ?: throw (exception ?: IOException("Request failed after retries"))
     }
 
     private val okHttpClient: OkHttpClient = OkHttpClient.Builder()
-        .addInterceptor(gatewayInterceptor)
         .addInterceptor(sessionInterceptor)
         .addInterceptor(idempotencyInterceptor)
         .addInterceptor(retryInterceptor)
@@ -158,6 +160,21 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
 
     suspend fun createSession(request: CreateSessionRequest): Result<CreateSessionResponse> {
         return executeCall { service.createSession(config.apiKey, request) }.also { result ->
+            result.getOrNull()?.let {
+                sessionToken = it.sessionToken
+                nonce = it.nonce
+            }
+        }
+    }
+
+    /**
+     * Exchange a client_token for full session credentials (server-side init flow).
+     * No API key required -- the token itself authenticates.
+     */
+    suspend fun exchangeToken(clientToken: String): Result<CreateSessionResponse> {
+        return executeCall {
+            service.exchangeToken(ExchangeTokenRequest(clientToken))
+        }.also { result ->
             result.getOrNull()?.let {
                 sessionToken = it.sessionToken
                 nonce = it.nonce
@@ -260,9 +277,6 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
         nonce = null
     }
 
-    /**
-     * For endpoints that may return empty body on success (e.g. POST /opened).
-     */
     @Suppress("UNCHECKED_CAST")
     private suspend fun <T> executeCallAllowEmptyBody(call: suspend () -> Response<T>): Result<T> {
         return try {
@@ -322,21 +336,28 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
         }
     }
 
-    /**
-     * Map HTTP status + server error codes to user-friendly messages per spec Section 11.8.
-     */
     private fun getUserMessage(httpStatus: Int, serverCode: String?): String {
         return when (httpStatus) {
             400 -> "Invalid request. Please check the parameters."
             401 -> when (serverCode) {
                 "session_expired" -> "Your session has expired. Please start over."
+                "nonce_mismatch" -> "Nonce does not match the session nonce."
                 "invalid_token" -> "Session token is invalid."
                 else -> "Authentication failed. Check API key."
             }
+            402 -> "Insufficient verification credits."
             404 -> when (serverCode) {
                 "identity_not_found" -> "Identity not found."
+                "session_not_found" -> "Session not found."
+                "token_not_found" -> "Token not found or invalid."
                 else -> "Endpoint not found. Verify Backend URL."
             }
+            409 -> when (serverCode) {
+                "session_already_completed" -> "Session has already been completed."
+                "token_already_used" -> "Token has already been exchanged."
+                else -> "Conflict: $serverCode"
+            }
+            410 -> "Session has expired. Please start a new session."
             429 -> "Rate limit reached. Try again later."
             500 -> "Server error. Please try again."
             503 -> "Service unavailable. Try again later."

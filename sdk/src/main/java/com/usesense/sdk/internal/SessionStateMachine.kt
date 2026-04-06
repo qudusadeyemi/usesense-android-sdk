@@ -26,6 +26,7 @@ enum class CapturePhase {
     BASELINE,         // 2000ms passive capture, looking straight ahead
     COUNTDOWN,        // 3-2-1 countdown with continued capture
     CHALLENGE,        // Active challenge (head_turn / follow_dot / speak_phrase)
+    INLINE_STEP_UP,   // Inline step-up PAD challenge (flash reflection / RMAS)
     UPLOADING,        // Uploading frames + metadata to server
     COMPLETING,       // Server-side evaluation in progress
     DONE;             // Terminal - onComplete/onError has been called
