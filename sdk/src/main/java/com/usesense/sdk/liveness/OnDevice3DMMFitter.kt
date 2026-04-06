@@ -45,8 +45,9 @@ internal class OnDevice3DMMFitter {
      * Extract the 40 salient landmarks used for 3DMM fitting.
      */
     private fun extractSalientLandmarks(landmarks: List<LandmarkPoint>): List<LandmarkPoint> {
+        val landmarkSize = landmarks.size
         return FaceMeshManager.SALIENT_LANDMARKS.mapNotNull { idx ->
-            if (idx < landmarks.size) landmarks[idx] else null
+            if (idx in 0 until landmarkSize) landmarks[idx] else null
         }
     }
 
