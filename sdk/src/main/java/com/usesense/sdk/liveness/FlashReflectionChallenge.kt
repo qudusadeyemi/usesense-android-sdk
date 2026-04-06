@@ -2,7 +2,6 @@ package com.usesense.sdk.liveness
 
 import android.graphics.Bitmap
 import android.graphics.Color
-import android.os.SystemClock
 import android.view.Choreographer
 import android.view.View
 import kotlinx.coroutines.*

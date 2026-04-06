@@ -34,6 +34,7 @@ class MetadataBuilder {
         faceMeshSignals: JSONObject? = null,
         verificationPackage: JSONObject? = null,
         suspicion: SuspicionSnapshot? = null,
+        suspicionTriggered: Boolean = false,
         inlineStepUp: JSONObject? = null,
         screenDetection: JSONObject? = null,
     ): ByteArray {
@@ -119,7 +120,7 @@ class MetadataBuilder {
         if (suspicion != null) {
             metadata.put("suspicion", JSONObject().apply {
                 put("final_score", suspicion.score)
-                put("triggered", suspicion.score >= 55) // default threshold
+                put("triggered", suspicionTriggered)
                 put("snapshot", suspicion.toJson())
             })
         }

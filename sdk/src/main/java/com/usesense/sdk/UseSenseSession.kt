@@ -216,8 +216,11 @@ internal class UseSenseSession(
         // v4.1: Build face mesh signals JSON
         val faceMeshSignals = buildFaceMeshSignals()
 
+        // Extract play integrity token from already-collected signals (avoid double collection)
+        val playIntegrityToken = channelIntegrity.optString("play_integrity_token", null)
+
         // v4.1: Build verification package (if GC dual-path enabled)
-        val verificationPackage = buildVerificationPackage(buffer)
+        val verificationPackage = buildVerificationPackage(buffer, playIntegrityToken)
 
         // v4.1: Suspicion engine snapshot
         val suspicionSnapshot = suspicionEngine.getSnapshot()
@@ -243,6 +246,7 @@ internal class UseSenseSession(
             faceMeshSignals = faceMeshSignals,
             verificationPackage = verificationPackage,
             suspicion = suspicionSnapshot,
+            suspicionTriggered = suspicionEngine.triggered,
             inlineStepUp = stepUpEvidence,
             screenDetection = screenDetection,
         )
@@ -286,7 +290,7 @@ internal class UseSenseSession(
         }
     }
 
-    private fun buildVerificationPackage(buffer: FrameBuffer): JSONObject? {
+    private fun buildVerificationPackage(buffer: FrameBuffer, playIntegrityToken: String?): JSONObject? {
         val gcConfig = geometricCoherenceConfig ?: return null
         if (!gcConfig.dualPathEnabled) return null
         if (threeDMMFitter.results.isEmpty()) return null
@@ -302,8 +306,7 @@ internal class UseSenseSession(
             frameHashes = frameHashMap,
             meshBindingChallenge = gcConfig.meshBindingChallenge,
             meshDataList = faceMeshManager.frameMeshData,
-            playIntegrityToken = signalCollector.collectSignals()
-                .optString("play_integrity_token", null),
+            playIntegrityToken = playIntegrityToken,
         )
     }
 

@@ -51,9 +51,8 @@ class FrameCaptureManager(
             }
             lastFrameTimeMs = now
 
-            // Convert ImageProxy to non-mirrored JPEG
-            val jpegData = imageProxyToJpeg(imageProxy)
-            val luminance = computeLuminance(imageProxy)
+            // Convert ImageProxy to non-mirrored JPEG and compute luminance in one pass
+            val (jpegData, luminance) = imageProxyToJpegWithLuminance(imageProxy)
             imageProxy.close()
 
             if (jpegData != null) {
@@ -69,7 +68,11 @@ class FrameCaptureManager(
         }
     }
 
-    private fun imageProxyToJpeg(imageProxy: ImageProxy): ByteArray? {
+    /**
+     * Convert ImageProxy to JPEG and compute luminance in a single pass,
+     * avoiding the overhead of calling toBitmap() twice.
+     */
+    private fun imageProxyToJpegWithLuminance(imageProxy: ImageProxy): Pair<ByteArray?, Double> {
         return try {
             val rawBitmap = imageProxy.toBitmap()
             val rotationDegrees = imageProxy.imageInfo.rotationDegrees
@@ -87,24 +90,25 @@ class FrameCaptureManager(
                 rawBitmap
             }
 
-            FrameEncoder.bitmapToJpeg(correctedBitmap).also {
-                correctedBitmap.recycle()
-            }
+            // Compute luminance from the corrected bitmap before JPEG encoding
+            val luminance = computeLuminanceFromBitmap(correctedBitmap)
+            val jpegData = FrameEncoder.bitmapToJpeg(correctedBitmap)
+            correctedBitmap.recycle()
+
+            Pair(jpegData, luminance)
         } catch (e: Exception) {
-            null
+            Pair(null, 0.0)
         }
     }
 
     /**
-     * Compute average luminance for a frame (downscaled to 64x48).
+     * Compute average luminance from a bitmap (downscaled to 64x48).
      * Uses ITU-R BT.601: L = 0.299*R + 0.587*G + 0.114*B
      * This feeds the Suspicion Engine's brightness stability signal.
      */
-    private fun computeLuminance(imageProxy: ImageProxy): Double {
+    private fun computeLuminanceFromBitmap(bitmap: Bitmap): Double {
         return try {
-            val bitmap = imageProxy.toBitmap()
             val scaled = Bitmap.createScaledBitmap(bitmap, 64, 48, true)
-            if (scaled !== bitmap) bitmap.recycle()
 
             var totalLuminance = 0.0
             val width = scaled.width
@@ -112,7 +116,7 @@ class FrameCaptureManager(
             val pixelCount = width * height
             val pixels = IntArray(pixelCount)
             scaled.getPixels(pixels, 0, width, 0, 0, width, height)
-            scaled.recycle()
+            if (scaled !== bitmap) scaled.recycle()
 
             for (pixel in pixels) {
                 val r = (pixel shr 16) and 0xFF
