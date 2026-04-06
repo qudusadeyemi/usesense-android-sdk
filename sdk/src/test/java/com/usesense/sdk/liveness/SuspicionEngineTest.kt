@@ -67,8 +67,9 @@ class SuspicionEngineTest {
 
     @Test
     fun `only analyzes every 2nd frame`() {
-        // Feed 4 frames, only 2 should be analyzed
-        for (i in 0 until 4) {
+        // Feed 8 frames: frameCounter goes 1-8, analyzed on even (2,4,6,8) = 4 analyzed
+        // Snapshot produced after framesAnalyzed >= 3 (i.e., from the 3rd analyzed frame onward)
+        for (i in 0 until 8) {
             engine.analyzeFrame(
                 HeadPose(0.0, 0.0, 0.0), 100.0, 50.0,
                 timestampMs = (1000 + i * 100).toLong(),
@@ -76,10 +77,9 @@ class SuspicionEngineTest {
         }
 
         val snapshot = engine.getSnapshot()
-        // With 4 frames fed and every-2nd-frame analysis,
-        // we should have 2 analyzed frames
         assertNotNull(snapshot)
-        assertEquals(2, snapshot!!.framesAnalyzed)
+        // 8 frames fed, every 2nd analyzed = 4
+        assertEquals(4, snapshot!!.framesAnalyzed)
     }
 
     @Test
