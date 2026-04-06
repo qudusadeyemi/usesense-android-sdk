@@ -193,4 +193,4 @@ The SDK can run on emulators for basic UI testing, but DeepSense channel trust s
 7. Set up low-credit alerts (webhook: `billing.credits_low`)
 8. Register your production signing key in Google Play Console for Play Integrity
 9. Test with R8/ProGuard minification enabled
-10. Test on minimum supported API level (26) device if possible
+10. Test on minimum supported API level (28) device if possible

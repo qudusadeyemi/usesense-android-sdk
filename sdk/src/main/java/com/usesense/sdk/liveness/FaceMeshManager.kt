@@ -16,17 +16,23 @@ import kotlinx.coroutines.withContext
 internal class FaceMeshManager(private val context: Context) {
 
     private var faceLandmarker: FaceLandmarker? = null
+    private val modelDownloader = ModelDownloader(context)
     private val _frameMeshData = mutableListOf<FrameMeshData>()
     val frameMeshData: List<FrameMeshData> get() = _frameMeshData.toList()
 
     /**
-     * Initialize the FaceLandmarker. Should be called before capture begins.
-     * Returns true if initialization succeeded, false if MediaPipe is unavailable.
+     * Initialize the FaceLandmarker. Downloads the model from CDN on first use,
+     * then caches it in internal storage. Should be called before capture begins.
+     * Returns true if initialization succeeded, false if model download or
+     * MediaPipe initialization failed.
      */
     suspend fun initialize(): Boolean = withContext(Dispatchers.IO) {
         try {
+            val modelPath = modelDownloader.ensureModel()
+                ?: return@withContext false
+
             val baseOptions = BaseOptions.builder()
-                .setModelAssetPath("face_landmarker.task")
+                .setModelAssetPath(modelPath)
                 .build()
 
             val options = FaceLandmarker.FaceLandmarkerOptions.builder()
@@ -43,6 +49,11 @@ internal class FaceMeshManager(private val context: Context) {
             false
         }
     }
+
+    /**
+     * Whether the model is already cached (no download will be needed).
+     */
+    val isModelCached: Boolean get() = modelDownloader.isCached()
 
     val isAvailable: Boolean get() = faceLandmarker != null
 
