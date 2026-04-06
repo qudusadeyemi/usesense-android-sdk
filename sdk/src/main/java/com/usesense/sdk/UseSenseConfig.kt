@@ -28,7 +28,7 @@ data class BrandingConfig(
     val fontFamily: String? = null,
 ) {
     companion object {
-        const val DEFAULT_PRIMARY_COLOR = "#4f46e5"
+        const val DEFAULT_PRIMARY_COLOR = "#4F7CFF"
     }
 }
 

@@ -473,8 +473,8 @@ class UseSenseActivity : AppCompatActivity() {
 
             val borderColor = when {
                 report.overallScore >= 65 -> Color.TRANSPARENT
-                report.overallScore >= 40 -> Color.parseColor("#80A78BFA") // indigo guidance
-                else -> Color.parseColor("#997C3AED") // deep indigo
+                report.overallScore >= 40 -> Color.parseColor("#807C5CFC") // LiveSense Purple 50%
+                else -> Color.parseColor("#994F7CFF") // DeepSense Blue 60%
             }
             bg.setStroke(if (borderColor == Color.TRANSPARENT) 0 else strokeWidth, borderColor)
         }
@@ -690,8 +690,8 @@ class UseSenseActivity : AppCompatActivity() {
 
         // Build gradient background for direction circle (Section 3.5: indigo gradient)
         val isCenter = direction == "center"
-        val startColor = if (isCenter) Color.parseColor("#6366F1") else Color.parseColor("#4F46E5")
-        val endColor = if (isCenter) Color.parseColor("#8B5CF6") else Color.parseColor("#6366F1")
+        val startColor = if (isCenter) Color.parseColor("#4F7CFF") else Color.parseColor("#3D63DB")
+        val endColor = if (isCenter) Color.parseColor("#7C5CFC") else Color.parseColor("#4F7CFF")
         val gradientBg = GradientDrawable(
             GradientDrawable.Orientation.TL_BR,
             intArrayOf(startColor, endColor)

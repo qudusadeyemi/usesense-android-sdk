@@ -44,10 +44,10 @@ class QualityIndicatorView @JvmOverloads constructor(
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val bgRect = RectF()
 
-    // Indigo guidance colors per spec
-    private val colorGood = Color.parseColor("#6366F1")       // Info
-    private val colorAcceptable = Color.parseColor("#A78BFA")  // Warning
-    private val colorPoor = Color.parseColor("#7C3AED")        // Critical
+    // Brand manual: DeepSense Blue for quality indicators
+    private val colorGood = Color.parseColor("#4F7CFF")        // DeepSense Blue
+    private val colorAcceptable = Color.parseColor("#7C5CFC")  // LiveSense Purple
+    private val colorPoor = Color.parseColor("#3D63DB")        // Blue-6 (darker)
 
     private var targetColor = colorGood
     private var animatedColor = colorGood

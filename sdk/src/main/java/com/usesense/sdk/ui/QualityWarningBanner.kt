@@ -26,13 +26,13 @@ class QualityWarningBanner @JvmOverloads constructor(
     private val iconView: TextView
     private val messageView: TextView
 
-    // Colors per spec
-    private val poorBg = Color.parseColor("#1A7C3AED")       // rgba(124, 58, 237, 0.1)
-    private val poorText = Color.parseColor("#6D28D9")
-    private val poorBorder = Color.parseColor("#337C3AED")    // rgba(124, 58, 237, 0.2)
-    private val acceptableBg = Color.parseColor("#1AA78BFA")  // rgba(167, 139, 250, 0.1)
-    private val acceptableText = Color.parseColor("#7C3AED")
-    private val acceptableBorder = Color.parseColor("#33A78BFA") // rgba(167, 139, 250, 0.2)
+    // Brand manual: DeepSense Blue + LiveSense Purple guidance colors
+    private val poorBg = Color.parseColor("#144F7CFF")        // blue 8%
+    private val poorText = Color.parseColor("#3D63DB")         // blue-6
+    private val poorBorder = Color.parseColor("#334F7CFF")     // blue 20%
+    private val acceptableBg = Color.parseColor("#147C5CFC")   // purple 8%
+    private val acceptableText = Color.parseColor("#6347D6")   // purple-6
+    private val acceptableBorder = Color.parseColor("#337C5CFC") // purple 20%
 
     private val dp = resources.displayMetrics.density
 

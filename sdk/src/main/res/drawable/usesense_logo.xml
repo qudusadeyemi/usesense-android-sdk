@@ -8,12 +8,12 @@
     <!-- Background rounded rect (gradient simulated with two layers) -->
     <path
         android:pathData="M16,0L48,0A16,16 0 0,1 64,16L64,48A16,16 0 0,1 48,64L16,64A16,16 0 0,1 0,48L0,16A16,16 0 0,1 16,0z"
-        android:fillColor="#4F46E5" />
+        android:fillColor="#4F7CFF" />
 
     <!-- Lighter overlay for gradient effect (top-left region) -->
     <path
         android:pathData="M16,0L48,0A16,16 0 0,1 64,16L0,16A16,16 0 0,1 16,0z"
-        android:fillColor="#4F63F5"
+        android:fillColor="#4F7CFF"
         android:fillAlpha="0.5" />
 
     <!-- Shield outline (white, 20% fill + stroke) -->
@@ -72,7 +72,7 @@
     <!-- Success badge circle (green, bottom-right) -->
     <path
         android:pathData="M44,44m-8,0a8,8 0,1 1,16 0a8,8 0,1 1,-16 0"
-        android:fillColor="#10B981"
+        android:fillColor="#00D4AA"
         android:strokeColor="#FFFFFF"
         android:strokeWidth="2" />
 

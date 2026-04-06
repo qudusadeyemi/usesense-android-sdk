@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Section 7.10: Speak phrase display - #E5E7EB bg, 8dp radius -->
+<!-- Section 7.10: Speak phrase display - #E8E5DE bg, 8dp radius -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <solid android:color="@color/usesense_border" />

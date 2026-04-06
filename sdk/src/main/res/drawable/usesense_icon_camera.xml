@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Section 6.13: Permission icon - camera, #4F63F5 stroke -->
+<!-- Section 6.13: Permission icon - camera, #4F7CFF stroke -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="64dp"
     android:height="64dp"
@@ -8,7 +8,7 @@
     <!-- Camera body -->
     <path
         android:pathData="M8,20h48v28a4,4 0,0 1,-4 4H12a4,4 0,0 1,-4 -4V20z"
-        android:strokeColor="#4F63F5"
+        android:strokeColor="#4F7CFF"
         android:strokeWidth="2"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
@@ -16,7 +16,7 @@
     <!-- Camera top -->
     <path
         android:pathData="M22,20L26,12h12l4,8"
-        android:strokeColor="#4F63F5"
+        android:strokeColor="#4F7CFF"
         android:strokeWidth="2"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
@@ -24,7 +24,7 @@
     <!-- Lens -->
     <path
         android:pathData="M32,35m-9,0a9,9 0,1 1,18 0a9,9 0,1 1,-18 0"
-        android:strokeColor="#4F63F5"
+        android:strokeColor="#4F7CFF"
         android:strokeWidth="2"
         android:fillColor="@android:color/transparent" />
 </vector>
