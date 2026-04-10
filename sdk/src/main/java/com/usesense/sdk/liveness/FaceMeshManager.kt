@@ -12,27 +12,32 @@ import kotlinx.coroutines.withContext
 /**
  * Wraps MediaPipe FaceLandmarker for per-frame 468-landmark face mesh detection.
  * Runs on a background thread to avoid blocking the camera capture loop.
+ *
+ * The face_landmarker.task model is bundled in the AAR's assets/ directory and
+ * managed by the mediapipe-sdk-sync workflow in qudusadeyemi/usesense-watchtower.
+ * See MediaPipeModelInfo for the bundled bytes' version, sha256, and provenance.
  */
 internal class FaceMeshManager(private val context: Context) {
 
     private var faceLandmarker: FaceLandmarker? = null
-    private val modelDownloader = ModelDownloader(context)
     private val _frameMeshData = mutableListOf<FrameMeshData>()
     val frameMeshData: List<FrameMeshData> get() = _frameMeshData.toList()
 
     /**
-     * Initialize the FaceLandmarker. Downloads the model from CDN on first use,
-     * then caches it in internal storage. Should be called before capture begins.
-     * Returns true if initialization succeeded, false if model download or
-     * MediaPipe initialization failed.
+     * Initialize the FaceLandmarker using the bundled face_landmarker.task asset.
+     * Should be called before capture begins. Returns true if initialization
+     * succeeded, false if MediaPipe failed to load the model. The most common
+     * failure case is the bundled asset being missing, which happens between
+     * this PR landing and the first mediapipe-sdk-sync workflow run delivering
+     * the canonical bytes (or in a downstream consumer's repacked AAR that
+     * stripped the assets/ directory). The SDK gracefully degrades to no face
+     * mesh signals when this returns false; verification still completes with
+     * degraded liveness scoring.
      */
     suspend fun initialize(): Boolean = withContext(Dispatchers.IO) {
         try {
-            val modelPath = modelDownloader.ensureModel()
-                ?: return@withContext false
-
             val baseOptions = BaseOptions.builder()
-                .setModelAssetPath(modelPath)
+                .setModelAssetPath(MediaPipeModelInfo.ASSET_FILENAME)
                 .build()
 
             val options = FaceLandmarker.FaceLandmarkerOptions.builder()
@@ -49,11 +54,6 @@ internal class FaceMeshManager(private val context: Context) {
             false
         }
     }
-
-    /**
-     * Whether the model is already cached (no download will be needed).
-     */
-    val isModelCached: Boolean get() = modelDownloader.isCached()
 
     val isAvailable: Boolean get() = faceLandmarker != null
 
