@@ -264,7 +264,15 @@ internal class UseSenseSession(
         if (meshData.isEmpty()) return null
 
         return JSONObject().apply {
-            put("model", "mediapipe_face_landmarker_v2")
+            // Stable identifier for the bundled MediaPipe FaceLandmarker model,
+            // sourced from MediaPipeModelInfo which is regenerated on every model
+            // bump by the mediapipe-sdk-sync workflow in qudusadeyemi/usesense-watchtower.
+            // The backend stamps these onto session.mesh_integrity so the mesh
+            // integrity card can compare model versions across iOS, Android, and
+            // web SDK uploads. Mirrors the iOS UseSenseSession.swift payload.
+            put("model", MediaPipeModelInfo.VERSION_LABEL)
+            put("model_sha256", MediaPipeModelInfo.SHA256)
+            put("model_source", "bundled")
             put("frame_count", meshData.size)
             val framesArray = JSONArray()
             for (data in meshData) {
