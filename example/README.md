@@ -7,7 +7,7 @@ Demonstrates SDK initialization, enrollment, authentication, event listening, an
 1. Clone this repository
 2. Open the `example/` directory in Android Studio
 3. Sync Gradle
-4. Replace the API key placeholder in `ExampleApplication.kt` with your sandbox API key from https://app.usesense.ai
+4. Replace the API key placeholder in `ExampleApplication.kt` with your sandbox API key from https://watchtower.usesense.ai
 5. Build and run on a physical device (camera required; emulators with virtual cameras may work for basic testing)
 
 ## What This Demonstrates

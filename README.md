@@ -115,7 +115,7 @@ UseSense.startVerification(
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `apiKey` | `String` | Yes | — | Your API key from the [UseSense dashboard](https://app.usesense.ai) |
+| `apiKey` | `String` | Yes | — | Your API key from the [UseSense dashboard](https://watchtower.usesense.ai) |
 | `environment` | `UseSenseEnvironment` | No | `AUTO` | `SANDBOX`, `PRODUCTION`, or `AUTO` (detects from key prefix) |
 | `baseUrl` | `String` | No | `https://api.usesense.ai/v1` | API base URL (override for staging/testing) |
 | `branding` | `BrandingConfig?` | No | `null` | UI customization (colors, logo, fonts) |

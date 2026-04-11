@@ -186,7 +186,7 @@ The SDK can run on emulators for basic UI testing, but DeepSense channel trust s
 
 1. Switch from sandbox to production API key
 2. Set `environment` to `PRODUCTION` in `UseSenseConfig` (or use `AUTO`)
-3. Purchase credits in the [UseSense dashboard](https://app.usesense.ai)
+3. Purchase credits in the [UseSense dashboard](https://watchtower.usesense.ai)
 4. Configure your webhook endpoint for production
 5. Test full flow end-to-end on physical devices (multiple OEMs recommended)
 6. Ensure your backend handles all three decision types (`APPROVE`, `REJECT`, `MANUAL_REVIEW`)
