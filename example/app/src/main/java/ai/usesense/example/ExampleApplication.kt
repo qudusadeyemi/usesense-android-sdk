@@ -12,7 +12,7 @@ class ExampleApplication : Application() {
         UseSense.initialize(
             context = applicationContext,
             config = UseSenseConfig(
-                // TODO: Replace with your sandbox API key from https://app.usesense.ai
+                // TODO: Replace with your sandbox API key from https://watchtower.usesense.ai
                 apiKey = "sk_sandbox_replace_me",
             ),
         )
