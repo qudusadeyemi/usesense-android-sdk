@@ -1,5 +1,7 @@
 package ai.usesense.example
 
+import android.content.Context
+import android.content.SharedPreferences
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -13,9 +15,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -31,6 +36,9 @@ import androidx.compose.material.icons.filled.Login
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -38,15 +46,18 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -58,20 +69,29 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.usesense.sdk.EventType
 import com.usesense.sdk.SessionType
 import com.usesense.sdk.UseSense
 import com.usesense.sdk.UseSenseCallback
+import com.usesense.sdk.UseSenseConfig
+import com.usesense.sdk.UseSenseEnvironment
 import com.usesense.sdk.UseSenseError
 import com.usesense.sdk.UseSenseResult
 import com.usesense.sdk.VerificationRequest
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+private const val PREFS_NAME = "usesense_example_prefs"
+private const val KEY_API_KEY = "api_key"
+private const val KEY_USE_PRODUCTION = "use_production"
 
 class MainActivity : ComponentActivity() {
 
@@ -96,11 +116,35 @@ data class EventLogEntry(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(activity: ComponentActivity) {
+    val context = LocalContext.current
+    val prefs: SharedPreferences = remember {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    }
+
+    // API key + environment persist across launches via SharedPreferences.
+    // Matches the iOS example's @AppStorage("apiKey") pattern so integrators
+    // can clone, run, paste their key once, and not have to re-enter it on
+    // every launch.
+    var apiKey by remember { mutableStateOf(prefs.getString(KEY_API_KEY, "") ?: "") }
+    var useProduction by remember {
+        mutableStateOf(prefs.getBoolean(KEY_USE_PRODUCTION, false))
+    }
+    var apiKeyVisible by remember { mutableStateOf(false) }
     var identityId by remember { mutableStateOf("") }
     var result by remember { mutableStateOf<UseSenseResult?>(null) }
     var errorState by remember { mutableStateOf<UseSenseError?>(null) }
     val eventLog = remember { mutableStateListOf<EventLogEntry>() }
     val listState = rememberLazyListState()
+    var sdkInitializedForKey by remember { mutableStateOf<String?>(null) }
+    var eventUnsubscribe by remember { mutableStateOf<(() -> Unit)?>(null) }
+
+    // Persist API key and environment toggle as they change.
+    LaunchedEffect(apiKey) {
+        prefs.edit().putString(KEY_API_KEY, apiKey).apply()
+    }
+    LaunchedEffect(useProduction) {
+        prefs.edit().putBoolean(KEY_USE_PRODUCTION, useProduction).apply()
+    }
 
     // Auto-scroll event log to bottom
     LaunchedEffect(eventLog.size) {
@@ -109,17 +153,45 @@ fun MainScreen(activity: ComponentActivity) {
         }
     }
 
-    // Subscribe to SDK events
-    LaunchedEffect(Unit) {
-        UseSense.onEvent { event ->
+    // Clean up the event subscription when the screen is disposed so we
+    // don't leak a callback into the SDK singleton across activity recreates.
+    DisposableEffect(Unit) {
+        onDispose { eventUnsubscribe?.invoke() }
+    }
+
+    fun ensureSdkInitialized(): Boolean {
+        if (apiKey.isBlank()) return false
+        if (sdkInitializedForKey == apiKey) return true
+        UseSense.initialize(
+            context = context.applicationContext,
+            config = UseSenseConfig(
+                apiKey = apiKey,
+                environment = if (useProduction) {
+                    UseSenseEnvironment.PRODUCTION
+                } else {
+                    UseSenseEnvironment.SANDBOX
+                },
+            ),
+        )
+        // Subscribe synchronously BEFORE returning, not via DisposableEffect,
+        // so there's no frame gap between `UseSense.initialize()` and the
+        // event listener being active. If the user taps Enroll immediately
+        // after init, early events (SESSION_CREATED, PERMISSIONS_REQUESTED)
+        // must already be wired to the event log; a recomposition-driven
+        // subscription would miss them. If the API key has changed, unsub
+        // the previous callback first so we don't accumulate stale listeners.
+        eventUnsubscribe?.invoke()
+        eventUnsubscribe = UseSense.onEvent { event ->
             eventLog.add(
                 EventLogEntry(
                     type = event.type.name,
                     detail = event.data?.entries?.joinToString(", ") { "${it.key}=${it.value}" },
                     isError = event.type == EventType.ERROR,
-                )
+                ),
             )
         }
+        sdkInitializedForKey = apiKey
+        return true
     }
 
     val callback = remember {
@@ -165,8 +237,84 @@ fun MainScreen(activity: ComponentActivity) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(16.dp),
+                .padding(16.dp)
+                // Vertical scroll so the result card + event log can't
+                // be squeezed off-screen by the API key + config rows
+                // above. weight(1f) on a child of a scrolling Column is
+                // not valid, so the event log below is given a fixed
+                // max height with its own internal LazyColumn scrolling.
+                .verticalScroll(rememberScrollState()),
         ) {
+            // API key input. Persisted via SharedPreferences across
+            // launches. Masked by default; tap the eye icon to reveal.
+            OutlinedTextField(
+                value = apiKey,
+                onValueChange = { apiKey = it.trim() },
+                label = { Text("API Key") },
+                placeholder = { Text("Paste your sandbox or production key") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                visualTransformation = if (apiKeyVisible) {
+                    VisualTransformation.None
+                } else {
+                    PasswordVisualTransformation()
+                },
+                trailingIcon = {
+                    IconButton(onClick = { apiKeyVisible = !apiKeyVisible }) {
+                        Icon(
+                            imageVector = if (apiKeyVisible) {
+                                Icons.Default.VisibilityOff
+                            } else {
+                                Icons.Default.Visibility
+                            },
+                            contentDescription = if (apiKeyVisible) "Hide" else "Show",
+                        )
+                    }
+                },
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Environment toggle
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Production",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                Switch(
+                    checked = useProduction,
+                    onCheckedChange = { useProduction = it },
+                )
+            }
+
+            if (apiKey.isBlank()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 4.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = Color(0xFFD97706),
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Enter your API key from watchtower.usesense.ai",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFFD97706),
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(modifier = Modifier.height(16.dp))
+
             // Identity ID input
             OutlinedTextField(
                 value = identityId,
@@ -186,6 +334,7 @@ fun MainScreen(activity: ComponentActivity) {
             ) {
                 Button(
                     onClick = {
+                        if (!ensureSdkInitialized()) return@Button
                         result = null
                         errorState = null
                         eventLog.clear()
@@ -197,6 +346,7 @@ fun MainScreen(activity: ComponentActivity) {
                             callback = callback,
                         )
                     },
+                    enabled = apiKey.isNotBlank(),
                     modifier = Modifier.weight(1f),
                 ) {
                     Icon(Icons.Default.HowToReg, contentDescription = null)
@@ -206,6 +356,7 @@ fun MainScreen(activity: ComponentActivity) {
 
                 Button(
                     onClick = {
+                        if (!ensureSdkInitialized()) return@Button
                         result = null
                         errorState = null
                         eventLog.clear()
@@ -218,6 +369,7 @@ fun MainScreen(activity: ComponentActivity) {
                             callback = callback,
                         )
                     },
+                    enabled = apiKey.isNotBlank() && identityId.isNotBlank(),
                     modifier = Modifier.weight(1f),
                 ) {
                     Icon(Icons.Default.Login, contentDescription = null)
@@ -250,10 +402,14 @@ fun MainScreen(activity: ComponentActivity) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
+                // Fixed-height card with internal LazyColumn scrolling.
+                // weight(1f) would be cleaner but is invalid inside a
+                // verticalScroll Column, which reports an "infinite"
+                // height constraint to its children.
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f),
+                        .heightIn(min = 200.dp, max = 400.dp),
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceVariant,
                     ),

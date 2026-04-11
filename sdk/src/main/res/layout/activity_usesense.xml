@@ -538,16 +538,18 @@
 
                 <TextView
                     android:id="@+id/successTitle"
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="24dp"
+                    android:paddingHorizontal="24dp"
                     style="@style/UseSense.Text.Title" />
 
                 <TextView
                     android:id="@+id/successSubtitle"
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
+                    android:paddingHorizontal="24dp"
                     style="@style/UseSense.Text.Subtitle" />
 
                 <com.google.android.material.button.MaterialButton
@@ -585,16 +587,18 @@
 
                 <TextView
                     android:id="@+id/deniedTitle"
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="24dp"
+                    android:paddingHorizontal="24dp"
                     style="@style/UseSense.Text.Title"
                     android:text="@string/usesense_rejected" />
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
+                    android:paddingHorizontal="24dp"
                     style="@style/UseSense.Text.Subtitle"
                     android:text="@string/usesense_rejected_detail" />
 
@@ -607,9 +611,10 @@
                     android:text="@string/usesense_done" />
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
+                    android:paddingHorizontal="24dp"
                     style="@style/UseSense.Text.Caption"
                     android:text="@string/usesense_rejected_support" />
             </LinearLayout>
@@ -638,17 +643,19 @@
                     android:src="@drawable/usesense_icon_error" />
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="24dp"
+                    android:paddingHorizontal="24dp"
                     style="@style/UseSense.Text.Title"
                     android:text="@string/usesense_error_generic" />
 
                 <TextView
                     android:id="@+id/failureMessage"
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
+                    android:paddingHorizontal="24dp"
                     style="@style/UseSense.Text.Subtitle" />
 
                 <com.google.android.material.button.MaterialButton
@@ -684,16 +691,18 @@
                     android:src="@drawable/usesense_icon_blocked" />
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="24dp"
+                    android:paddingHorizontal="24dp"
                     style="@style/UseSense.Text.Title"
                     android:text="@string/usesense_blocked" />
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
+                    android:paddingHorizontal="24dp"
                     style="@style/UseSense.Text.Subtitle"
                     android:text="@string/usesense_blocked_detail" />
 

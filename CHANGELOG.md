@@ -4,6 +4,77 @@ All notable changes to the UseSense Android SDK will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [4.2.1] - 2026-04-11
+
+Patch release fixing visual centring of terminal-state titles and
+making the bundled example app actually runnable. No SDK public API,
+ABI, or Kotlin-facing behaviour changes.
+
+### Fixed
+
+#### SDK UI
+- **Terminal-screen title/subtitle/caption centring** in
+  `activity_usesense.xml` and `activity_usesense_hosted.xml`. The
+  success, denied, failure, and blocked screens each declare a
+  `TextView` with `android:layout_width="wrap_content"` plus the
+  `UseSense.Text.Title`/`.Subtitle`/`.Caption` styles, which carry
+  `android:textAlignment="center"`. `wrap_content` made the
+  TextView exactly as wide as its longest line, so `textAlignment`
+  only centred shorter lines relative to that narrower box — not
+  relative to the screen. When a title wrapped (e.g. long
+  localised strings, or narrow devices), the wrapped lines ended
+  up visually off-centre from the icon above and button below.
+  Changed `wrap_content` to `match_parent` with
+  `android:paddingHorizontal="24dp"` on every terminal-screen
+  title, subtitle, and caption TextView so text now centres within
+  the full screen width, single-line and multi-line alike. Same
+  fix applied to the hosted flow's `resultTitle`.
+
+#### Example app
+- **Example app is now actually buildable.** The example's composite
+  build setup (`includeBuild("..")` + dependency substitution)
+  interacted badly with AGP 9.x's new "built-in Kotlin" feature,
+  causing the Kotlin Android plugin to double-register its `kotlin`
+  extension and fail every configuration-time evaluation with
+  "Cannot add extension with name 'kotlin'". Every PR to the
+  example since AGP was bumped to 9.1.0 has been silently broken.
+- **Dropped the composite build.** The example now depends on the
+  published `ai.usesense:sdk:4.2.1` from Maven Central, the way a
+  real integrator would consume the SDK. Removed
+  `includeBuild("..")` and `dependencySubstitution` from
+  `example/settings.gradle.kts` and pinned plugin versions in
+  `pluginManagement.plugins { }` so Gradle resolves them without
+  needing the composite build classpath.
+- **Added `android.builtInKotlin=false`** and
+  `android.newDsl=false` to `example/gradle.properties`, matching
+  the SDK root's gradle.properties, so AGP 9.x doesn't try to
+  auto-register a conflicting Kotlin extension.
+- **API key is now entered at runtime in the app UI.** The
+  hardcoded `sk_sandbox_replace_me` placeholder in
+  `ExampleApplication.kt` is gone; `ExampleApplication.kt` itself
+  is gone. `MainActivity.kt` now has a masked `OutlinedTextField`
+  for the API key with a show/hide toggle, a sandbox/production
+  switch, and `SharedPreferences` persistence across launches —
+  matching the iOS example's `@AppStorage("apiKey")` pattern. The
+  SDK is initialised lazily on first Enroll/Authenticate tap with
+  the currently-entered key; re-initialisation correctly unsubs
+  the previous event callback so event log entries don't
+  accumulate stale listeners.
+- **Event subscription timing fix.** The event listener used to be
+  wired via a `LaunchedEffect(Unit)` at composable birth, assuming
+  `UseSense.initialize()` had already run from `Application.onCreate()`.
+  With lazy initialisation, the first verification session's early
+  events (`SESSION_CREATED`, `PERMISSIONS_REQUESTED`) were racing
+  with the subscription wiring and getting dropped. The
+  subscription is now set up synchronously inside the init
+  function, before `UseSense.startVerification()` is called, so no
+  events are lost.
+- **Layout no longer squeezes the result card off-screen.** The
+  outer Column now uses `Modifier.verticalScroll(rememberScrollState())`
+  and the event log uses `heightIn(min = 200.dp, max = 400.dp)`
+  instead of `weight(1f)`. The result card is always visible after
+  a session completes, regardless of screen size.
+
 ## [4.2.0] - 2026-04-11
 
 Infrastructure, distribution, and tooling release. **No runtime SDK
