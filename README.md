@@ -13,7 +13,45 @@ Native Android SDK for human presence verification. Verify real humans, detect d
 
 ## Installation
 
-### Gradle (GitHub Packages) — Recommended
+The SDK ships through two channels. Pick whichever fits your build
+pipeline better:
+
+| Channel | Auth required | Install latency | Best for |
+|---------|---------------|-----------------|----------|
+| **JitPack** | None | ~30 seconds on first install of a new tag (JitPack builds on-demand) | Quick start, CI without secrets, hobby projects |
+| **GitHub Packages** | Personal access token with `read:packages` | Instant | Corporate builds that already use GitHub Packages, teams that want the published artifact rather than an on-demand build |
+
+Maven Central support is planned for a future release; track the
+progress in [CONTRIBUTING.md](CONTRIBUTING.md#future-maven-central-publishing).
+
+### Gradle (JitPack) — zero-auth, recommended
+
+Add JitPack to your `settings.gradle.kts`:
+
+```kotlin
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url = uri("https://jitpack.io") }
+    }
+}
+```
+
+Then add the SDK to your module-level `build.gradle.kts`:
+
+```kotlin
+dependencies {
+    implementation("com.github.qudusadeyemi:usesense-android-sdk:v4.2.0")
+}
+```
+
+Note that the JitPack coordinate is `com.github.qudusadeyemi:usesense-android-sdk`,
+not `ai.usesense:sdk`. The `ai.usesense.sdk` Kotlin package (used in
+`import com.usesense.sdk.UseSense`) is unchanged; only the Gradle
+coordinate differs between the two install channels.
+
+### Gradle (GitHub Packages)
 
 Add the GitHub Packages repository to your `settings.gradle.kts`:
 
@@ -37,7 +75,7 @@ Then add to your module-level `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("ai.usesense:sdk:4.1.0")
+    implementation("ai.usesense:sdk:4.2.0")
 }
 ```
 
@@ -56,7 +94,7 @@ dependencies {
 
 ```kotlin
 dependencies {
-    implementation(files("libs/usesense-sdk-4.1.0.aar"))
+    implementation(files("libs/usesense-sdk-4.2.0.aar"))
 }
 ```
 
@@ -594,7 +632,7 @@ Ensure you're on the latest SDK version which uses a different result delivery m
 
 ## API Reference
 
-Full generated API documentation is available at [docs.usesense.ai/android](https://watchtower.usesense.ai/developer-docs).
+Full generated API documentation is available at [watchtower.usesense.ai/developer-docs](https://watchtower.usesense.ai/developer-docs).
 
 ## Changelog
 

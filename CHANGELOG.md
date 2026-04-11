@@ -4,6 +4,59 @@ All notable changes to the UseSense Android SDK will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [4.2.0] - 2026-04-11
+
+Infrastructure, distribution, and tooling release. **No runtime SDK
+code changes** — the compiled SDK behaviour is identical to 4.1.0. This
+version is cut to bring the Android SDK to infrastructure parity with
+UseSense iOS SDK 4.2.x, unlock a zero-auth install path via JitPack,
+and ship source/Dokka artifacts for IDE navigation.
+
+### Added
+
+#### Distribution
+- **JitPack support** via `jitpack.yml` at the repo root. Integrators
+  can now depend on the SDK through the JitPack repo without needing
+  a GitHub personal access token: add `maven { url = uri("https://jitpack.io") }`
+  to `settings.gradle.kts` and `implementation("com.github.qudusadeyemi:usesense-android-sdk:v4.2.0")`.
+  The existing GitHub Packages path (`ai.usesense:sdk:4.2.0`) continues
+  to work unchanged for teams that prefer it.
+- **Sources JAR** alongside the AAR via `withSourcesJar()`, so IDE
+  jump-to-definition now surfaces the real Kotlin source instead of
+  decompiled bytecode.
+- **Dokka HTML API reference** generated at release time and attached
+  to the GitHub Release as `usesense-sdk-<version>-dokka.zip`.
+
+#### Tooling and release hygiene
+- **ktlint** wired into CI (`:sdk:ktlintCheck`) so future code lands
+  against a consistent style baseline.
+- **Governance files** in `.github/`: CODEOWNERS, pull request template,
+  and issue templates (bug report + feature request) matching the
+  iOS SDK repo's conventions.
+- **Maintainer notes section** in `CONTRIBUTING.md` documenting the
+  release process, where the version lives, how the CI `sed`-override
+  works, and the future Maven Central activation path for when the
+  Sonatype account is ready.
+
+### Fixed
+
+- **Release workflow now skips republish on duplicate version.** Before,
+  re-running `release-android.yml` against an already-published tag
+  would hard-fail at the publish step. The workflow now pings the
+  GitHub Packages POM endpoint first and skips the publish step if
+  the version is already there, matching the idempotent retry
+  behaviour we landed on iOS.
+- **Release AAR attachment now uses the correct filename.** Before,
+  the attached GitHub Release asset was `sdk-release.aar` (the default
+  Gradle output name), even though the workflow internally extracted
+  a `usesense-sdk-<version>.aar` name. The release step now renames
+  the artifact at pack time so the download on the Release page
+  matches the documented install snippet in the README.
+- **Stale documentation link** `docs.usesense.ai/android` in README's
+  "API Reference" section has been rewritten to
+  `watchtower.usesense.ai/developer-docs` (the URL target was already
+  correct; only the display text was stale).
+
 ## [4.1.0] - 2026-04-06
 
 ### Breaking Changes
