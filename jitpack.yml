@@ -1,0 +1,19 @@
+# JitPack build configuration.
+#
+# JitPack builds the SDK on demand when someone first requests a new
+# tag. It calls `./gradlew :sdk:publishToMavenLocal` (which resolves the
+# release publication declared in publish.gradle.kts) and then serves the
+# resulting AAR + POM under the coordinate
+# `com.github.qudusadeyemi:usesense-android-sdk:<tag>`.
+#
+# JitPack sets VERSION=<git-tag> at build time (e.g., VERSION=v4.2.0).
+# Our Gradle build reads `sdkVersion` from project properties, so we
+# strip the leading `v` and pass it via -P.
+#
+# See https://jitpack.io/docs/BUILDING/ for the full format.
+
+jdk:
+  - openjdk21
+
+install:
+  - ./gradlew :sdk:publishToMavenLocal -PsdkVersion=${VERSION#v}

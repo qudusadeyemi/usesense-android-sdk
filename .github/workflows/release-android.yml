@@ -58,31 +58,95 @@ jobs:
       - name: Build SDK
         run: ./gradlew :sdk:assembleRelease
 
+      - name: Build sources JAR
+        # `releaseSourcesJar` is the AGP-generated task activated by
+        # `publishing { singleVariant("release") { withSourcesJar() } }`
+        # in sdk/build.gradle.kts. The publish step below will rebuild
+        # it transitively, but running it explicitly here makes
+        # failures easier to diagnose (sources generation vs publish
+        # auth) and surfaces a clean timing breakdown in the CI log.
+        run: ./gradlew :sdk:releaseSourcesJar
+
+      - name: Generate Dokka HTML
+        # dokkaHtml is configured in sdk/build.gradle.kts. If the task
+        # fails (e.g., Dokka incompatible with the current Kotlin), we
+        # don't want to block the release -- log and continue.
+        continue-on-error: true
+        run: ./gradlew :sdk:dokkaHtml
+
       - name: Run tests
         run: ./gradlew :sdk:test
 
       - name: Run lint
         run: ./gradlew :sdk:lintRelease
 
+      - name: Check if version already published
+        id: check_published
+        # Hit the GitHub Packages Maven POM endpoint for this version.
+        # If it returns 200 the version is already published -- skip the
+        # publish step instead of hard-failing on a duplicate push.
+        # Matches the idempotent-retry pattern we landed on iOS.
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          POM_URL="https://maven.pkg.github.com/qudusadeyemi/usesense-android-sdk/ai/usesense/sdk/${VERSION}/sdk-${VERSION}.pom"
+          HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "$POM_URL")
+          if [ "$HTTP" = "200" ]; then
+            echo "ai.usesense:sdk:${VERSION} is already on GitHub Packages; skipping republish."
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ai.usesense:sdk:${VERSION} not yet published (HTTP $HTTP); proceeding."
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish to GitHub Packages
+        if: steps.check_published.outputs.already_published != 'true'
         run: ./gradlew :sdk:publishReleasePublicationToGitHubPackagesRepository
         env:
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Find AAR artifact
+      - name: Rename AAR for release attachment
         id: find_aar
+        # Gradle's default AAR output is `sdk-release.aar`. We rename it
+        # to `usesense-sdk-<version>.aar` at pack time so the file
+        # attached to the GitHub Release page matches the filename used
+        # in the README's manual-install snippet.
         run: |
-          AAR_PATH=$(find sdk/build/outputs/aar -name "*.aar" -type f | head -1)
-          echo "aar_path=$AAR_PATH" >> "$GITHUB_OUTPUT"
-          echo "aar_name=usesense-sdk-${{ steps.version.outputs.version }}.aar" >> "$GITHUB_OUTPUT"
+          RAW_PATH=$(find sdk/build/outputs/aar -name "*.aar" -type f | head -1)
+          RENAMED_PATH="sdk/build/outputs/aar/usesense-sdk-${{ steps.version.outputs.version }}.aar"
+          if [ "$RAW_PATH" != "$RENAMED_PATH" ]; then
+            mv "$RAW_PATH" "$RENAMED_PATH"
+          fi
+          echo "aar_path=$RENAMED_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Package Dokka HTML for release
+        id: package_dokka
+        # Best-effort: if dokkaHtml succeeded, zip the output and include
+        # it as a release asset. If dokka failed above, the directory
+        # won't exist and we emit an empty path (the gh-release step
+        # below handles an empty files entry gracefully).
+        continue-on-error: true
+        run: |
+          DOKKA_DIR="sdk/build/dokka/html"
+          if [ -d "$DOKKA_DIR" ]; then
+            ZIP_PATH="sdk/build/usesense-sdk-${{ steps.version.outputs.version }}-dokka.zip"
+            (cd "$DOKKA_DIR" && zip -rq "$GITHUB_WORKSPACE/$ZIP_PATH" .)
+            echo "dokka_zip=$ZIP_PATH" >> "$GITHUB_OUTPUT"
+          else
+            echo "dokka_zip=" >> "$GITHUB_OUTPUT"
+            echo "Dokka HTML directory not found; skipping Dokka zip."
+          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}
           generate_release_notes: true
-          files: ${{ steps.find_aar.outputs.aar_path }}
+          files: |
+            ${{ steps.find_aar.outputs.aar_path }}
+            ${{ steps.package_dokka.outputs.dokka_zip }}
           body: |
             ## Installation
 

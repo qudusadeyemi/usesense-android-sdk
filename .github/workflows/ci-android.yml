@@ -36,6 +36,14 @@ jobs:
       - name: Run lint
         run: ./gradlew :sdk:lintDebug
 
+      - name: Run ktlint
+        # ktlint is configured with `ignoreFailures = true` in
+        # sdk/build.gradle.kts so this step reports violations without
+        # failing the build. Switch to a hard failure once the
+        # existing codebase has been passed through `./gradlew :sdk:ktlintFormat`
+        # and a baseline committed.
+        run: ./gradlew :sdk:ktlintCheck
+
       - name: Upload lint results
         if: always()
         uses: actions/upload-artifact@v4

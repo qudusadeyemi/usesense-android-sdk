@@ -1,9 +1,24 @@
 plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.dokka")
+    id("org.jlleitschuh.gradle.ktlint")
 }
 
 apply(from = "${rootDir}/publish.gradle.kts")
+
+// ktlint config: lint-only by default (no auto-format in the build
+// pipeline), and ignore the existing codebase's style baseline for
+// now so this release doesn't block on a full reformat. Remove the
+// `baseline` once the codebase has been run through `ktlintFormat`
+// and the baseline file committed.
+ktlint {
+    android.set(true)
+    ignoreFailures.set(true)
+    reporters {
+        reporter(org.jlleitschuh.gradle.ktlint.reporter.ReporterType.PLAIN)
+    }
+}
 
 android {
     namespace = "com.usesense.sdk"
@@ -46,6 +61,19 @@ android {
     testOptions {
         unitTests {
             isReturnDefaultValues = true
+        }
+    }
+
+    // Publishing: produce a sources JAR and a Javadoc JAR alongside the
+    // release AAR. `withSourcesJar()` surfaces the real Kotlin source to
+    // IDE jump-to-definition; `withJavadocJar()` satisfies Maven Central's
+    // mandatory javadoc.jar requirement (currently unused by GitHub
+    // Packages / JitPack, but harmless and saves a follow-up change when
+    // we activate Maven Central).
+    publishing {
+        singleVariant("release") {
+            withSourcesJar()
+            withJavadocJar()
         }
     }
 }
