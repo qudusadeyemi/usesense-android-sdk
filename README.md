@@ -29,7 +29,7 @@ dependency; no repository configuration needed.
 ```kotlin
 // app/build.gradle.kts
 dependencies {
-    implementation("ai.usesense:sdk:4.2.0")
+    implementation("ai.usesense:sdk:4.2.1")
 }
 ```
 
@@ -59,7 +59,7 @@ dependencyResolutionManagement {
 
 // app/build.gradle.kts
 dependencies {
-    implementation("com.github.qudusadeyemi:usesense-android-sdk:v4.2.0")
+    implementation("com.github.qudusadeyemi:usesense-android-sdk:v4.2.1")
 }
 ```
 
@@ -92,7 +92,7 @@ Then add to your module-level `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("ai.usesense:sdk:4.2.0")
+    implementation("ai.usesense:sdk:4.2.1")
 }
 ```
 
@@ -111,7 +111,7 @@ dependencies {
 
 ```kotlin
 dependencies {
-    implementation(files("libs/usesense-sdk-4.2.0.aar"))
+    implementation(files("libs/usesense-sdk-4.2.1.aar"))
 }
 ```
 

@@ -37,8 +37,10 @@ android {
 }
 
 dependencies {
-    // UseSense SDK — resolved via composite build from parent project
-    implementation("ai.usesense:sdk")
+    // UseSense SDK — resolved from Maven Central. Keep this version
+    // in sync with the latest published release; bump it when a new
+    // version lands on central.sonatype.com.
+    implementation("ai.usesense:sdk:4.2.1")
 
     // Compose
     val composeBom = platform("androidx.compose:compose-bom:2024.06.00")
