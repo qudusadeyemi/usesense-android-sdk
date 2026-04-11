@@ -1,11 +1,12 @@
+import com.vanniktech.maven.publish.AndroidSingleVariantLibrary
+
 plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.dokka")
     id("org.jlleitschuh.gradle.ktlint")
+    id("com.vanniktech.maven.publish")
 }
-
-apply(from = "${rootDir}/publish.gradle.kts")
 
 // ktlint config: lint-only by default (no auto-format in the build
 // pipeline), and ignore the existing codebase's style baseline for
@@ -63,17 +64,129 @@ android {
             isReturnDefaultValues = true
         }
     }
+}
 
-    // Publishing: produce a sources JAR and a Javadoc JAR alongside the
-    // release AAR. `withSourcesJar()` surfaces the real Kotlin source to
-    // IDE jump-to-definition; `withJavadocJar()` satisfies Maven Central's
-    // mandatory javadoc.jar requirement (currently unused by GitHub
-    // Packages / JitPack, but harmless and saves a follow-up change when
-    // we activate Maven Central).
+// ─────────────────────────────────────────────────────────────────────────
+// Publishing
+// ─────────────────────────────────────────────────────────────────────────
+//
+// Target repositories:
+//
+//   1. GitHub Packages (always):
+//      ai.usesense:sdk:<version>
+//      https://maven.pkg.github.com/qudusadeyemi/usesense-android-sdk
+//      Requires a GitHub PAT with read:packages scope from integrators.
+//
+//   2. Maven Central via Sonatype Central Portal (when signing creds present):
+//      ai.usesense:sdk:<version>
+//      Zero-auth. Primary recommended channel once activated.
+//
+//   3. Local Maven (for JitPack and local ./gradlew builds):
+//      ~/.m2/repository/ai/usesense/sdk/<version>/
+//
+// All three targets share the same `release` Maven publication, created by
+// vanniktech's AndroidSingleVariantLibrary below.
+//
+// Required env vars for a full CI publish-and-release:
+//
+//   GITHUB_ACTOR                                   (auto in Actions)
+//   GITHUB_TOKEN                                   (auto in Actions)
+//   ORG_GRADLE_PROJECT_mavenCentralUsername        (Sonatype user token)
+//   ORG_GRADLE_PROJECT_mavenCentralPassword        (Sonatype user token)
+//   ORG_GRADLE_PROJECT_signingInMemoryKey          (ASCII-armored GPG secret key)
+//   ORG_GRADLE_PROJECT_signingInMemoryKeyPassword  (GPG passphrase)
+//
+// When the signing key is absent (local builds, PR CI), Maven Central
+// publishing and signing are both skipped. GitHub Packages + mavenLocal
+// still work.
+
+val sdkVersion: String by project
+
+val hasSigningKey: Boolean = run {
+    val fromProperty = providers.gradleProperty("signingInMemoryKey").orNull
+    val fromEnv = System.getenv("ORG_GRADLE_PROJECT_signingInMemoryKey")
+    !fromProperty.isNullOrBlank() || !fromEnv.isNullOrBlank()
+}
+
+mavenPublishing {
+    // AndroidSingleVariantLibrary creates the `release` Maven publication
+    // from the `release` build variant with sources + javadoc JARs
+    // attached. Replaces the AGP
+    // `android { publishing { singleVariant("release") { ... } } }`
+    // block; having both would register duplicate publications.
+    configure(
+        AndroidSingleVariantLibrary(
+            variant = "release",
+            sourcesJar = true,
+            publishJavadocJar = true,
+        ),
+    )
+
+    coordinates("ai.usesense", "sdk", sdkVersion)
+
+    if (hasSigningKey) {
+        // vanniktech 0.34 dropped the explicit SonatypeHost parameter;
+        // the Central Portal (https://central.sonatype.com) is now the
+        // only supported host, so the argument is implied. `automaticRelease`
+        // uploads to the staging repo and immediately auto-releases on
+        // successful validation, so CI doesn't have to poll for the
+        // close/release lifecycle.
+        publishToMavenCentral(automaticRelease = true)
+        signAllPublications()
+    }
+
+    pom {
+        name.set("UseSense Android SDK")
+        description.set(
+            "Native Android SDK for human presence verification. Verify real " +
+                "humans, detect deepfakes, and prevent identity fraud with three " +
+                "independent verification pillars: DeepSense (channel integrity), " +
+                "LiveSense (presence verification), and MatchSense (identity " +
+                "collision detection).",
+        )
+        inceptionYear.set("2026")
+        url.set("https://github.com/qudusadeyemi/usesense-android-sdk")
+
+        licenses {
+            license {
+                name.set("Proprietary")
+                url.set("https://github.com/qudusadeyemi/usesense-android-sdk/blob/main/LICENSE")
+                distribution.set("repo")
+            }
+        }
+
+        developers {
+            developer {
+                id.set("usesense")
+                name.set("UseSense")
+                email.set("support@usesense.ai")
+                url.set("https://usesense.ai")
+            }
+        }
+
+        scm {
+            connection.set("scm:git:git://github.com/qudusadeyemi/usesense-android-sdk.git")
+            developerConnection.set("scm:git:ssh://github.com/qudusadeyemi/usesense-android-sdk.git")
+            url.set("https://github.com/qudusadeyemi/usesense-android-sdk")
+        }
+    }
+}
+
+// GitHub Packages repository: kept alongside vanniktech's Maven Central
+// config. vanniktech only handles Central + mavenLocal targets, leaving
+// the maven-publish DSL's `repositories {}` block free for custom repos.
+// The same `release` publication that goes to Central also goes here.
+afterEvaluate {
     publishing {
-        singleVariant("release") {
-            withSourcesJar()
-            withJavadocJar()
+        repositories {
+            maven {
+                name = "GitHubPackages"
+                url = uri("https://maven.pkg.github.com/qudusadeyemi/usesense-android-sdk")
+                credentials {
+                    username = System.getenv("GITHUB_ACTOR")
+                    password = System.getenv("GITHUB_TOKEN")
+                }
+            }
         }
     }
 }

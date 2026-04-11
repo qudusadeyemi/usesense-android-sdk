@@ -15,4 +15,11 @@ plugins {
     // local builds of the demo on style). The CI workflow runs
     // `:sdk:ktlintCheck` on every PR.
     id("org.jlleitschuh.gradle.ktlint") version "12.1.1" apply false
+
+    // vanniktech maven-publish: coordinates Maven Central publishing,
+    // in-memory GPG signing, and POM metadata across the `release`
+    // publication. Applied in publish.gradle.kts (via plugins.apply)
+    // so only the sdk module actually uses it; the example/demo
+    // modules don't need publishing at all.
+    id("com.vanniktech.maven.publish") version "0.34.0" apply false
 }

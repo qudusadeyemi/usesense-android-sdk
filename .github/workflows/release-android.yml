@@ -1,11 +1,23 @@
-# Release workflow - publishes the SDK to GitHub Packages and creates a GitHub Release
+# Release workflow - publishes the SDK to GitHub Packages, Maven Central,
+# and creates a GitHub Release with the AAR + Dokka zip attached.
 #
 # Triggers:
 #   - Git tags matching v* pattern (e.g., v1.0.0, v1.2.3-beta01)
 #   - Manual dispatch via workflow_dispatch (specify version without 'v' prefix)
 #
 # Required secrets:
-#   GITHUB_TOKEN - Auto-provided by GitHub Actions
+#   GITHUB_TOKEN       - Auto-provided by GitHub Actions. Used for the
+#                        GitHub Packages push and the Release creation.
+#   SONATYPE_USERNAME  - Sonatype Central Portal user token username.
+#   SONATYPE_PASSWORD  - Sonatype Central Portal user token password.
+#   SIGNING_KEY        - ASCII-armored GPG secret key (full multiline
+#                        `-----BEGIN PGP PRIVATE KEY BLOCK-----` block).
+#   SIGNING_PASSWORD   - GPG passphrase for the signing key.
+#
+# The Maven Central step is conditionally skipped when SONATYPE_USERNAME
+# is unset (detected via the "Check Sonatype credentials" step below),
+# so this workflow can still publish to GitHub Packages successfully
+# before the Sonatype account and GPG key are configured.
 
 name: Release
 
@@ -102,10 +114,48 @@ jobs:
 
       - name: Publish to GitHub Packages
         if: steps.check_published.outputs.already_published != 'true'
-        run: ./gradlew :sdk:publishReleasePublicationToGitHubPackagesRepository
+        # The publication name is `maven` (not `release`) because
+        # vanniktech's AndroidSingleVariantLibrary creates it under that
+        # conventional name. The coordinate published is still
+        # ai.usesense:sdk:<version>.
+        run: ./gradlew :sdk:publishMavenPublicationToGitHubPackagesRepository
         env:
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check Sonatype credentials
+        id: sonatype
+        # Detect whether Maven Central publishing is configured without
+        # putting any secret values in the job output. The env-then-shell
+        # pattern avoids interpolating secrets into the `if:` expression
+        # directly (GitHub Actions explicitly warns against that for
+        # leak-through reasons), and skips the publish cleanly when the
+        # secret is absent rather than hard-failing.
+        env:
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+        run: |
+          if [ -n "$SONATYPE_USERNAME" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "Sonatype credentials present; Maven Central publish will run."
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Sonatype credentials not set; Maven Central publish will be skipped."
+            echo "See CONTRIBUTING.md 'Future: Maven Central publishing' for setup steps."
+          fi
+
+      - name: Publish to Maven Central
+        if: steps.sonatype.outputs.enabled == 'true' && steps.check_published.outputs.already_published != 'true'
+        # `publishAndReleaseToMavenCentral` uploads to the Sonatype Central
+        # Portal staging repo and auto-releases on successful validation.
+        # --no-configuration-cache is per vanniktech's recommendation;
+        # the in-memory signing plugin doesn't play nicely with the
+        # configuration cache yet.
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.SONATYPE_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.SONATYPE_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_PASSWORD }}
+        run: ./gradlew :sdk:publishAndReleaseToMavenCentral --no-configuration-cache
 
       - name: Rename AAR for release attachment
         id: find_aar
@@ -150,26 +200,31 @@ jobs:
           body: |
             ## Installation
 
-            ### GitHub Packages
+            ### Maven Central (recommended)
             ```kotlin
-            // In settings.gradle.kts, add the repository:
-            dependencyResolutionManagement {
-                repositories {
-                    maven {
-                        url = uri("https://maven.pkg.github.com/qudusadeyemi/usesense-android-sdk")
-                        credentials {
-                            username = providers.gradleProperty("gpr.user").getOrElse(System.getenv("GITHUB_ACTOR"))
-                            password = providers.gradleProperty("gpr.token").getOrElse(System.getenv("GITHUB_TOKEN"))
-                        }
-                    }
-                }
-            }
-
-            // In app/build.gradle.kts:
             dependencies {
                 implementation("ai.usesense:sdk:${{ steps.version.outputs.version }}")
             }
             ```
+            Zero-auth. The `mavenCentral()` repo is already in every Android project by default.
+
+            ### JitPack (alternative)
+            ```kotlin
+            // settings.gradle.kts
+            dependencyResolutionManagement {
+                repositories {
+                    maven { url = uri("https://jitpack.io") }
+                }
+            }
+
+            // app/build.gradle.kts
+            dependencies {
+                implementation("com.github.qudusadeyemi:usesense-android-sdk:v${{ steps.version.outputs.version }}")
+            }
+            ```
+
+            ### GitHub Packages (requires auth)
+            Requires a GitHub personal access token with `read:packages` scope. See the [README](https://github.com/qudusadeyemi/usesense-android-sdk#installation) for the full configuration.
 
             ### Manual Installation
             Download the AAR from the assets below and follow the [manual installation instructions](https://github.com/qudusadeyemi/usesense-android-sdk#manual-installation) in the README.

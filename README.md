@@ -13,22 +13,42 @@ Native Android SDK for human presence verification. Verify real humans, detect d
 
 ## Installation
 
-The SDK ships through two channels. Pick whichever fits your build
-pipeline better:
+The SDK ships through three channels. Pick whichever fits your build pipeline best:
 
-| Channel | Auth required | Install latency | Best for |
-|---------|---------------|-----------------|----------|
-| **JitPack** | None | ~30 seconds on first install of a new tag (JitPack builds on-demand) | Quick start, CI without secrets, hobby projects |
-| **GitHub Packages** | Personal access token with `read:packages` | Instant | Corporate builds that already use GitHub Packages, teams that want the published artifact rather than an on-demand build |
+| Channel | Coordinate | Auth required | Best for |
+|---------|-----------|---------------|----------|
+| **Maven Central** (recommended) | `ai.usesense:sdk:<version>` | None | Most integrators. Zero-auth, fast, standard Android ecosystem path. |
+| **JitPack** | `com.github.qudusadeyemi:usesense-android-sdk:v<version>` | None | Teams that want an alternative to Maven Central, or who need a fallback during a Central outage. |
+| **GitHub Packages** | `ai.usesense:sdk:<version>` | PAT with `read:packages` | Teams already standardizing on GitHub Packages for internal dependencies. |
 
-Maven Central support is planned for a future release; track the
-progress in [CONTRIBUTING.md](CONTRIBUTING.md#future-maven-central-publishing).
+### Gradle (Maven Central) — recommended
 
-### Gradle (JitPack) — zero-auth, recommended
-
-Add JitPack to your `settings.gradle.kts`:
+Maven Central is on by default in every Android project. Just add the
+dependency; no repository configuration needed.
 
 ```kotlin
+// app/build.gradle.kts
+dependencies {
+    implementation("ai.usesense:sdk:4.2.0")
+}
+```
+
+If for some reason `mavenCentral()` has been removed from your
+`settings.gradle.kts`, add it back:
+
+```kotlin
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+```
+
+### Gradle (JitPack) — alternative zero-auth channel
+
+```kotlin
+// settings.gradle.kts
 dependencyResolutionManagement {
     repositories {
         google()
@@ -36,20 +56,17 @@ dependencyResolutionManagement {
         maven { url = uri("https://jitpack.io") }
     }
 }
-```
 
-Then add the SDK to your module-level `build.gradle.kts`:
-
-```kotlin
+// app/build.gradle.kts
 dependencies {
     implementation("com.github.qudusadeyemi:usesense-android-sdk:v4.2.0")
 }
 ```
 
 Note that the JitPack coordinate is `com.github.qudusadeyemi:usesense-android-sdk`,
-not `ai.usesense:sdk`. The `ai.usesense.sdk` Kotlin package (used in
-`import com.usesense.sdk.UseSense`) is unchanged; only the Gradle
-coordinate differs between the two install channels.
+not `ai.usesense:sdk`. The Kotlin import path `com.usesense.sdk.*`
+is identical regardless of which install channel you use; only the
+Gradle coordinate differs.
 
 ### Gradle (GitHub Packages)
 

@@ -9,15 +9,27 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 Infrastructure, distribution, and tooling release. **No runtime SDK
 code changes** — the compiled SDK behaviour is identical to 4.1.0. This
 version is cut to bring the Android SDK to infrastructure parity with
-UseSense iOS SDK 4.2.x, unlock a zero-auth install path via JitPack,
-and ship source/Dokka artifacts for IDE navigation.
+UseSense iOS SDK 4.2.x, unlock two zero-auth install paths (Maven
+Central and JitPack), and ship source/Dokka artifacts for IDE
+navigation.
 
 ### Added
 
 #### Distribution
+- **Maven Central publishing** via the vanniktech `com.vanniktech.maven.publish`
+  plugin (0.34.0) targeting the Sonatype Central Portal. The SDK is now
+  published to Maven Central under the same `ai.usesense:sdk:<version>`
+  coordinate as GitHub Packages, so integrators just add
+  `implementation("ai.usesense:sdk:4.2.0")` with no repository config
+  (`mavenCentral()` is on by default in every Android project).
+  Signed with the UseSense maintainer GPG key; verifiable via
+  `keyserver.ubuntu.com`. The publish step is guarded by a
+  `Check Sonatype credentials` gate in `release-android.yml` so the
+  rest of the workflow keeps running green even before the Sonatype
+  secrets are configured.
 - **JitPack support** via `jitpack.yml` at the repo root. Integrators
-  can now depend on the SDK through the JitPack repo without needing
-  a GitHub personal access token: add `maven { url = uri("https://jitpack.io") }`
+  can also depend on the SDK through the JitPack repo under a
+  different coordinate: add `maven { url = uri("https://jitpack.io") }`
   to `settings.gradle.kts` and `implementation("com.github.qudusadeyemi:usesense-android-sdk:v4.2.0")`.
   The existing GitHub Packages path (`ai.usesense:sdk:4.2.0`) continues
   to work unchanged for teams that prefer it.
