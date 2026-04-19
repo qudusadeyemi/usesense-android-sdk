@@ -78,35 +78,29 @@ object UseSense {
     /**
      * Start a LiveSense v4 verification. Phase 1 ticket A-2.
      *
-     * v4 runs the perspective-distortion zoom-motion capture. The
-     * capture activity is composed from the v4 modules shipped in
-     * this SDK (ZoomMotionController, HardwareKeyManager,
-     * HashChainBuilder, V4ChainSigner, ZoomPromptView, V4UploadClient).
+     * Launches LiveSenseV4Activity which drives the full flow:
+     * CameraX capture at 30fps with locked exposure/WB, ML Kit face
+     * detection feeding ZoomMotionController, parallel MediaCodec
+     * MP4 encode, per-frame JPEG into HashChainBuilder, signature
+     * via V4ChainSigner (StrongBox/TEE), upload through V4UploadClient,
+     * and the opaque verdict delivered via V4VerificationCallback.
      *
-     * Full activity integration lands in a follow-up PR; the current
-     * call throws UnsupportedOperationException with a clear message.
-     * The v4 building blocks are individually usable for embedders
-     * who want to build their own capture UX.
+     * CAMERA permission must be granted before calling this method.
+     *
+     * TODO: device-verify on Pixel 7 (StrongBox), Samsung A54 (TEE
+     * fallback), and a mid-tier Xiaomi before GA.
      */
     fun startV4Verification(
         activity: Activity,
         request: V4VerificationRequest,
         callback: V4VerificationCallback
     ) {
-        val cfg = config ?: throw IllegalStateException(
+        config ?: throw IllegalStateException(
             "UseSense.initialize() must be called before startV4Verification()"
         )
-        // TODO: launch LiveSenseV4Activity (see v4/LiveSenseV4Manifest.kt
-        // for the full integration checklist). Emit callback events as
-        // the activity progresses through phases.
-        callback.onFailure(
-            UnsupportedOperationException(
-                "LiveSense v4 activity integration is pending device verification. " +
-                "Use the v4 building blocks directly if you need to proceed now: " +
-                "ZoomMotionController, HardwareKeyManager, HashChainBuilder, " +
-                "V4ChainSigner, V4UploadClient. See v4/LiveSenseV4Manifest.kt."
-            )
-        )
+        com.usesense.sdk.v4.V4Bridge.install(callback)
+        val intent = com.usesense.sdk.v4.LiveSenseV4Activity.buildIntent(activity, request)
+        activity.startActivity(intent)
     }
 
     /**
