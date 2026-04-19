@@ -2,6 +2,8 @@ package com.usesense.sdk
 
 import android.app.Activity
 import android.content.Context
+import com.usesense.sdk.api.V4VerificationCallback
+import com.usesense.sdk.api.V4VerificationRequest
 import com.usesense.sdk.ui.HostedPageActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -71,6 +73,40 @@ object UseSense {
             "UseSense.initialize() must be called before startRemoteVerification()"
         )
         HostedPageActivity.startVerification(context, cfg, remoteSessionId)
+    }
+
+    /**
+     * Start a LiveSense v4 verification. Phase 1 ticket A-2.
+     *
+     * v4 runs the perspective-distortion zoom-motion capture. The
+     * capture activity is composed from the v4 modules shipped in
+     * this SDK (ZoomMotionController, HardwareKeyManager,
+     * HashChainBuilder, V4ChainSigner, ZoomPromptView, V4UploadClient).
+     *
+     * Full activity integration lands in a follow-up PR; the current
+     * call throws UnsupportedOperationException with a clear message.
+     * The v4 building blocks are individually usable for embedders
+     * who want to build their own capture UX.
+     */
+    fun startV4Verification(
+        activity: Activity,
+        request: V4VerificationRequest,
+        callback: V4VerificationCallback
+    ) {
+        val cfg = config ?: throw IllegalStateException(
+            "UseSense.initialize() must be called before startV4Verification()"
+        )
+        // TODO: launch LiveSenseV4Activity (see v4/LiveSenseV4Manifest.kt
+        // for the full integration checklist). Emit callback events as
+        // the activity progresses through phases.
+        callback.onFailure(
+            UnsupportedOperationException(
+                "LiveSense v4 activity integration is pending device verification. " +
+                "Use the v4 building blocks directly if you need to proceed now: " +
+                "ZoomMotionController, HardwareKeyManager, HashChainBuilder, " +
+                "V4ChainSigner, V4UploadClient. See v4/LiveSenseV4Manifest.kt."
+            )
+        )
     }
 
     /**
