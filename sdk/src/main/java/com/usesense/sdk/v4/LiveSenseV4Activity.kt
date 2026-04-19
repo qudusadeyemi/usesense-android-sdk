@@ -125,9 +125,26 @@ class LiveSenseV4Activity : ComponentActivity() {
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
             != PackageManager.PERMISSION_GRANTED) {
-            fail(SecurityException("CAMERA permission not granted; request it before launching v4"))
+            // Request CAMERA here so v4 can be launched without host-app
+            // permission plumbing. If the user denies we fail with a
+            // clear error that the caller can surface.
+            permissionLauncher = registerForActivityResult(
+                androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+            ) { granted ->
+                if (granted) {
+                    continueAfterPermissionGranted()
+                } else {
+                    fail(SecurityException("CAMERA permission denied"))
+                }
+            }.also { it.launch(Manifest.permission.CAMERA) }
             return
         }
+        continueAfterPermissionGranted()
+    }
+
+    private var permissionLauncher: androidx.activity.result.ActivityResultLauncher<String>? = null
+
+    private fun continueAfterPermissionGranted() {
 
         V4Bridge.dispatchPhase(V4Phase.FRAMING)
         initFaceDetector()
@@ -302,12 +319,59 @@ class LiveSenseV4Activity : ComponentActivity() {
                 image.close()
             }
 
-        // Arm the exposure lock shortly after the first steady frame.
+        // Arm the exposure / white balance lock ~300ms after the first
+        // steady frame so we sample a baseline AE/AWB first. We rebind
+        // the ImageAnalysis UseCase with CONTROL_AE_MODE_OFF and
+        // CONTROL_AWB_MODE_OFF so replay-screen flicker cannot ride
+        // auto-exposure into the signal.
         if (!exposureLockArmed && nowMs - firstFrameAtMs > 300) {
             exposureLockArmed = true
-            // TODO: device-verify. Ideally re-bind the UseCase with
-            // CONTROL_AE_MODE_OFF here after sampling ISO/exposureTime.
-            // Not re-binding on every frame to avoid camera hiccup.
+            runOnUiThread { applyExposureLockAndRebind() }
+        }
+    }
+
+    @OptIn(ExperimentalGetImage::class)
+    private fun applyExposureLockAndRebind() {
+        // TODO: device-verify on Samsung A54 and a mid-tier Xiaomi that
+        // AE/AWB OFF sticks. Some OEMs require ISO + exposure-time +
+        // colour-correction gains to be set explicitly; when available
+        // via the analysis frames' CaptureResult we could pin those.
+        val provider = cameraProvider ?: return
+        val preview = Preview.Builder()
+            .setTargetResolution(Size(1280, 720))
+            .build()
+            .apply { setSurfaceProvider(previewView.surfaceProvider) }
+        val lockedBuilder = ImageAnalysis.Builder()
+            .setTargetResolution(Size(1280, 720))
+            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+        Camera2Interop.Extender(lockedBuilder).apply {
+            setCaptureRequestOption(
+                CaptureRequest.CONTROL_AE_MODE,
+                CaptureRequest.CONTROL_AE_MODE_OFF,
+            )
+            setCaptureRequestOption(
+                CaptureRequest.CONTROL_AWB_MODE,
+                CaptureRequest.CONTROL_AWB_MODE_OFF,
+            )
+            setCaptureRequestOption(
+                CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
+                android.util.Range(30, 30),
+            )
+        }
+        val locked = lockedBuilder.build().also {
+            it.setAnalyzer(analysisExecutor, ::onAnalyze)
+        }
+        try {
+            provider.unbindAll()
+            provider.bindToLifecycle(
+                this,
+                CameraSelector.DEFAULT_FRONT_CAMERA,
+                preview,
+                locked,
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "rebind with AE/AWB lock failed: ${e.message}")
         }
     }
 
