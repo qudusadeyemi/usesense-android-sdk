@@ -37,6 +37,7 @@ class VideoEncoder(
     private var trackIndex = -1
     private var outputFile: File? = null
     private var frameIndex: Long = 0
+    private var colorFormat: Int = MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible
 
     /** Start the encoder and muxer. Writes to a temp file in the cache dir. */
     fun start(cacheDir: File) {
@@ -44,15 +45,31 @@ class VideoEncoder(
         val out = File(cacheDir, "usesense-v4-${System.currentTimeMillis()}.mp4")
         outputFile = out
 
+        // OEMs disagree on color format preference: most accept
+        // COLOR_FormatYUV420Flexible, but some Xiaomi / Redmi encoders
+        // reject it and require COLOR_FormatYUV420SemiPlanar (NV12).
+        // We probe the codec capabilities and pick a supported format;
+        // encoder-input bytes are produced accordingly.
+        val supportedFormats = intArrayOf(
+            MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible,
+            MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlanar,
+            MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Planar,
+        )
+        val codecInfo = pickEncoderFor(MediaFormat.MIMETYPE_VIDEO_AVC)
+            ?: throw IllegalStateException("no H.264 encoder available")
+        colorFormat = pickColorFormat(codecInfo, supportedFormats)
+            ?: MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible
+        Log.d(TAG, "encoder=${codecInfo.name} colorFormat=$colorFormat")
+
         val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
             setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
             setInteger(MediaFormat.KEY_FRAME_RATE, fps)
-            setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
+            setInteger(MediaFormat.KEY_COLOR_FORMAT, colorFormat)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
             setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileHigh)
             setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel4)
         }
-        codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC).apply {
+        codec = MediaCodec.createByCodecName(codecInfo.name).apply {
             configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             start()
         }
@@ -159,9 +176,16 @@ class VideoEncoder(
         val chromaSize = frameSize / 4
         val out = ByteArray(frameSize + 2 * chromaSize)
 
+        // Interleaving differs by colour format:
+        //   I420 / COLOR_FormatYUV420Planar:       Y... U... V...
+        //   COLOR_FormatYUV420Flexible (I420-ish): same layout
+        //   NV12 / COLOR_FormatYUV420SemiPlanar:   Y... UVUVUV...
+        val semiPlanar = colorFormat == MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlanar
+
         var yIndex = 0
         var uIndex = frameSize
         var vIndex = frameSize + chromaSize
+        var uvIndex = frameSize
 
         for (j in 0 until h) {
             for (i in 0 until w) {
@@ -174,13 +198,37 @@ class VideoEncoder(
                 val v = ((112 * r - 94 * g - 18 * b + 128) shr 8) + 128
                 out[yIndex++] = y.coerceIn(0, 255).toByte()
                 if ((j and 1) == 0 && (i and 1) == 0) {
-                    out[uIndex++] = u.coerceIn(0, 255).toByte()
-                    out[vIndex++] = v.coerceIn(0, 255).toByte()
+                    if (semiPlanar) {
+                        out[uvIndex++] = u.coerceIn(0, 255).toByte()
+                        out[uvIndex++] = v.coerceIn(0, 255).toByte()
+                    } else {
+                        out[uIndex++] = u.coerceIn(0, 255).toByte()
+                        out[vIndex++] = v.coerceIn(0, 255).toByte()
+                    }
                 }
             }
         }
         if (scaled !== bitmap) scaled.recycle()
         return out
+    }
+
+    /** Return the first encoder advertising the given MIME type, or null. */
+    private fun pickEncoderFor(mime: String): MediaCodecInfo? {
+        val list = android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS)
+        for (info in list.codecInfos) {
+            if (!info.isEncoder) continue
+            if (info.supportedTypes.none { it.equals(mime, ignoreCase = true) }) continue
+            return info
+        }
+        return null
+    }
+
+    /** Pick the first color format from [preferred] that [info] supports. */
+    private fun pickColorFormat(info: MediaCodecInfo, preferred: IntArray): Int? {
+        val caps = info.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC)
+        val supported = caps.colorFormats.toSet()
+        for (fmt in preferred) if (fmt in supported) return fmt
+        return null
     }
 
     companion object {
