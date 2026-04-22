@@ -2,6 +2,8 @@ package com.usesense.sdk
 
 import android.app.Activity
 import android.content.Context
+import com.usesense.sdk.api.V4VerificationCallback
+import com.usesense.sdk.api.V4VerificationRequest
 import com.usesense.sdk.ui.HostedPageActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -71,6 +73,34 @@ object UseSense {
             "UseSense.initialize() must be called before startRemoteVerification()"
         )
         HostedPageActivity.startVerification(context, cfg, remoteSessionId)
+    }
+
+    /**
+     * Start a LiveSense v4 verification. Phase 1 ticket A-2.
+     *
+     * Launches LiveSenseV4Activity which drives the full flow:
+     * CameraX capture at 30fps with locked exposure/WB, ML Kit face
+     * detection feeding ZoomMotionController, parallel MediaCodec
+     * MP4 encode, per-frame JPEG into HashChainBuilder, signature
+     * via V4ChainSigner (StrongBox/TEE), upload through V4UploadClient,
+     * and the opaque verdict delivered via V4VerificationCallback.
+     *
+     * CAMERA permission must be granted before calling this method.
+     *
+     * TODO: device-verify on Pixel 7 (StrongBox), Samsung A54 (TEE
+     * fallback), and a mid-tier Xiaomi before GA.
+     */
+    fun startV4Verification(
+        activity: Activity,
+        request: V4VerificationRequest,
+        callback: V4VerificationCallback
+    ) {
+        config ?: throw IllegalStateException(
+            "UseSense.initialize() must be called before startV4Verification()"
+        )
+        com.usesense.sdk.v4.V4Bridge.install(callback)
+        val intent = com.usesense.sdk.v4.LiveSenseV4Activity.buildIntent(activity, request)
+        activity.startActivity(intent)
     }
 
     /**
