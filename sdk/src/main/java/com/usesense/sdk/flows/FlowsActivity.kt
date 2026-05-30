@@ -20,7 +20,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.setPadding
 import androidx.lifecycle.lifecycleScope
+import com.usesense.sdk.SessionType
+import com.usesense.sdk.UseSenseCallback
+import com.usesense.sdk.UseSenseConfig
+import com.usesense.sdk.UseSenseError
+import com.usesense.sdk.UseSenseResult
 import com.usesense.sdk.flows.FlowError.Code
+import com.usesense.sdk.ui.HostedPageActivity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -143,10 +149,7 @@ internal class FlowsActivity : ComponentActivity() {
             return
         }
         when (action) {
-            is PendingAction.CaptureFace -> reportError(FlowError(
-                Code.UNSUPPORTED_ACTION,
-                "Face capture in Flows lands in slice 5b-2; until then use Sessions (UseSense.startVerification) for face capture."
-            ))
+            is PendingAction.CaptureFace -> launchFaceCapture(action.toolId)
             is PendingAction.CaptureDocument -> launchDocumentPicker()
             is PendingAction.CaptureForm -> installFormSurface(action.fields)
             is PendingAction.RedirectToConsent -> launchConsent(action.consentUrl)
@@ -191,6 +194,54 @@ internal class FlowsActivity : ComponentActivity() {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
         ).apply { topMargin = 32 })
+    }
+
+    /**
+     * Initialise a session via /init-session, then launch HostedPageActivity
+     * with the pre-minted credentials. On success the bridged callback runs
+     * on the main thread (HostedPageActivity itself dispatches that way),
+     * extracts sessionId + identityId from UseSenseResult, and advances.
+     *
+     * Cancellation closes the capture and cancels the run (cancel webhook
+     * fires server-side so the customer's backend sees a definite end).
+     */
+    private fun launchFaceCapture(toolId: String?) {
+        lifecycleScope.launch {
+            try {
+                val response = withContext(Dispatchers.IO) { client.initSession(toolId) }
+                val endpoint = options.apiBaseUrl.trimEnd('/') + "/v1"
+                // Placeholder apiKey: every downstream call from the capture
+                // engine authenticates with the session token / nonce set by
+                // injectHostedSessionData; the api key is never read.
+                val config = UseSenseConfig(apiKey = "flow_runner", baseUrl = endpoint)
+                val bridge = object : UseSenseCallback {
+                    override fun onSuccess(result: UseSenseResult) {
+                        val inputs = JSONObject().put("sessionId", result.sessionId)
+                        result.identityId?.let { inputs.put("identityId", it) }
+                        lifecycleScope.launch { advance(inputs) }
+                    }
+
+                    override fun onError(error: UseSenseError) {
+                        reportError(FlowError(Code.PROVIDER_UNAVAILABLE, error.message ?: "Face capture failed"))
+                    }
+
+                    override fun onCancelled() {
+                        lifecycleScope.launch { cancelRun() }
+                    }
+                }
+                HostedPageActivity.startWithPrebuiltSession(
+                    context = this@FlowsActivity,
+                    config = config,
+                    response = response,
+                    sessionType = SessionType.ENROLLMENT,
+                    callback = bridge,
+                )
+            } catch (e: FlowError) {
+                reportError(e)
+            } catch (e: Throwable) {
+                reportError(FlowError(Code.UNKNOWN, e.message ?: "Unknown error"))
+            }
+        }
     }
 
     private fun launchDocumentPicker() {

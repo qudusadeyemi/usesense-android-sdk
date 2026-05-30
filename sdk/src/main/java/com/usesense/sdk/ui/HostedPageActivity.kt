@@ -541,13 +541,21 @@ class HostedPageActivity : AppCompatActivity() {
             session = sess
             sess.onStateChanged = { state -> onSessionStateChanged(state) }
 
-            val createResult = sess.createSession()
-            createResult.onFailure { e ->
-                eventEmitter.emit(EventType.ERROR, mapOf("error" to (e.message ?: "")))
-                val error = (e as? com.usesense.sdk.api.ApiException)?.useSenseError
-                    ?: UseSenseError.networkError(e.message)
-                deliverError(error)
-                return
+            // Flows launches the hosted page with pre-minted credentials from
+            // /sdk/flow-runs/:id/init-session; skip createSession in that path.
+            val prebuilt = pendingPrebuiltSession
+            if (prebuilt != null) {
+                sess.injectHostedSessionData(prebuilt)
+                pendingPrebuiltSession = null
+            } else {
+                val createResult = sess.createSession()
+                createResult.onFailure { e ->
+                    eventEmitter.emit(EventType.ERROR, mapOf("error" to (e.message ?: "")))
+                    val error = (e as? com.usesense.sdk.api.ApiException)?.useSenseError
+                        ?: UseSenseError.networkError(e.message)
+                    deliverError(error)
+                    return
+                }
             }
 
             eventEmitter.emit(EventType.SESSION_CREATED, mapOf("session_id" to (sess.sessionId ?: "")))
@@ -1226,6 +1234,11 @@ class HostedPageActivity : AppCompatActivity() {
         internal var pendingRequest: VerificationRequest? = null
         internal var pendingDirectCallback: UseSenseCallback? = null
 
+        // Flows runner path: pre-minted session credentials returned by
+        // /sdk/flow-runs/:id/init-session. When set, initAndStartCapture()
+        // injects them instead of calling createSession (cleared after use).
+        internal var pendingPrebuiltSession: com.usesense.sdk.api.models.CreateSessionResponse? = null
+
         /**
          * Launch the hosted page UI for a direct SDK verification/enrollment flow.
          */
@@ -1239,6 +1252,35 @@ class HostedPageActivity : AppCompatActivity() {
             pendingRequest = request
             pendingDirectCallback = callback
             val flowType = if (request.sessionType == SessionType.ENROLLMENT) "enrollment" else "verification"
+            val intent = Intent(context, HostedPageActivity::class.java).apply {
+                putExtra(EXTRA_FLOW_TYPE, flowType)
+                putExtra(EXTRA_DIRECT_MODE, true)
+            }
+            if (context !is Activity) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        }
+
+        /**
+         * Flows-runner entry point. Launches the same hosted capture UI as
+         * startDirect but with pre-minted session credentials, so the activity
+         * skips the createSession API call. The callback fires on the same
+         * UseSenseCallback contract as direct mode; the Flows runner extracts
+         * sessionId + identityId from the success result and advances the run.
+         */
+        internal fun startWithPrebuiltSession(
+            context: Context,
+            config: UseSenseConfig,
+            response: com.usesense.sdk.api.models.CreateSessionResponse,
+            sessionType: SessionType,
+            callback: UseSenseCallback,
+        ) {
+            pendingConfig = config
+            pendingRequest = VerificationRequest(sessionType = sessionType)
+            pendingDirectCallback = callback
+            pendingPrebuiltSession = response
+            val flowType = if (sessionType == SessionType.ENROLLMENT) "enrollment" else "verification"
             val intent = Intent(context, HostedPageActivity::class.java).apply {
                 putExtra(EXTRA_FLOW_TYPE, flowType)
                 putExtra(EXTRA_DIRECT_MODE, true)

@@ -99,6 +99,30 @@ internal class UseSenseSession(
         return result
     }
 
+    /**
+     * Inject pre-minted session credentials returned by a server-side init
+     * step (the Flows /sdk/flow-runs/:id/init-session endpoint produces a
+     * CreateSessionResponse). Skips createSession / exchangeToken; the capture
+     * pipeline then sees a fully-formed session and starts immediately.
+     *
+     * Mirrors iOS UseSenseSession.injectHostedSessionData(_:). Kept `internal`
+     * because the Flows runner lives in the same module; opening it `public`
+     * is unnecessary for that path.
+     */
+    internal fun injectHostedSessionData(response: CreateSessionResponse) {
+        sessionResponse = response
+        apiClient.sessionToken = response.sessionToken
+        apiClient.nonce = response.nonce
+        stateMachine.transition(SessionState.CREATED)
+        integrityJob = CoroutineScope(Dispatchers.IO).launch {
+            try {
+                signalCollector.requestPlayIntegrityToken(response.nonce)
+            } catch (_: Exception) {
+                // Play Integrity is best-effort; don't block verification.
+            }
+        }
+    }
+
     suspend fun createSession(): Result<CreateSessionResponse> {
         val createRequest = CreateSessionRequest(
             sessionType = request.sessionType.value,

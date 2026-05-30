@@ -133,6 +133,43 @@ class FlowsClientTest {
     }
 
     @Test
+    fun `initSession decodes the wire response and injects a synthetic expires_at`() {
+        val body = JSONObject(
+            """
+            {
+              "session_id": "sess_abc",
+              "session_token": "tok_xyz",
+              "nonce": "nonce_1",
+              "policy": {
+                "requires_audio": false,
+                "requires_stepup": false,
+                "challenge_type": "none"
+              },
+              "upload": {
+                "max_frames": 24,
+                "target_fps": 6,
+                "capture_duration_ms": 4000
+              }
+            }
+            """.trimIndent()
+        )
+        val http = mockClient(200, body)
+        val client = FlowsClient("fr_1", "t", "https://api.usesense.ai", http)
+
+        val response = client.initSession(toolId = null)
+
+        assertEquals("sess_abc", response.sessionId)
+        assertEquals("tok_xyz", response.sessionToken)
+        assertEquals("nonce_1", response.nonce)
+        assertEquals(24, response.upload.maxFrames)
+        assertEquals(6, response.upload.targetFps)
+        // expires_at is omitted by the server; the client synthesises one to
+        // satisfy the Moshi adapter. Anything non-empty is enough — the
+        // capture pipeline does not consume the field.
+        assertTrue("expiresAt must be populated", response.expiresAt.isNotEmpty())
+    }
+
+    @Test
     fun `translate map matches the documented HTTP status to FlowError code table`() {
         assertEquals(FlowError.Code.TOKEN_EXPIRED, FlowsClient.translate(401, null, "m").code)
         assertEquals(FlowError.Code.TOKEN_INVALID, FlowsClient.translate(403, null, "m").code)

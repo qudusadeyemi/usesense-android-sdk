@@ -1,13 +1,19 @@
 package com.usesense.sdk.flows
 
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import com.usesense.sdk.api.models.CreateSessionResponse
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
-import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONObject
 import java.io.IOException
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import java.util.concurrent.TimeUnit
 
 /**
@@ -73,18 +79,27 @@ class FlowsClient(
 
     fun cancel(): FlowRunView = FlowRunView.decode(send(request("POST", "/cancel")))
 
-    data class InitSessionResponse(val rawJson: JSONObject) {
-        // The response is the same shape sessions use; slice 5b-2 will decode
-        // this through the existing session models once the injection seam
-        // (analog to iOS UseSenseSession.injectHostedSessionData) is opened.
-        val sessionId: String get() = rawJson.getString("session_id")
-        val sessionToken: String get() = rawJson.getString("session_token")
-        val nonce: String get() = rawJson.getString("nonce")
-    }
-
-    fun initSession(toolId: String?): InitSessionResponse {
+    /**
+     * Initialise a face-capture session for the parked Flows step. Returns a
+     * `CreateSessionResponse` so the runner can hand it to the
+     * UseSenseSession injection seam. The server response shape is nearly
+     * identical to /v1/sessions; the only difference is `expires_at` is
+     * omitted (the parent flow run owns the wall-clock), so we inject a
+     * synthetic 15-minute expiry to satisfy the Moshi-generated adapter.
+     */
+    fun initSession(toolId: String?): CreateSessionResponse {
         val body = JSONObject().apply { toolId?.let { put("toolId", it) } }
-        return InitSessionResponse(send(request("POST", "/init-session", body)))
+        val responseJson = send(request("POST", "/init-session", body))
+        if (!responseJson.has("expires_at") || responseJson.isNull("expires_at")) {
+            val fmt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            responseJson.put("expires_at", fmt.format(Date(System.currentTimeMillis() + 15 * 60_000)))
+        }
+        val moshi = Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
+        val adapter = moshi.adapter(CreateSessionResponse::class.java)
+        return adapter.fromJson(responseJson.toString())
+            ?: throw FlowError(FlowError.Code.UNKNOWN, "Failed to decode init-session response")
     }
 
     data class UploadDocumentResponse(val documentId: String, val status: String, val reason: String?)
