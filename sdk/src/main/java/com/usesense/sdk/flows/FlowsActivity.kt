@@ -1,0 +1,605 @@
+package com.usesense.sdk.flows
+
+import android.app.Activity
+import android.content.Intent
+import android.graphics.Color
+import android.net.Uri
+import android.os.Bundle
+import android.text.InputType
+import android.util.Base64
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.widget.ArrayAdapter
+import android.widget.Button
+import android.widget.CheckBox
+import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.Spinner
+import android.widget.TextView
+import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.view.setPadding
+import androidx.lifecycle.lifecycleScope
+import com.usesense.sdk.SessionType
+import com.usesense.sdk.UseSenseCallback
+import com.usesense.sdk.UseSenseConfig
+import com.usesense.sdk.UseSenseError
+import com.usesense.sdk.UseSenseResult
+import com.usesense.sdk.flows.FlowError.Code
+import com.usesense.sdk.ui.HostedPageActivity
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+
+/**
+ * Drives a Flow Run end to end. One state machine; one of four surfaces
+ * rendered per parked action (face / document / form / consent). Mirrors the
+ * iOS FlowsRunnerViewController and the web SDK's FlowRunner so subject UX is
+ * identical across platforms.
+ *
+ * Face capture wiring lands in slice 5b-2: the existing UseSenseSession on
+ * Android is currently `internal class`; opening a public injection seam is
+ * the focused follow-up. Today the runner surfaces FlowError.UNSUPPORTED_ACTION
+ * for face steps with a clear hint pointing at Sessions.
+ */
+internal class FlowsActivity : ComponentActivity() {
+    private lateinit var options: RunFlowOptions
+    private lateinit var callback: FlowsCallback
+    private lateinit var client: FlowsClient
+
+    private var view: FlowRunView? = null
+    private lateinit var root: FrameLayout
+    private lateinit var spinner: ProgressBar
+    private lateinit var content: LinearLayout
+    private var finishedReporting = false
+    /** Per-field server validation errors from the last advance(). Cleared on
+     *  the next success so a recovered form does not show stale highlights. */
+    private var fieldErrors: Map<String, String> = emptyMap()
+    /** Has the info action's external URL been opened? Drives the primary CTA
+     *  copy and the next tap's behaviour (advance vs. open). */
+    private var infoOpenUrlPresented = false
+
+    private val pickDocument = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            handlePickedDocument(result.data!!)
+        } else {
+            lifecycleScope.launch { cancelRun() }
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        val opts = UseSenseFlows.pendingOptions
+        val cb = UseSenseFlows.pendingCallback
+        if (opts == null || cb == null) {
+            // Activity was recreated after a process death without going through
+            // UseSenseFlows.run again; safest to just finish silently.
+            finish(); return
+        }
+        options = opts
+        callback = cb
+        client = FlowsClient(options.flowRunId, options.sdkToken, options.apiBaseUrl)
+
+        installScaffold()
+        lifecycleScope.launch { refreshAndDrive() }
+    }
+
+    override fun onDestroy() {
+        // Best-effort cleanup. If a successful result already fired, the
+        // statics were cleared in reportSuccess/reportError; otherwise the host
+        // app might re-launch with the same callback before they GC.
+        super.onDestroy()
+    }
+
+    // ── Driver ────────────────────────────────────────────────────────────────
+
+    private suspend fun refreshAndDrive() {
+        load()
+        val v = view ?: return
+        if (v.state == FlowRunState.PENDING && v.pendingAction == null) {
+            advance(JSONObject())
+        }
+    }
+
+    private suspend fun load() {
+        showSpinner()
+        try {
+            val next = withContext(Dispatchers.IO) { client.get() }
+            view = next
+            render()
+        } catch (e: FlowError) {
+            reportError(e)
+        } catch (e: Throwable) {
+            reportError(FlowError(Code.UNKNOWN, e.message ?: "Unknown error"))
+        }
+    }
+
+    private suspend fun advance(inputs: JSONObject) {
+        showSpinner()
+        try {
+            val next = withContext(Dispatchers.IO) { client.advance(inputs) }
+            view = next
+            fieldErrors = emptyMap()
+            render()
+        } catch (e: FlowError) {
+            if (e.code == Code.INVALID_INPUT) {
+                // Inline per-field errors; do not terminate the run.
+                fieldErrors = e.details
+                render()
+            } else {
+                reportError(e)
+            }
+        } catch (e: Throwable) {
+            reportError(FlowError(Code.UNKNOWN, e.message ?: "Unknown error"))
+        }
+    }
+
+    private suspend fun cancelRun() {
+        try {
+            val next = withContext(Dispatchers.IO) { client.cancel() }
+            view = next
+            render()
+        } catch (e: FlowError) {
+            reportError(e)
+        } catch (e: Throwable) {
+            reportError(FlowError(Code.UNKNOWN, e.message ?: "Unknown error"))
+        }
+    }
+
+    private fun render() {
+        val v = view ?: return
+        hideSpinner()
+        if (v.state in TERMINAL_STATES) {
+            reportSuccess(FlowRunResult(v.id, v.state, v.outcome))
+            return
+        }
+        val action = v.pendingAction
+        if (action == null) {
+            showSpinner()
+            return
+        }
+        when (action) {
+            is PendingAction.CaptureFace -> launchFaceCapture(action.toolId)
+            is PendingAction.CaptureDocument -> launchDocumentPicker()
+            is PendingAction.CaptureForm -> installFormSurface(action.fields)
+            is PendingAction.Info -> installInfoSurface(action.info)
+            is PendingAction.RedirectToConsent -> launchConsent(action.consentUrl)
+        }
+    }
+
+    // ── Surfaces ──────────────────────────────────────────────────────────────
+
+    /** Per-field binding holding the read function + error label so a 422
+     *  invalid_input response can flip the matching error visible without
+     *  rebuilding the form. */
+    private data class FieldBinding(val read: () -> Any, val errorLabel: TextView)
+
+    private fun installFormSurface(fields: List<FormField>) {
+        content.removeAllViews()
+        val title = TextView(this).apply {
+            text = "A few details"
+            textSize = 22f
+            setPadding(0, 0, 0, 24)
+        }
+        content.addView(title)
+        val bindings = LinkedHashMap<String, FieldBinding>()
+        for (field in fields) {
+            bindings[field.key] = addFieldRow(field, fieldErrors[field.key])
+        }
+        val submit = Button(this).apply {
+            text = "Continue"
+            setOnClickListener {
+                // Client-side echo of modules/flows/form-validation.ts (the
+                // server is still authoritative; this is just inline feedback).
+                val clientErrors = LinkedHashMap<String, String>()
+                val values = JSONObject()
+                for (field in fields) {
+                    val raw = bindings[field.key]?.read() ?: ""
+                    val err = validate(field, raw)
+                    if (err != null) clientErrors[field.key] = err
+                    else values.put(field.key, coerce(field, raw))
+                }
+                if (clientErrors.isNotEmpty()) {
+                    for ((k, msg) in clientErrors) {
+                        val lbl = bindings[k]?.errorLabel ?: continue
+                        lbl.text = msg
+                        lbl.visibility = View.VISIBLE
+                    }
+                    return@setOnClickListener
+                }
+                lifecycleScope.launch { advance(values) }
+            }
+            setPadding(24, 16, 24, 16)
+        }
+        content.addView(submit, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).apply { topMargin = 32 })
+    }
+
+    private fun addFieldRow(field: FormField, serverError: String?): FieldBinding {
+        val labelText = (field.label ?: humanise(field.key)) + if (field.required) " *" else ""
+        val label = TextView(this).apply {
+            text = labelText
+            textSize = 14f
+            setPadding(0, 12, 0, 4)
+        }
+        content.addView(label)
+
+        val read: () -> Any
+        when (field.type) {
+            FormFieldType.SELECT, FormFieldType.COUNTRY -> {
+                val items: List<Pair<String, String>> = if (field.type == FormFieldType.COUNTRY)
+                    (field.allowedCountries ?: emptyList()).map { it to it }
+                else
+                    (field.options ?: emptyList()).map { it.value to it.label }
+                val labels = listOf(field.placeholder ?: "Select…") + items.map { it.second }
+                val spinner = Spinner(this).apply {
+                    adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, labels)
+                }
+                content.addView(spinner)
+                val values = listOf("") + items.map { it.first }
+                (field.initial as? String)?.let { init ->
+                    val idx = items.indexOfFirst { it.first == init }
+                    if (idx >= 0) spinner.setSelection(idx + 1)
+                }
+                read = { values.getOrElse(spinner.selectedItemPosition) { "" } }
+            }
+            FormFieldType.CHECKBOX -> {
+                val cb = CheckBox(this).apply {
+                    text = field.hint ?: ""
+                    isChecked = (field.initial as? Boolean) ?: false
+                }
+                content.addView(cb)
+                read = { cb.isChecked }
+            }
+            else -> {
+                val edit = EditText(this).apply {
+                    inputType = when (field.type) {
+                        FormFieldType.EMAIL  -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+                        FormFieldType.TEL    -> InputType.TYPE_CLASS_PHONE
+                        FormFieldType.NUMBER -> InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
+                        FormFieldType.DATE   -> InputType.TYPE_CLASS_DATETIME or InputType.TYPE_DATETIME_VARIATION_DATE
+                        else                 -> InputType.TYPE_CLASS_TEXT
+                    }
+                    hint = field.placeholder ?: ""
+                    (field.initial as? String)?.let { setText(it) }
+                    field.validators?.maxLength?.let { max ->
+                        filters = arrayOf(android.text.InputFilter.LengthFilter(max))
+                    }
+                }
+                content.addView(edit)
+                read = { edit.text.toString() }
+            }
+        }
+
+        if (!field.hint.isNullOrEmpty() && field.type != FormFieldType.CHECKBOX) {
+            content.addView(TextView(this).apply {
+                text = field.hint
+                textSize = 12f
+                setPadding(0, 4, 0, 0)
+                setTextColor(Color.parseColor("#888888"))
+            })
+        }
+
+        val errorLabel = TextView(this).apply {
+            textSize = 12f
+            setPadding(0, 4, 0, 0)
+            setTextColor(Color.parseColor("#DC2626"))
+            text = serverError ?: ""
+            visibility = if (serverError != null) View.VISIBLE else View.GONE
+        }
+        content.addView(errorLabel)
+        return FieldBinding(read, errorLabel)
+    }
+
+    private fun validate(field: FormField, raw: Any): String? {
+        val v = field.validators
+        val isBlank = (raw as? String)?.trim().isNullOrEmpty()
+        if (isBlank) return if (field.required) "${field.label ?: humanise(field.key)} is required" else null
+        val s = raw as? String
+        if (s != null && v != null) {
+            v.pattern?.let { pattern ->
+                try {
+                    if (!Regex(pattern).containsMatchIn(s)) {
+                        return v.errorMessage ?: "${field.label ?: humanise(field.key)} is not in the expected format"
+                    }
+                } catch (_: Throwable) { /* trust server on bad pattern */ }
+            }
+            v.minLength?.let { if (s.length < it) return v.errorMessage ?: "Must be at least $it characters" }
+            v.maxLength?.let { if (s.length > it) return v.errorMessage ?: "Must be at most $it characters" }
+        }
+        if (field.type == FormFieldType.NUMBER && s != null) {
+            val n = s.toDoubleOrNull()
+                ?: return v?.errorMessage ?: "${field.label ?: humanise(field.key)} must be a number"
+            v?.minNumber?.let { if (n < it) return v.errorMessage ?: "Must be at least $it" }
+            v?.maxNumber?.let { if (n > it) return v.errorMessage ?: "Must be at most $it" }
+        }
+        if (field.type == FormFieldType.DATE && s != null) {
+            v?.minString?.let { if (s < it) return v.errorMessage ?: "Must be on or after $it" }
+            v?.maxString?.let { if (s > it) return v.errorMessage ?: "Must be on or before $it" }
+        }
+        return null
+    }
+
+    private fun coerce(field: FormField, raw: Any): Any = when (field.type) {
+        FormFieldType.CHECKBOX -> (raw as? Boolean) ?: false
+        FormFieldType.NUMBER -> (raw as? String)?.toDoubleOrNull() ?: raw
+        else -> raw
+    }
+
+    private fun installInfoSurface(info: InfoAction) {
+        content.removeAllViews()
+        val title = TextView(this).apply {
+            text = info.title
+            textSize = 22f
+            setPadding(0, 0, 0, 12)
+        }
+        content.addView(title)
+        if (!info.body.isNullOrEmpty()) {
+            content.addView(TextView(this).apply {
+                text = info.body
+                textSize = 14f
+                setPadding(0, 0, 0, 16)
+                setTextColor(Color.parseColor("#555555"))
+            })
+        }
+        for (b in info.bullets) {
+            content.addView(TextView(this).apply {
+                text = "${bulletGlyph(b.icon)}   ${b.text}"
+                textSize = 14f
+                setPadding(0, 8, 0, 0)
+            })
+        }
+        val primaryLabel = if (infoOpenUrlPresented && info.primary.openUrl != null) "I'm back, continue" else info.primary.label
+        val primaryBtn = Button(this).apply {
+            text = primaryLabel
+            setPadding(24, 16, 24, 16)
+            setOnClickListener {
+                // Open the external URL via ACTION_VIEW first; the next tap
+                // advances. Custom Tabs would be smoother but adds a dep —
+                // keep the SDK dependency-light for v1.
+                val url = info.primary.openUrl
+                if (url != null && !infoOpenUrlPresented) {
+                    infoOpenUrlPresented = true
+                    runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                    // Refresh the button copy when the subject returns.
+                    text = "I'm back, continue"
+                    return@setOnClickListener
+                }
+                infoOpenUrlPresented = false
+                lifecycleScope.launch { advance(JSONObject()) }
+            }
+        }
+        content.addView(primaryBtn, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).apply { topMargin = 24 })
+        info.secondary?.let { secondary ->
+            content.addView(Button(this).apply {
+                text = secondary.label
+                setPadding(24, 16, 24, 16)
+                setOnClickListener {
+                    when (secondary.action) {
+                        InfoSecondaryCta.Action.CANCEL -> lifecycleScope.launch { cancelRun() }
+                        InfoSecondaryCta.Action.ADVANCE -> lifecycleScope.launch { advance(JSONObject()) }
+                    }
+                }
+            }, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = 12 })
+        }
+    }
+
+    private fun bulletGlyph(icon: InfoBulletIcon?): String = when (icon) {
+        // Single-char glyphs keep the SDK icon-library-free. Unknown icons fall
+        // back to the default info dot per the contract — never block.
+        InfoBulletIcon.CHECK -> "✓"
+        InfoBulletIcon.SHIELD -> "⛨"
+        InfoBulletIcon.CAMERA -> "📷"
+        InfoBulletIcon.WARNING -> "!"
+        InfoBulletIcon.INFO, null -> "i"
+    }
+
+    /**
+     * Initialise a session via /init-session, then launch HostedPageActivity
+     * with the pre-minted credentials. On success the bridged callback runs
+     * on the main thread (HostedPageActivity itself dispatches that way),
+     * extracts sessionId + identityId from UseSenseResult, and advances.
+     *
+     * Cancellation closes the capture and cancels the run (cancel webhook
+     * fires server-side so the customer's backend sees a definite end).
+     */
+    private fun launchFaceCapture(toolId: String?) {
+        lifecycleScope.launch {
+            try {
+                val response = withContext(Dispatchers.IO) { client.initSession(toolId) }
+                val endpoint = options.apiBaseUrl.trimEnd('/') + "/v1"
+                // Placeholder apiKey: every downstream call from the capture
+                // engine authenticates with the session token / nonce set by
+                // injectHostedSessionData; the api key is never read.
+                val config = UseSenseConfig(apiKey = "flow_runner", baseUrl = endpoint)
+                val bridge = object : UseSenseCallback {
+                    override fun onSuccess(result: UseSenseResult) {
+                        val inputs = JSONObject().put("sessionId", result.sessionId)
+                        result.identityId?.let { inputs.put("identityId", it) }
+                        lifecycleScope.launch { advance(inputs) }
+                    }
+
+                    override fun onError(error: UseSenseError) {
+                        reportError(FlowError(Code.PROVIDER_UNAVAILABLE, error.message ?: "Face capture failed"))
+                    }
+
+                    override fun onCancelled() {
+                        lifecycleScope.launch { cancelRun() }
+                    }
+                }
+                HostedPageActivity.startWithPrebuiltSession(
+                    context = this@FlowsActivity,
+                    config = config,
+                    response = response,
+                    sessionType = SessionType.ENROLLMENT,
+                    callback = bridge,
+                )
+            } catch (e: FlowError) {
+                reportError(e)
+            } catch (e: Throwable) {
+                reportError(FlowError(Code.UNKNOWN, e.message ?: "Unknown error"))
+            }
+        }
+    }
+
+    private fun launchDocumentPicker() {
+        // ACTION_GET_CONTENT covers gallery + file picker; many devices route
+        // it to the camera too. A future enhancement is a camera-first
+        // intent with capture-quality framing; for v1 this is enough.
+        val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+            type = "image/*"
+            addCategory(Intent.CATEGORY_OPENABLE)
+        }
+        pickDocument.launch(Intent.createChooser(intent, "Choose a document"))
+    }
+
+    private fun handlePickedDocument(data: Intent) {
+        val uri = data.data ?: return
+        showSpinner()
+        lifecycleScope.launch {
+            try {
+                val base64 = withContext(Dispatchers.IO) {
+                    contentResolver.openInputStream(uri).use { input ->
+                        requireNotNull(input) { "Failed to open document" }
+                        val bytes = input.readBytes()
+                        Base64.encodeToString(bytes, Base64.NO_WRAP)
+                    }
+                }
+                val pending = view?.pendingAction as? PendingAction.CaptureDocument
+                val docType = pending?.category ?: "identity"
+                val mime = contentResolver.getType(uri) ?: "image/jpeg"
+                val response = withContext(Dispatchers.IO) {
+                    client.uploadDocument(data = base64, mimeType = mime, side = "single", documentType = docType)
+                }
+                if (response.status == "failed") {
+                    val code = if (response.reason == "provider") Code.PROVIDER_UNAVAILABLE else Code.UNKNOWN
+                    val message = if (response.reason == "provider")
+                        "Verification is temporarily unavailable."
+                    else
+                        "We couldn't read that document. Please retake it."
+                    reportError(FlowError(code, message))
+                    return@launch
+                }
+                advance(JSONObject().put("document_id", response.documentId))
+            } catch (e: FlowError) {
+                reportError(e)
+            } catch (e: Throwable) {
+                reportError(FlowError(Code.UNKNOWN, e.message ?: "Unknown error"))
+            }
+        }
+    }
+
+    private fun launchConsent(consentUrl: String) {
+        content.removeAllViews()
+        val title = TextView(this).apply {
+            text = "Consent required"
+            textSize = 22f
+            setPadding(0, 0, 0, 12)
+        }
+        val sub = TextView(this).apply {
+            text = "Open the secure consent page, grant consent, then come back and continue."
+            textSize = 14f
+            setPadding(0, 0, 0, 24)
+        }
+        val openBtn = Button(this).apply {
+            text = "Open consent page"
+            setOnClickListener {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(consentUrl))
+                startActivity(intent)
+            }
+        }
+        val continueBtn = Button(this).apply {
+            text = "I've granted consent"
+            setOnClickListener { lifecycleScope.launch { advance(JSONObject()) } }
+        }
+        content.addView(title)
+        content.addView(sub)
+        content.addView(openBtn)
+        content.addView(continueBtn, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).apply { topMargin = 16 })
+    }
+
+    // ── Scaffold ──────────────────────────────────────────────────────────────
+
+    private fun installScaffold() {
+        root = FrameLayout(this).apply {
+            setBackgroundColor(Color.WHITE)
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            )
+        }
+        content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48)
+        }
+        spinner = ProgressBar(this).apply { visibility = View.GONE }
+        val spinnerWrap = FrameLayout(this).apply {
+            addView(spinner, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER,
+            ))
+        }
+        root.addView(content, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT,
+        ))
+        root.addView(spinnerWrap, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT,
+        ))
+        setContentView(root)
+    }
+
+    private fun showSpinner() {
+        spinner.visibility = View.VISIBLE
+    }
+
+    private fun hideSpinner() {
+        spinner.visibility = View.GONE
+    }
+
+    private fun reportSuccess(result: FlowRunResult) {
+        if (finishedReporting) return
+        finishedReporting = true
+        UseSenseFlows.pendingOptions = null
+        UseSenseFlows.pendingCallback = null
+        callback.onResult(result)
+        finish()
+    }
+
+    private fun reportError(error: FlowError) {
+        if (finishedReporting) return
+        finishedReporting = true
+        UseSenseFlows.pendingOptions = null
+        UseSenseFlows.pendingCallback = null
+        callback.onError(error)
+        finish()
+    }
+
+    companion object {
+        private val TERMINAL_STATES = setOf(
+            FlowRunState.COMPLETED, FlowRunState.ERRORED, FlowRunState.CANCELLED, FlowRunState.ABANDONED,
+        )
+    }
+}
+
+private fun humanise(s: String): String =
+    s.split('_').joinToString(" ") { word -> word.replaceFirstChar { it.uppercase() } }
