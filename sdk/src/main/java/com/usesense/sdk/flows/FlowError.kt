@@ -11,6 +11,12 @@ class FlowError(
     message: String,
     /** Server-side error code passed through verbatim when present. */
     val serverCode: String? = null,
+    /**
+     * Per-field validation errors keyed by FormField.key. Populated only when
+     * `code == INVALID_INPUT`. The runner surfaces these inline rather than
+     * terminating the run via the host-app callback.
+     */
+    val details: Map<String, String> = emptyMap(),
 ) : RuntimeException(message) {
     enum class Code(val wire: String) {
         TOKEN_EXPIRED("token_expired"),
@@ -20,6 +26,7 @@ class FlowError(
         PROVIDER_UNAVAILABLE("provider_unavailable"),
         CANCELLED("cancelled"),
         UNSUPPORTED_ACTION("unsupported_action"),
+        INVALID_INPUT("invalid_input"),
         UNKNOWN("unknown");
     }
 

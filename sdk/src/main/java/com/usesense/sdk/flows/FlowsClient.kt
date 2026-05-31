@@ -66,7 +66,21 @@ class FlowsClient(
             }
             val code = envelope?.optString("code", null)
             val message = envelope?.optString("error", null) ?: "Request failed with status ${res.code}"
-            throw translate(res.code, code, message)
+            // 422 invalid_input — flatten details.errors into [field_key:
+            // message] so the runner can highlight each offending field
+            // inline instead of failing the whole run.
+            val details: Map<String, String> = if (code == "invalid_input") {
+                val out = mutableMapOf<String, String>()
+                val errs = envelope?.optJSONObject("details")?.optJSONArray("errors")
+                if (errs != null) for (i in 0 until errs.length()) {
+                    val e = errs.optJSONObject(i) ?: continue
+                    val k = e.optString("field_key", null) ?: continue
+                    val m = e.optString("message", null) ?: continue
+                    out[k] = m
+                }
+                out
+            } else emptyMap()
+            throw translate(res.code, code, message, details)
         }
     }
 
@@ -129,10 +143,11 @@ class FlowsClient(
          * Map server HTTP/JSON error envelope to the SDK's FlowError taxonomy.
          * Kept as a static so tests verify the translation independently of I/O.
          */
-        fun translate(status: Int, code: String?, message: String): FlowError {
+        fun translate(status: Int, code: String?, message: String, details: Map<String, String> = emptyMap()): FlowError {
             return when {
                 status == 401 || code == "token_expired" -> FlowError(FlowError.Code.TOKEN_EXPIRED, message, code)
                 status == 403 || code == "forbidden" -> FlowError(FlowError.Code.TOKEN_INVALID, message, code)
+                code == "invalid_input" -> FlowError(FlowError.Code.INVALID_INPUT, message, code, details)
                 status >= 500 || code == "provider_unavailable" || code == "internal" ->
                     FlowError(FlowError.Code.PROVIDER_UNAVAILABLE, message, code)
                 else -> FlowError(FlowError.Code.UNKNOWN, message, code)

@@ -10,11 +10,14 @@ import android.util.Base64
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.Spinner
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
@@ -53,6 +56,12 @@ internal class FlowsActivity : ComponentActivity() {
     private lateinit var spinner: ProgressBar
     private lateinit var content: LinearLayout
     private var finishedReporting = false
+    /** Per-field server validation errors from the last advance(). Cleared on
+     *  the next success so a recovered form does not show stale highlights. */
+    private var fieldErrors: Map<String, String> = emptyMap()
+    /** Has the info action's external URL been opened? Drives the primary CTA
+     *  copy and the next tap's behaviour (advance vs. open). */
+    private var infoOpenUrlPresented = false
 
     private val pickDocument = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -116,9 +125,16 @@ internal class FlowsActivity : ComponentActivity() {
         try {
             val next = withContext(Dispatchers.IO) { client.advance(inputs) }
             view = next
+            fieldErrors = emptyMap()
             render()
         } catch (e: FlowError) {
-            reportError(e)
+            if (e.code == Code.INVALID_INPUT) {
+                // Inline per-field errors; do not terminate the run.
+                fieldErrors = e.details
+                render()
+            } else {
+                reportError(e)
+            }
         } catch (e: Throwable) {
             reportError(FlowError(Code.UNKNOWN, e.message ?: "Unknown error"))
         }
@@ -152,13 +168,19 @@ internal class FlowsActivity : ComponentActivity() {
             is PendingAction.CaptureFace -> launchFaceCapture(action.toolId)
             is PendingAction.CaptureDocument -> launchDocumentPicker()
             is PendingAction.CaptureForm -> installFormSurface(action.fields)
+            is PendingAction.Info -> installInfoSurface(action.info)
             is PendingAction.RedirectToConsent -> launchConsent(action.consentUrl)
         }
     }
 
     // ── Surfaces ──────────────────────────────────────────────────────────────
 
-    private fun installFormSurface(fields: List<String>) {
+    /** Per-field binding holding the read function + error label so a 422
+     *  invalid_input response can flip the matching error visible without
+     *  rebuilding the form. */
+    private data class FieldBinding(val read: () -> Any, val errorLabel: TextView)
+
+    private fun installFormSurface(fields: List<FormField>) {
         content.removeAllViews()
         val title = TextView(this).apply {
             text = "A few details"
@@ -166,26 +188,31 @@ internal class FlowsActivity : ComponentActivity() {
             setPadding(0, 0, 0, 24)
         }
         content.addView(title)
-        val inputs = mutableMapOf<String, EditText>()
+        val bindings = LinkedHashMap<String, FieldBinding>()
         for (field in fields) {
-            val label = TextView(this).apply {
-                text = humanise(field)
-                textSize = 14f
-                setPadding(0, 12, 0, 4)
-            }
-            val edit = EditText(this).apply {
-                inputType = InputType.TYPE_CLASS_TEXT
-                hint = humanise(field)
-            }
-            inputs[field] = edit
-            content.addView(label)
-            content.addView(edit)
+            bindings[field.key] = addFieldRow(field, fieldErrors[field.key])
         }
         val submit = Button(this).apply {
             text = "Continue"
             setOnClickListener {
+                // Client-side echo of modules/flows/form-validation.ts (the
+                // server is still authoritative; this is just inline feedback).
+                val clientErrors = LinkedHashMap<String, String>()
                 val values = JSONObject()
-                inputs.forEach { (k, e) -> values.put(k, e.text.toString()) }
+                for (field in fields) {
+                    val raw = bindings[field.key]?.read() ?: ""
+                    val err = validate(field, raw)
+                    if (err != null) clientErrors[field.key] = err
+                    else values.put(field.key, coerce(field, raw))
+                }
+                if (clientErrors.isNotEmpty()) {
+                    for ((k, msg) in clientErrors) {
+                        val lbl = bindings[k]?.errorLabel ?: continue
+                        lbl.text = msg
+                        lbl.visibility = View.VISIBLE
+                    }
+                    return@setOnClickListener
+                }
                 lifecycleScope.launch { advance(values) }
             }
             setPadding(24, 16, 24, 16)
@@ -194,6 +221,191 @@ internal class FlowsActivity : ComponentActivity() {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
         ).apply { topMargin = 32 })
+    }
+
+    private fun addFieldRow(field: FormField, serverError: String?): FieldBinding {
+        val labelText = (field.label ?: humanise(field.key)) + if (field.required) " *" else ""
+        val label = TextView(this).apply {
+            text = labelText
+            textSize = 14f
+            setPadding(0, 12, 0, 4)
+        }
+        content.addView(label)
+
+        val read: () -> Any
+        when (field.type) {
+            FormFieldType.SELECT, FormFieldType.COUNTRY -> {
+                val items: List<Pair<String, String>> = if (field.type == FormFieldType.COUNTRY)
+                    (field.allowedCountries ?: emptyList()).map { it to it }
+                else
+                    (field.options ?: emptyList()).map { it.value to it.label }
+                val labels = listOf(field.placeholder ?: "Select…") + items.map { it.second }
+                val spinner = Spinner(this).apply {
+                    adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, labels)
+                }
+                content.addView(spinner)
+                val values = listOf("") + items.map { it.first }
+                (field.initial as? String)?.let { init ->
+                    val idx = items.indexOfFirst { it.first == init }
+                    if (idx >= 0) spinner.setSelection(idx + 1)
+                }
+                read = { values.getOrElse(spinner.selectedItemPosition) { "" } }
+            }
+            FormFieldType.CHECKBOX -> {
+                val cb = CheckBox(this).apply {
+                    text = field.hint ?: ""
+                    isChecked = (field.initial as? Boolean) ?: false
+                }
+                content.addView(cb)
+                read = { cb.isChecked }
+            }
+            else -> {
+                val edit = EditText(this).apply {
+                    inputType = when (field.type) {
+                        FormFieldType.EMAIL  -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+                        FormFieldType.TEL    -> InputType.TYPE_CLASS_PHONE
+                        FormFieldType.NUMBER -> InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
+                        FormFieldType.DATE   -> InputType.TYPE_CLASS_DATETIME or InputType.TYPE_DATETIME_VARIATION_DATE
+                        else                 -> InputType.TYPE_CLASS_TEXT
+                    }
+                    hint = field.placeholder ?: ""
+                    (field.initial as? String)?.let { setText(it) }
+                    field.validators?.maxLength?.let { max ->
+                        filters = arrayOf(android.text.InputFilter.LengthFilter(max))
+                    }
+                }
+                content.addView(edit)
+                read = { edit.text.toString() }
+            }
+        }
+
+        if (!field.hint.isNullOrEmpty() && field.type != FormFieldType.CHECKBOX) {
+            content.addView(TextView(this).apply {
+                text = field.hint
+                textSize = 12f
+                setPadding(0, 4, 0, 0)
+                setTextColor(Color.parseColor("#888888"))
+            })
+        }
+
+        val errorLabel = TextView(this).apply {
+            textSize = 12f
+            setPadding(0, 4, 0, 0)
+            setTextColor(Color.parseColor("#DC2626"))
+            text = serverError ?: ""
+            visibility = if (serverError != null) View.VISIBLE else View.GONE
+        }
+        content.addView(errorLabel)
+        return FieldBinding(read, errorLabel)
+    }
+
+    private fun validate(field: FormField, raw: Any): String? {
+        val v = field.validators
+        val isBlank = (raw as? String)?.trim().isNullOrEmpty()
+        if (isBlank) return if (field.required) "${field.label ?: humanise(field.key)} is required" else null
+        val s = raw as? String
+        if (s != null && v != null) {
+            v.pattern?.let { pattern ->
+                try {
+                    if (!Regex(pattern).containsMatchIn(s)) {
+                        return v.errorMessage ?: "${field.label ?: humanise(field.key)} is not in the expected format"
+                    }
+                } catch (_: Throwable) { /* trust server on bad pattern */ }
+            }
+            v.minLength?.let { if (s.length < it) return v.errorMessage ?: "Must be at least $it characters" }
+            v.maxLength?.let { if (s.length > it) return v.errorMessage ?: "Must be at most $it characters" }
+        }
+        if (field.type == FormFieldType.NUMBER && s != null) {
+            val n = s.toDoubleOrNull()
+                ?: return v?.errorMessage ?: "${field.label ?: humanise(field.key)} must be a number"
+            v?.minNumber?.let { if (n < it) return v.errorMessage ?: "Must be at least $it" }
+            v?.maxNumber?.let { if (n > it) return v.errorMessage ?: "Must be at most $it" }
+        }
+        if (field.type == FormFieldType.DATE && s != null) {
+            v?.minString?.let { if (s < it) return v.errorMessage ?: "Must be on or after $it" }
+            v?.maxString?.let { if (s > it) return v.errorMessage ?: "Must be on or before $it" }
+        }
+        return null
+    }
+
+    private fun coerce(field: FormField, raw: Any): Any = when (field.type) {
+        FormFieldType.CHECKBOX -> (raw as? Boolean) ?: false
+        FormFieldType.NUMBER -> (raw as? String)?.toDoubleOrNull() ?: raw
+        else -> raw
+    }
+
+    private fun installInfoSurface(info: InfoAction) {
+        content.removeAllViews()
+        val title = TextView(this).apply {
+            text = info.title
+            textSize = 22f
+            setPadding(0, 0, 0, 12)
+        }
+        content.addView(title)
+        if (!info.body.isNullOrEmpty()) {
+            content.addView(TextView(this).apply {
+                text = info.body
+                textSize = 14f
+                setPadding(0, 0, 0, 16)
+                setTextColor(Color.parseColor("#555555"))
+            })
+        }
+        for (b in info.bullets) {
+            content.addView(TextView(this).apply {
+                text = "${bulletGlyph(b.icon)}   ${b.text}"
+                textSize = 14f
+                setPadding(0, 8, 0, 0)
+            })
+        }
+        val primaryLabel = if (infoOpenUrlPresented && info.primary.openUrl != null) "I'm back, continue" else info.primary.label
+        val primaryBtn = Button(this).apply {
+            text = primaryLabel
+            setPadding(24, 16, 24, 16)
+            setOnClickListener {
+                // Open the external URL via ACTION_VIEW first; the next tap
+                // advances. Custom Tabs would be smoother but adds a dep —
+                // keep the SDK dependency-light for v1.
+                val url = info.primary.openUrl
+                if (url != null && !infoOpenUrlPresented) {
+                    infoOpenUrlPresented = true
+                    runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                    // Refresh the button copy when the subject returns.
+                    text = "I'm back, continue"
+                    return@setOnClickListener
+                }
+                infoOpenUrlPresented = false
+                lifecycleScope.launch { advance(JSONObject()) }
+            }
+        }
+        content.addView(primaryBtn, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).apply { topMargin = 24 })
+        info.secondary?.let { secondary ->
+            content.addView(Button(this).apply {
+                text = secondary.label
+                setPadding(24, 16, 24, 16)
+                setOnClickListener {
+                    when (secondary.action) {
+                        InfoSecondaryCta.Action.CANCEL -> lifecycleScope.launch { cancelRun() }
+                        InfoSecondaryCta.Action.ADVANCE -> lifecycleScope.launch { advance(JSONObject()) }
+                    }
+                }
+            }, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = 12 })
+        }
+    }
+
+    private fun bulletGlyph(icon: InfoBulletIcon?): String = when (icon) {
+        // Single-char glyphs keep the SDK icon-library-free. Unknown icons fall
+        // back to the default info dot per the contract — never block.
+        InfoBulletIcon.CHECK -> "✓"
+        InfoBulletIcon.SHIELD -> "⛨"
+        InfoBulletIcon.CAMERA -> "📷"
+        InfoBulletIcon.WARNING -> "!"
+        InfoBulletIcon.INFO, null -> "i"
     }
 
     /**
