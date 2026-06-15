@@ -85,13 +85,24 @@ import com.usesense.sdk.UseSenseEnvironment
 import com.usesense.sdk.UseSenseError
 import com.usesense.sdk.UseSenseResult
 import com.usesense.sdk.VerificationRequest
+import com.usesense.sdk.flows.FlowError
+import com.usesense.sdk.flows.FlowRunResult
+import com.usesense.sdk.flows.FlowsCallback
+import com.usesense.sdk.flows.UseSenseFlows
+import java.net.HttpURLConnection
+import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import org.json.JSONObject
 
 private const val PREFS_NAME = "usesense_example_prefs"
 private const val KEY_API_KEY = "api_key"
 private const val KEY_USE_PRODUCTION = "use_production"
+
+// Public API base for creating flow runs and for the SDK Flow runner. Sandbox
+// vs production is selected by the API key plus the x-environment header.
+private const val API_BASE = "https://api.usesense.ai"
 
 class MainActivity : ComponentActivity() {
 
@@ -131,6 +142,8 @@ fun MainScreen(activity: ComponentActivity) {
     }
     var apiKeyVisible by remember { mutableStateOf(false) }
     var identityId by remember { mutableStateOf("") }
+    var flowId by remember { mutableStateOf("") }
+    var flowMessage by remember { mutableStateOf<String?>(null) }
     var result by remember { mutableStateOf<UseSenseResult?>(null) }
     var errorState by remember { mutableStateOf<UseSenseError?>(null) }
     val eventLog = remember { mutableStateListOf<EventLogEntry>() }
@@ -221,6 +234,77 @@ fun MainScreen(activity: ComponentActivity) {
                 eventLog.add(EventLogEntry(type = "CANCELLED", detail = "Session cancelled by user"))
             }
         }
+    }
+
+    // Run a Flow. Flows are token-based and do NOT use UseSense.initialize: the
+    // host backend creates the run and returns flowRunId + sdkToken. The example
+    // does that inline with the API key (on a background thread) so a developer
+    // can test a flow end to end, then hands the credentials to the runner.
+    fun runFlow() {
+        val key = apiKey.trim()
+        val flow = flowId.trim()
+        if (key.isBlank() || flow.isBlank()) return
+        flowMessage = "Creating flow run..."
+        Thread {
+            try {
+                val conn = (URL("$API_BASE/v1/flow-runs").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    doOutput = true
+                    connectTimeout = 15000
+                    readTimeout = 30000
+                    setRequestProperty("Content-Type", "application/json")
+                    setRequestProperty("x-api-key", key)
+                    setRequestProperty("x-environment", if (useProduction) "production" else "sandbox")
+                }
+                val payload = JSONObject()
+                    .put("flowId", flow)
+                    .put("subject", JSONObject().put("externalRef", "android-demo-user"))
+                    .put("mint_sdk_token", true)
+                    .put("sdk_version", "android-demo")
+                conn.outputStream.use { it.write(payload.toString().toByteArray()) }
+                val code = conn.responseCode
+                val text = (if (code in 200..299) conn.inputStream else conn.errorStream)
+                    ?.bufferedReader()?.use { it.readText() } ?: ""
+                conn.disconnect()
+
+                activity.runOnUiThread {
+                    if (code !in 200..299) {
+                        flowMessage = "Could not create flow run (HTTP $code)"
+                        return@runOnUiThread
+                    }
+                    val json = JSONObject(text)
+                    val runId = json.getJSONObject("flowRun").getString("id")
+                    val sdkToken = json.optString("sdkToken", "")
+                    if (sdkToken.isBlank()) {
+                        flowMessage = "No sdkToken returned (mint_sdk_token)."
+                        return@runOnUiThread
+                    }
+                    flowMessage = null
+                    UseSenseFlows.run(
+                        activity = activity,
+                        flowRunId = runId,
+                        sdkToken = sdkToken,
+                        callback = object : FlowsCallback {
+                            override fun onResult(result: FlowRunResult) {
+                                flowMessage = "Flow ${result.state}" +
+                                    (result.outcome?.let { " — $it" } ?: "")
+                            }
+
+                            override fun onError(error: FlowError) {
+                                flowMessage = if (error.code == FlowError.Code.CANCELLED) {
+                                    "Flow cancelled."
+                                } else {
+                                    "Flow failed: ${error.code}: ${error.message}"
+                                }
+                            }
+                        },
+                        apiBaseUrl = API_BASE,
+                    )
+                }
+            } catch (e: Exception) {
+                activity.runOnUiThread { flowMessage = "Flow failed: ${e.message}" }
+            }
+        }.start()
     }
 
     Scaffold(
@@ -376,6 +460,46 @@ fun MainScreen(activity: ComponentActivity) {
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Authenticate")
                 }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Run a Flow. Operator-authored multi-step flows (document + face,
+            // etc.). The example creates the run with your API key, then
+            // launches the native Flow runner.
+            Text(
+                text = "Run a Flow",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(
+                value = flowId,
+                onValueChange = { flowId = it.trim() },
+                label = { Text("Flow ID") },
+                placeholder = { Text("flw_...") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(
+                onClick = { runFlow() },
+                enabled = apiKey.isNotBlank() && flowId.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Default.PlayArrow, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Run a Flow")
+            }
+            flowMessage?.let { msg ->
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = msg,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
 
             Spacer(modifier = Modifier.height(16.dp))

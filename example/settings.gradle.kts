@@ -22,6 +22,10 @@ pluginManagement {
 
 dependencyResolutionManagement {
     repositories {
+        // mavenLocal first so a locally-published SDK (./gradlew
+        // :sdk:publishToMavenLocal) is preferred over Maven Central during
+        // development. De-prioritise for release-fidelity testing.
+        mavenLocal()
         google()
         mavenCentral()
     }
