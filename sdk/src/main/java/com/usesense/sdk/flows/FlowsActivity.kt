@@ -20,7 +20,11 @@ import android.widget.ProgressBar
 import android.widget.Spinner
 import android.widget.TextView
 import androidx.activity.ComponentActivity
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import androidx.core.view.setPadding
 import androidx.lifecycle.lifecycleScope
 import com.usesense.sdk.SessionType
@@ -68,6 +72,20 @@ internal class FlowsActivity : ComponentActivity() {
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
             handlePickedDocument(result.data!!)
+        } else {
+            lifecycleScope.launch { cancelRun() }
+        }
+    }
+
+    /** Result of the ML Kit Document Scanner (rear-camera capture, edge-detected
+     *  and deskewed). The first scanned page is uploaded like a picked file. */
+    private val scanDocument = registerForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            val uri = GmsDocumentScanningResult.fromActivityResultIntent(result.data)
+                ?.pages?.firstOrNull()?.imageUri
+            if (uri != null) handleDocumentUri(uri) else lifecycleScope.launch { cancelRun() }
         } else {
             lifecycleScope.launch { cancelRun() }
         }
@@ -166,7 +184,7 @@ internal class FlowsActivity : ComponentActivity() {
         }
         when (action) {
             is PendingAction.CaptureFace -> launchFaceCapture(action.toolId)
-            is PendingAction.CaptureDocument -> launchDocumentPicker()
+            is PendingAction.CaptureDocument -> presentDocumentCapture(action)
             is PendingAction.CaptureForm -> installFormSurface(action.fields)
             is PendingAction.Info -> installInfoSurface(action.info)
             is PendingAction.RedirectToConsent -> launchConsent(action.consentUrl)
@@ -456,10 +474,58 @@ internal class FlowsActivity : ComponentActivity() {
         }
     }
 
+    /** Offer the subject every method the operator allows. Default is both:
+     *  rear-camera scan (ML Kit) and file upload. */
+    private fun presentDocumentCapture(action: PendingAction.CaptureDocument) {
+        val methods = action.captureMethods
+        val canScan = methods.isEmpty() || methods.contains("camera")
+        val canUpload = methods.isEmpty() || methods.contains("upload")
+        when {
+            canScan && canUpload -> renderDocumentChooser()
+            canUpload -> launchDocumentPicker()
+            else -> launchDocumentScanner()
+        }
+    }
+
+    /** A simple chooser screen with the two allowed capture methods. */
+    private fun renderDocumentChooser() {
+        content.removeAllViews()
+        content.addView(TextView(this).apply {
+            text = "Add your document"
+            textSize = 22f
+            setPadding(0, 0, 0, 16)
+        })
+        content.addView(Button(this).apply {
+            text = "Scan with camera"
+            setOnClickListener { launchDocumentScanner() }
+        })
+        content.addView(Button(this).apply {
+            text = "Upload a file"
+            setOnClickListener { launchDocumentPicker() }
+        })
+    }
+
+    /** Rear-camera document scan via ML Kit (edge detect, deskew, glare/finger
+     *  detection). Falls back to the file picker if the scanner is unavailable. */
+    private fun launchDocumentScanner() {
+        val options = GmsDocumentScannerOptions.Builder()
+            .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
+            .setPageLimit(1)
+            .setGalleryImportAllowed(false)
+            .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
+            .build()
+        GmsDocumentScanning.getClient(options)
+            .getStartScanIntent(this)
+            .addOnSuccessListener { intentSender ->
+                scanDocument.launch(IntentSenderRequest.Builder(intentSender).build())
+            }
+            .addOnFailureListener {
+                // Scanner unavailable (e.g. no Play Services): fall back to upload.
+                launchDocumentPicker()
+            }
+    }
+
     private fun launchDocumentPicker() {
-        // ACTION_GET_CONTENT covers gallery + file picker; many devices route
-        // it to the camera too. A future enhancement is a camera-first
-        // intent with capture-quality framing; for v1 this is enough.
         val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
             type = "image/*"
             addCategory(Intent.CATEGORY_OPENABLE)
@@ -469,6 +535,11 @@ internal class FlowsActivity : ComponentActivity() {
 
     private fun handlePickedDocument(data: Intent) {
         val uri = data.data ?: return
+        handleDocumentUri(uri)
+    }
+
+    /** Upload a document (picked or scanned) and advance the run. */
+    private fun handleDocumentUri(uri: Uri) {
         showSpinner()
         lifecycleScope.launch {
             try {
