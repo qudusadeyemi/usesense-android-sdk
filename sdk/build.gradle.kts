@@ -225,6 +225,14 @@ dependencies {
     // ML Kit Face Detection (v4.1: RMAS action validation in inline step-up)
     implementation("com.google.mlkit:face-detection:16.1.5")
 
+    // ML Kit Document Scanner (rear-camera document capture: edge detect, deskew,
+    // glare/finger detection). Honors the capture contract's camera method.
+    implementation("com.google.android.gms:play-services-mlkit-document-scanner:16.0.0-beta1")
+
+    // TensorFlow Lite (v4.2: on-device antispoof classifier, feature-flagged)
+    implementation("org.tensorflow:tensorflow-lite:2.14.0")
+    implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
+
     // Testing
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")

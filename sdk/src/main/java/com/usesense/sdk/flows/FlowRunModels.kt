@@ -198,6 +198,10 @@ sealed class PendingAction {
         val category: String,
         val documentTypes: List<String>,
         val issuingCountries: List<String>,
+        /** "rear" (default) or "front". */
+        val camera: String?,
+        /** Allowed methods, operator-configurable per step. Defaults to both. */
+        val captureMethods: List<String>,
     ) : PendingAction()
     data class CaptureForm(val fields: List<FormField>) : PendingAction()
     data class Info(val info: InfoAction) : PendingAction()
@@ -218,6 +222,9 @@ sealed class PendingAction {
                         category = raw.optString("documentCategory", "identity"),
                         documentTypes = raw.optJSONArray("documentTypes").toStringList(),
                         issuingCountries = raw.optJSONArray("issuingCountries").toStringList(),
+                        camera = raw.opt("camera") as? String,
+                        captureMethods = raw.optJSONArray("captureMethods").toStringList()
+                            .ifEmpty { listOf("camera", "upload") },
                     )
                     "form" -> {
                         val arr = raw.optJSONArray("fields")
