@@ -37,6 +37,9 @@ class MetadataBuilder {
         suspicionTriggered: Boolean = false,
         inlineStepUp: JSONObject? = null,
         screenDetection: JSONObject? = null,
+        deepClassifierOnDevice: JSONObject? = null,
+        framePhases: List<String>? = null,
+        zoomMotion: JSONObject? = null,
     ): ByteArray {
         val metadata = JSONObject()
 
@@ -128,6 +131,21 @@ class MetadataBuilder {
         // Inline step-up evidence (null if not triggered)
         if (inlineStepUp != null) {
             metadata.put("inline_step_up", inlineStepUp)
+        }
+
+        // Deep classifier on-device samples (v4.2; only when antispoofOnDeviceEnabled)
+        if (deepClassifierOnDevice != null) {
+            metadata.put("deep_classifier_on_device", deepClassifierOnDevice)
+        }
+
+        // v4 per-frame capture-phase tags
+        if (framePhases != null && framePhases.isNotEmpty()) {
+            metadata.put("frame_phases", JSONArray(framePhases))
+        }
+
+        // v4 zoom-motion summary stats
+        if (zoomMotion != null) {
+            metadata.put("zoom_motion", zoomMotion)
         }
 
         return metadata.toString(2).toByteArray(Charsets.UTF_8)

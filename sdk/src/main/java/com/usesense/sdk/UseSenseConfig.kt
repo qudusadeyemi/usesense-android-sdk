@@ -6,6 +6,27 @@ data class UseSenseConfig(
     val baseUrl: String = DEFAULT_BASE_URL,
     val branding: BrandingConfig? = null,
     val googleCloudProjectNumber: Long = DEFAULT_GOOGLE_CLOUD_PROJECT_NUMBER,
+    /**
+     * Opt in to the on-device antispoof classifier. When enabled the SDK loads
+     * the bundled TFLite model, runs inference against each captured face frame,
+     * and attaches per-frame spoof probabilities to the metadata upload under
+     * signals.deep_classifier_on_device. When disabled (default in v4.2), the
+     * watchtower backend runs the classifier server-side. See
+     * docs/sdk-specs/antispoof-classifier-sdk-spec.md for the rollout plan.
+     */
+    val antispoofOnDeviceEnabled: Boolean = false,
+
+    /**
+     * Opt the session into the LiveSense v4 capture flow. When true the SDK:
+     *   - sends `x-usesense-sdk-version: v4` on session creation
+     *   - inserts a constitutive zoom-motion phase between baseline and the
+     *     active challenge (additive, not a replacement)
+     *   - tags every captured frame with its capture phase so the server's
+     *     SfM perspective validator can filter to the zoom subset
+     * Defaults to false. The org must also have `livesense_v4_enabled` in its
+     * features map; the server returns 400 v4_not_enabled otherwise.
+     */
+    val liveSenseV4Enabled: Boolean = false,
 ) {
     companion object {
         const val DEFAULT_BASE_URL = "https://api.usesense.ai/v1"
