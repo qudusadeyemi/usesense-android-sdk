@@ -3,6 +3,7 @@ package com.usesense.sdk.flows
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import com.usesense.sdk.api.models.CreateSessionResponse
+import com.usesense.sdk.signals.DeviceSignalCollector
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -39,6 +40,11 @@ class FlowsClient(
         val builder = Request.Builder()
             .url(url(suffix))
             .header("Authorization", "Bearer $sdkToken")
+            // Identify the platform to the server at the first device contact
+            // (init-session) so the flow capture session is scored on the Android
+            // surface from creation rather than defaulting to web. Mirrors the
+            // session API client's User-Agent.
+            .header("User-Agent", "UseSense-Android-SDK/${DeviceSignalCollector.SDK_VERSION}")
         when (method) {
             "GET" -> builder.get()
             "POST" -> {
