@@ -4,6 +4,35 @@ All notable changes to the UseSense Android SDK will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [4.4.0] - 2026-06-23
+
+Minor release bringing **on-device antispoof + LiveSense v4** to Android, at
+parity with the iOS SDK. Both are opt-in and default off, so existing
+integrations are unchanged.
+
+### Added
+
+- **`UseSenseConfig.antispoofOnDeviceEnabled`** (default `false`). When enabled,
+  the SDK runs the EfficientNet-B0 CelebA-Spoof classifier on captured face
+  frames and uploads per-frame spoof probabilities under
+  `signals.deep_classifier_on_device`. The model is loaded from app-private OTA
+  storage or AAR assets; when the artifact is absent the classifier no-ops and
+  the watchtower backend's server-side classifier stays authoritative.
+- **`UseSenseConfig.liveSenseV4Enabled`** (default `false`). Opts the session
+  into the LiveSense v4 capture flow: sends `x-usesense-sdk-version: v4`, exposes
+  a constitutive zoom-motion phase (`UseSenseSession.runZoomPhase` /
+  `setCapturePhase`), and tags each frame with its capture phase for the
+  server's SfM perspective validator. The org must also have
+  `livesense_v4_enabled` in its features map (server returns `v4_not_enabled`
+  otherwise).
+
+### Fixed
+
+- **Unblocks the Flutter plugin's Android build.** `usesense_flutter` (>= 2.1.0)
+  passes `antispoofOnDeviceEnabled` + `liveSenseV4Enabled` to `UseSenseConfig`,
+  which previously existed only on the iOS SDK. Android consumers hit a compile
+  error against `ai.usesense:sdk:4.3.x`; these params now exist on Android.
+
 ## [4.3.1] - 2026-06-23
 
 Patch release: the Flows client now identifies its platform to the server.

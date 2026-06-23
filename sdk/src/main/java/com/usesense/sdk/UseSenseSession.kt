@@ -1,6 +1,9 @@
 package com.usesense.sdk
 
 import android.content.Context
+import android.graphics.BitmapFactory
+import android.graphics.Rect
+import com.usesense.sdk.antispoof.AntiSpoofClassifier
 import com.usesense.sdk.api.ApiException
 import com.usesense.sdk.api.UseSenseApiClient
 import com.usesense.sdk.api.models.*
@@ -179,11 +182,38 @@ internal class UseSenseSession(
         captureStartTime = Date()
         signalCollector.startSensorCollection()
         frameCaptureManager?.startCapture()
+        // Default phase until the host UI advances the state machine.
+        frameCaptureManager?.getFrameBuffer()?.setCapturePhase(
+            com.usesense.sdk.capture.CapturePhase.BASELINE
+        )
 
         // Wire frame events to challenge presenter
         frameCaptureManager?.onFrameCaptured = { frame ->
             challengePresenter?.onFrameCaptured(frame.index, frame.timestampMs)
         }
+    }
+
+    /**
+     * v4: tag subsequently captured frames with the supplied phase. The host
+     * UI calls this at each transition (e.g. BASELINE -> ZOOM -> CHALLENGE)
+     * so the server's SfM perspective validator can filter to the zoom subset.
+     */
+    fun setCapturePhase(phase: com.usesense.sdk.capture.CapturePhase) {
+        frameCaptureManager?.getFrameBuffer()?.setCapturePhase(phase)
+    }
+
+    /**
+     * v4: run the zoom-motion phase. Convenience wrapper that sets the phase
+     * to ZOOM, waits for the spec-recommended 1.5s, then restores the phase
+     * to CHALLENGE so that subsequent challenge frames are tagged correctly.
+     * Host UIs should display the ZoomPromptView during this call.
+     */
+    suspend fun runZoomPhase(durationMs: Long = 1500L) {
+        if (!config.liveSenseV4Enabled) return
+        val buffer = frameCaptureManager?.getFrameBuffer() ?: return
+        buffer.setCapturePhase(com.usesense.sdk.capture.CapturePhase.ZOOM)
+        kotlinx.coroutines.delay(durationMs)
+        buffer.setCapturePhase(com.usesense.sdk.capture.CapturePhase.CHALLENGE)
     }
 
     fun startAudioRecording() {
@@ -252,6 +282,9 @@ internal class UseSenseSession(
         // v4.1: Screen detection signals
         val screenDetection = screenDetectionAnalyzer.toJson()
 
+        // v4.2: On-device antispoof classifier (feature-flagged; server path is authoritative when off).
+        val deepClassifierOnDevice = buildDeepClassifierOnDevice(buffer)
+
         val metadataJson = metadataBuilder.build(
             sessionId = sid,
             source = "sdk",
@@ -273,6 +306,9 @@ internal class UseSenseSession(
             suspicionTriggered = suspicionEngine.triggered,
             inlineStepUp = stepUpEvidence,
             screenDetection = screenDetection,
+            deepClassifierOnDevice = deepClassifierOnDevice,
+            framePhases = if (config.liveSenseV4Enabled) buffer.framePhases else null,
+            zoomMotion = if (config.liveSenseV4Enabled) buildZoomMotionStats(buffer.framePhases) else null,
         )
 
         return uploader.upload(
@@ -281,6 +317,87 @@ internal class UseSenseSession(
             metadataJson = metadataJson,
             audioData = audioData,
         )
+    }
+
+    /**
+     * v4.2: Run the on-device antispoof classifier across the captured frames
+     * and emit a deep_classifier_on_device payload. Returns null when the flag
+     * is off, the model artifact isn't available, or no frames were scored.
+     */
+    private fun buildDeepClassifierOnDevice(buffer: FrameBuffer): JSONObject? {
+        if (!config.antispoofOnDeviceEnabled) return null
+
+        val meshData = faceMeshManager.frameMeshData
+        if (meshData.isEmpty()) return null
+
+        val frames = buffer.getJpegDataList()
+        if (frames.isEmpty()) return null
+
+        val classifier = AntiSpoofClassifier.load(
+            context = context,
+            enabled = true,
+            modelVersion = "v1",
+        )
+        try {
+            if (!classifier.isAvailable) return null
+
+            val samples = JSONArray()
+            var modelVersion = "v1"
+
+            val bounded = minOf(frames.size, meshData.size)
+            for (i in 0 until bounded) {
+                val jpegBytes = frames[i]
+                val mesh = meshData[i]
+                val bitmap = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size) ?: continue
+                try {
+                    val w = bitmap.width
+                    val h = bitmap.height
+                    val left = (mesh.bbox.x * w).toInt().coerceIn(0, w - 1)
+                    val top = (mesh.bbox.y * h).toInt().coerceIn(0, h - 1)
+                    val right = ((mesh.bbox.x + mesh.bbox.w) * w).toInt().coerceIn(left + 1, w)
+                    val bottom = ((mesh.bbox.y + mesh.bbox.h) * h).toInt().coerceIn(top + 1, h)
+                    val faceRect = Rect(left, top, right, bottom)
+
+                    val sample = classifier.predict(bitmap, frameIndex = i, faceBounds = faceRect)
+                        ?: continue
+                    modelVersion = sample.modelVersion
+                    samples.put(JSONObject().apply {
+                        put("frameIndex", sample.frameIndex)
+                        put("spoofProbability", sample.spoofProbability)
+                        put("latencyMs", sample.latencyMs)
+                        put("modelVersion", sample.modelVersion)
+                        put("backbone", sample.backbone)
+                    })
+                } finally {
+                    bitmap.recycle()
+                }
+            }
+
+            if (samples.length() == 0) return null
+
+            return JSONObject().apply {
+                put("modelVersion", modelVersion)
+                put("backbone", "efficientnet_b0")
+                put("threshold", 0.5)
+                put("samples", samples)
+            }
+        } finally {
+            classifier.close()
+        }
+    }
+
+    /**
+     * v4: zoom-motion summary block. Server cross-checks this against the SfM
+     * reconstruction's motion_coherence sub-score (PRD section 4.4).
+     */
+    private fun buildZoomMotionStats(framePhases: List<String>): JSONObject {
+        val zoomCount = framePhases.count { it == com.usesense.sdk.capture.CapturePhase.ZOOM.value }
+        return JSONObject().apply {
+            put("frames_total", framePhases.size)
+            put("frames_in_zoom", zoomCount)
+            put("expected_duration_ms", 1500)
+            put("sdk_version", DeviceSignalCollector.SDK_VERSION)
+        }
     }
 
     private fun buildFaceMeshSignals(): JSONObject? {

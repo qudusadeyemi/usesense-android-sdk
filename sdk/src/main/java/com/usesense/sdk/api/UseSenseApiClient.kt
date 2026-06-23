@@ -73,6 +73,12 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
 
         builder.addHeader("User-Agent", "UseSense-Android-SDK/4.1.0")
 
+        // v4 SDK opt-in. Server v4-flag-resolver enforces the org feature
+        // flag in addition to this header (PRD section 9.1).
+        if (config.liveSenseV4Enabled) {
+            builder.addHeader("x-usesense-sdk-version", "v4")
+        }
+
         chain.proceed(builder.build())
     }
 
