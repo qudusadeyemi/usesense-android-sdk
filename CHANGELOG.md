@@ -4,6 +4,19 @@ All notable changes to the UseSense Android SDK will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [4.3.1] - 2026-06-23
+
+Patch release: the Flows client now identifies its platform to the server.
+
+### Fixed
+
+- **Flow capture scored on the web surface.** `FlowsClient` (the
+  `/v1/sdk/flow-runs/*` client, including `init-session`) sent no `User-Agent`,
+  so the server couldn't tell Android from web at session creation and ran
+  DeepSense channel-trust scoring on the web surface. It now sends
+  `UseSense-Android-SDK/<SDK_VERSION>`, which the server reads to score flow
+  captures on the Android surface from creation.
+
 ## [4.3.0] - 2026-06-15
 
 Minor release adding the **Flows runner** (run operator-authored
