@@ -37,6 +37,8 @@ import androidx.compose.ui.platform.ComposeView
 import com.usesense.sdk.ui.HostedPageActivity
 import com.usesense.sdk.ui.compose.screens.FormScreen
 import com.usesense.sdk.ui.compose.screens.FormState
+import com.usesense.sdk.ui.compose.screens.IdNumberScreen
+import com.usesense.sdk.ui.compose.screens.IdTypeOption
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -64,6 +66,7 @@ internal class FlowsActivity : ComponentActivity() {
     private lateinit var content: LinearLayout
     private var formState: FormState? = null
     private var formChromeView: ComposeView? = null
+    private var idNumberChromeView: ComposeView? = null
     private var finishedReporting = false
     /** Per-field server validation errors from the last advance(). Cleared on
      *  the next success so a recovered form does not show stale highlights. */
@@ -191,6 +194,7 @@ internal class FlowsActivity : ComponentActivity() {
             is PendingAction.CaptureFace -> launchFaceCapture(action.toolId)
             is PendingAction.CaptureDocument -> presentDocumentCapture(action)
             is PendingAction.CaptureForm -> installFormSurface(action.fields)
+            is PendingAction.CaptureIdNumber -> presentIdNumber(action.idTypes)
             is PendingAction.Info -> installInfoSurface(action.info)
             is PendingAction.RedirectToConsent -> launchConsent(action.consentUrl)
         }
@@ -255,6 +259,45 @@ internal class FlowsActivity : ComponentActivity() {
                 removeFormChrome()
             }
         }
+    }
+
+    private fun presentIdNumber(idTypes: List<IdTypeSpec>) {
+        val options = idTypes.map {
+            IdTypeOption(
+                value = it.value,
+                label = it.label,
+                hint = it.hint,
+                field = it.field,
+                maxLength = it.maxLength,
+                numeric = it.numeric,
+            )
+        }
+        val view = ComposeView(this).apply {
+            setContent {
+                IdNumberScreen(
+                    idTypes = options,
+                    onSubmit = { idType, field, value ->
+                        removeIdNumberChrome()
+                        // Mirror the hosted page: advance({ id_type, [field]: value }).
+                        val inputs = JSONObject().put("id_type", idType).put(field, value)
+                        lifecycleScope.launch { advance(inputs) }
+                    },
+                )
+            }
+        }
+        idNumberChromeView = view
+        root.addView(
+            view,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            ),
+        )
+    }
+
+    private fun removeIdNumberChrome() {
+        idNumberChromeView?.let { root.removeView(it) }
+        idNumberChromeView = null
     }
 
     private fun removeFormChrome() {
