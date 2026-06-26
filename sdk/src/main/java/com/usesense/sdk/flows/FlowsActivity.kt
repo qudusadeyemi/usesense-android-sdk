@@ -33,7 +33,10 @@ import com.usesense.sdk.UseSenseConfig
 import com.usesense.sdk.UseSenseError
 import com.usesense.sdk.UseSenseResult
 import com.usesense.sdk.flows.FlowError.Code
+import androidx.compose.ui.platform.ComposeView
 import com.usesense.sdk.ui.HostedPageActivity
+import com.usesense.sdk.ui.compose.screens.DocumentPrimerScreen
+import com.usesense.sdk.ui.compose.screens.DocumentTypeSelectScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -59,6 +62,7 @@ internal class FlowsActivity : ComponentActivity() {
     private lateinit var root: FrameLayout
     private lateinit var spinner: ProgressBar
     private lateinit var content: LinearLayout
+    private var documentChromeView: ComposeView? = null
     private var finishedReporting = false
     /** Per-field server validation errors from the last advance(). Cleared on
      *  the next success so a recovered form does not show stale highlights. */
@@ -480,29 +484,73 @@ internal class FlowsActivity : ComponentActivity() {
         val methods = action.captureMethods
         val canScan = methods.isEmpty() || methods.contains("camera")
         val canUpload = methods.isEmpty() || methods.contains("upload")
-        when {
-            canScan && canUpload -> renderDocumentChooser()
-            canUpload -> launchDocumentPicker()
-            else -> launchDocumentScanner()
+
+        fun showPrimer(docType: String?) {
+            val primer = ComposeView(this).apply {
+                setContent {
+                    DocumentPrimerScreen(
+                        onPrimary = {
+                            removeDocumentChrome()
+                            if (canScan) launchDocumentScanner() else launchDocumentPicker()
+                        },
+                        documentType = docType,
+                        categoryLabel = documentCategoryLabel(action.category),
+                        issuingCountries = action.issuingCountries,
+                        allowCamera = canScan,
+                        allowUpload = canUpload,
+                        onSecondary = if (canScan && canUpload) {
+                            { removeDocumentChrome(); launchDocumentPicker() }
+                        } else {
+                            null
+                        },
+                    )
+                }
+            }
+            replaceDocumentChrome(primer)
+        }
+
+        if (action.documentTypes.isNotEmpty()) {
+            val typeView = ComposeView(this).apply {
+                setContent {
+                    DocumentTypeSelectScreen(
+                        documentTypes = action.documentTypes,
+                        onContinue = { selected -> showPrimer(selected) },
+                    )
+                }
+            }
+            replaceDocumentChrome(typeView)
+        } else {
+            showPrimer(null)
         }
     }
 
-    /** A simple chooser screen with the two allowed capture methods. */
-    private fun renderDocumentChooser() {
-        content.removeAllViews()
-        content.addView(TextView(this).apply {
-            text = "Add your document"
-            textSize = 22f
-            setPadding(0, 0, 0, 16)
-        })
-        content.addView(Button(this).apply {
-            text = "Scan with camera"
-            setOnClickListener { launchDocumentScanner() }
-        })
-        content.addView(Button(this).apply {
-            text = "Upload a file"
-            setOnClickListener { launchDocumentPicker() }
-        })
+    /** Hosted parity: the document chrome (type chooser + primer) is shown as a
+     *  Compose overlay; the primer's CTAs are the method choice, then the existing
+     *  ML Kit scan / file picker runs. */
+    private fun replaceDocumentChrome(view: ComposeView) {
+        removeDocumentChrome()
+        documentChromeView = view
+        root.addView(
+            view,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            ),
+        )
+    }
+
+    private fun removeDocumentChrome() {
+        documentChromeView?.let { root.removeView(it) }
+        documentChromeView = null
+    }
+
+    private fun documentCategoryLabel(category: String): String = when (category) {
+        "identity" -> "identity document"
+        "proof_of_address" -> "proof of address"
+        "organisation_doc" -> "organisation document"
+        "tax_doc" -> "tax document"
+        "invoice" -> "invoice"
+        else -> "document"
     }
 
     /** Rear-camera document scan via ML Kit (edge detect, deskew, glare/finger
