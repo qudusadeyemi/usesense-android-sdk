@@ -2,6 +2,7 @@ package com.usesense.sdk.flows
 
 import android.app.Activity
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
@@ -35,6 +36,7 @@ import com.usesense.sdk.UseSenseResult
 import com.usesense.sdk.flows.FlowError.Code
 import androidx.compose.ui.platform.ComposeView
 import com.usesense.sdk.ui.HostedPageActivity
+import com.usesense.sdk.ui.compose.screens.DocumentConfirmScreen
 import com.usesense.sdk.ui.compose.screens.DocumentPrimerScreen
 import com.usesense.sdk.ui.compose.screens.DocumentTypeSelectScreen
 import kotlinx.coroutines.Dispatchers
@@ -63,6 +65,7 @@ internal class FlowsActivity : ComponentActivity() {
     private lateinit var spinner: ProgressBar
     private lateinit var content: LinearLayout
     private var documentChromeView: ComposeView? = null
+    private var documentConfirmView: ComposeView? = null
     private var finishedReporting = false
     /** Per-field server validation errors from the last advance(). Cleared on
      *  the next success so a recovered form does not show stale highlights. */
@@ -89,7 +92,7 @@ internal class FlowsActivity : ComponentActivity() {
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
             val uri = GmsDocumentScanningResult.fromActivityResultIntent(result.data)
                 ?.pages?.firstOrNull()?.imageUri
-            if (uri != null) handleDocumentUri(uri) else lifecycleScope.launch { cancelRun() }
+            if (uri != null) confirmDocument(uri) { launchDocumentScanner() } else lifecycleScope.launch { cancelRun() }
         } else {
             lifecycleScope.launch { cancelRun() }
         }
@@ -583,11 +586,49 @@ internal class FlowsActivity : ComponentActivity() {
 
     private fun handlePickedDocument(data: Intent) {
         val uri = data.data ?: return
-        handleDocumentUri(uri)
+        confirmDocument(uri) { launchDocumentPicker() }
+    }
+
+    /** Hosted parity: confirm the captured document (preview + Use / Retake)
+     *  before uploading. Falls back to a direct upload if the preview can't be
+     *  decoded. */
+    private fun confirmDocument(uri: Uri, retake: () -> Unit) {
+        val bitmap = try {
+            contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
+        } catch (e: Throwable) {
+            null
+        }
+        if (bitmap == null) {
+            uploadDocumentUri(uri)
+            return
+        }
+        val confirmView = ComposeView(this).apply {
+            setContent {
+                DocumentConfirmScreen(
+                    bitmap = bitmap,
+                    onUse = { removeDocumentConfirm(); uploadDocumentUri(uri) },
+                    onRetake = { removeDocumentConfirm(); retake() },
+                    onUploadInstead = { removeDocumentConfirm(); launchDocumentPicker() },
+                )
+            }
+        }
+        documentConfirmView = confirmView
+        root.addView(
+            confirmView,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            ),
+        )
+    }
+
+    private fun removeDocumentConfirm() {
+        documentConfirmView?.let { root.removeView(it) }
+        documentConfirmView = null
     }
 
     /** Upload a document (picked or scanned) and advance the run. */
-    private fun handleDocumentUri(uri: Uri) {
+    private fun uploadDocumentUri(uri: Uri) {
         showSpinner()
         lifecycleScope.launch {
             try {
