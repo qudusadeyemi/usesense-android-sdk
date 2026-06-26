@@ -32,6 +32,31 @@ import com.usesense.sdk.ui.compose.components.USButtonSize
 import com.usesense.sdk.ui.compose.components.USButtonVariant
 import com.usesense.sdk.ui.compose.components.USScreenScaffold
 import com.usesense.sdk.ui.compose.components.USTextField
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.runtime.remember
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
+import com.usesense.sdk.ui.compose.UseSenseColors
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 
 /**
  * Form surface state. Validation / coercion stays in the flow runner (single
@@ -81,24 +106,27 @@ fun FormScreen(
                 Spacer(Modifier.height(18.dp))
                 state.fields.forEachIndexed { i, field ->
                     if (i > 0) Spacer(Modifier.height(18.dp))
-                    if (field.type == FormFieldType.CHECKBOX) {
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Checkbox(
-                                    checked = state.booleans[field.key] ?: false,
-                                    onCheckedChange = { state.booleans[field.key] = it },
-                                    colors = CheckboxDefaults.colors(checkedColor = brand),
-                                )
-                                Spacer(Modifier.width(4.dp))
-                                Text(field.label ?: humanise(field.key), style = USType.body.copy(fontSize = 15.sp), color = colors.foreground)
-                            }
-                            val err = state.errors[field.key]
-                            if (err != null) {
-                                Text(err, style = USType.body.copy(fontSize = 12.sp), color = colors.criticalText, modifier = Modifier.padding(start = 4.dp))
+                    when (field.type) {
+                        FormFieldType.CHECKBOX -> {
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(
+                                        checked = state.booleans[field.key] ?: false,
+                                        onCheckedChange = { state.booleans[field.key] = it },
+                                        colors = CheckboxDefaults.colors(checkedColor = brand),
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(field.label ?: humanise(field.key), style = USType.body.copy(fontSize = 15.sp), color = colors.foreground)
+                                }
+                                val err = state.errors[field.key]
+                                if (err != null) {
+                                    Text(err, style = USType.body.copy(fontSize = 12.sp), color = colors.criticalText, modifier = Modifier.padding(start = 4.dp))
+                                }
                             }
                         }
-                    } else {
-                        USTextField(
+                        FormFieldType.SELECT, FormFieldType.COUNTRY -> SelectField(field, state, brand, colors)
+                        FormFieldType.DATE -> DateField(field, state, brand, colors)
+                        else -> USTextField(
                             value = state.values[field.key] ?: "",
                             onValueChange = { state.values[field.key] = it },
                             label = field.label ?: humanise(field.key),
@@ -110,6 +138,120 @@ fun FormScreen(
                 }
                 Spacer(Modifier.height(8.dp))
             }
+        }
+    }
+}
+
+@Composable
+private fun FieldLabel(field: FormField, colors: UseSenseColors) {
+    Text(
+        field.label ?: humanise(field.key),
+        style = USType.body.copy(fontSize = 13.sp, fontWeight = FontWeight.Medium),
+        color = colors.foreground,
+    )
+}
+
+private fun selectOptions(field: FormField): List<FormField.Option> {
+    field.options?.takeIf { it.isNotEmpty() }?.let { return it }
+    field.allowedCountries?.takeIf { it.isNotEmpty() }?.let { list -> return list.map { FormField.Option(it, it) } }
+    return emptyList()
+}
+
+@Composable
+private fun SelectField(field: FormField, state: FormState, brand: Color, colors: UseSenseColors) {
+    var expanded by remember { mutableStateOf(false) }
+    val options = selectOptions(field)
+    val current = options.firstOrNull { it.value == state.values[field.key] }
+    val err = state.errors[field.key]
+    Column {
+        FieldLabel(field, colors)
+        Spacer(Modifier.height(6.dp))
+        Box {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.card)
+                    .border(1.dp, if (err != null) colors.destructive else colors.border, RoundedCornerShape(12.dp))
+                    .clickable { expanded = true }
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    current?.label ?: (field.placeholder ?: "Select"),
+                    style = USType.body,
+                    color = if (current == null) colors.mutedForeground else colors.foreground,
+                    modifier = Modifier.weight(1f),
+                )
+                Icon(Icons.Filled.ArrowDropDown, null, tint = colors.mutedForeground)
+            }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                options.forEach { opt ->
+                    DropdownMenuItem(
+                        text = { Text(opt.label) },
+                        onClick = {
+                            state.values[field.key] = opt.value
+                            expanded = false
+                        },
+                    )
+                }
+            }
+        }
+        if (err != null) {
+            Spacer(Modifier.height(6.dp))
+            Text(err, style = USType.body.copy(fontSize = 12.sp), color = colors.criticalText)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DateField(field: FormField, state: FormState, brand: Color, colors: UseSenseColors) {
+    var show by remember { mutableStateOf(false) }
+    val value = state.values[field.key] ?: ""
+    val err = state.errors[field.key]
+    Column {
+        FieldLabel(field, colors)
+        Spacer(Modifier.height(6.dp))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(colors.card)
+                .border(1.dp, if (err != null) colors.destructive else colors.border, RoundedCornerShape(12.dp))
+                .clickable { show = true }
+                .padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                value.ifEmpty { field.placeholder ?: "Select a date" },
+                style = USType.body,
+                color = if (value.isEmpty()) colors.mutedForeground else colors.foreground,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(Icons.Filled.CalendarToday, null, tint = colors.mutedForeground, modifier = Modifier.size(18.dp))
+        }
+        if (err != null) {
+            Spacer(Modifier.height(6.dp))
+            Text(err, style = USType.body.copy(fontSize = 12.sp), color = colors.criticalText)
+        }
+    }
+    if (show) {
+        val dateState = rememberDatePickerState()
+        DatePickerDialog(
+            onDismissRequest = { show = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    dateState.selectedDateMillis?.let { millis ->
+                        val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
+                        state.values[field.key] = fmt.format(Date(millis))
+                    }
+                    show = false
+                }) { Text("OK") }
+            },
+            dismissButton = { TextButton(onClick = { show = false }) { Text("Cancel") } },
+        ) {
+            DatePicker(state = dateState)
         }
     }
 }
