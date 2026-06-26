@@ -33,7 +33,10 @@ import com.usesense.sdk.UseSenseConfig
 import com.usesense.sdk.UseSenseError
 import com.usesense.sdk.UseSenseResult
 import com.usesense.sdk.flows.FlowError.Code
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.platform.ComposeView
 import com.usesense.sdk.ui.HostedPageActivity
+import com.usesense.sdk.ui.compose.screens.FacePrimerScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -59,6 +62,7 @@ internal class FlowsActivity : ComponentActivity() {
     private lateinit var root: FrameLayout
     private lateinit var spinner: ProgressBar
     private lateinit var content: LinearLayout
+    private var facePrimerView: ComposeView? = null
     private var finishedReporting = false
     /** Per-field server validation errors from the last advance(). Cleared on
      *  the next success so a recovered form does not show stale highlights. */
@@ -436,6 +440,37 @@ internal class FlowsActivity : ComponentActivity() {
      * fires server-side so the customer's backend sees a definite end).
      */
     private fun launchFaceCapture(toolId: String?) {
+        // Hosted parity: show the face primer first ("Take a selfie" + the do's),
+        // then mint the capture session on the CTA and hand off to the existing
+        // capture UI. The CTA shows progress while init-session is in flight.
+        val busy = mutableStateOf(false)
+        val primer = ComposeView(this).apply {
+            setContent {
+                FacePrimerScreen(
+                    onStart = {
+                        busy.value = true
+                        beginFaceCapture(toolId)
+                    },
+                    isBusy = busy.value,
+                )
+            }
+        }
+        facePrimerView = primer
+        root.addView(
+            primer,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            ),
+        )
+    }
+
+    private fun removeFacePrimer() {
+        facePrimerView?.let { root.removeView(it) }
+        facePrimerView = null
+    }
+
+    private fun beginFaceCapture(toolId: String?) {
         lifecycleScope.launch {
             try {
                 val response = withContext(Dispatchers.IO) { client.initSession(toolId) }
@@ -466,9 +501,12 @@ internal class FlowsActivity : ComponentActivity() {
                     sessionType = SessionType.ENROLLMENT,
                     callback = bridge,
                 )
+                removeFacePrimer()
             } catch (e: FlowError) {
+                removeFacePrimer()
                 reportError(e)
             } catch (e: Throwable) {
+                removeFacePrimer()
                 reportError(FlowError(Code.UNKNOWN, e.message ?: "Unknown error"))
             }
         }
