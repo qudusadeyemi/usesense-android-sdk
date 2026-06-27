@@ -3,6 +3,7 @@ import com.vanniktech.maven.publish.AndroidSingleVariantLibrary
 plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.dokka")
     id("org.jlleitschuh.gradle.ktlint")
     id("com.vanniktech.maven.publish")
@@ -53,6 +54,7 @@ android {
 
     buildFeatures {
         viewBinding = true
+        compose = true
     }
 
     lint {
@@ -215,6 +217,20 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.4")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("com.google.android.material:material:1.12.0")
+
+    // Jetpack Compose (UI parity rebuild — Phase 0 foundation). Compose compiler
+    // plugin is applied above; BOM keeps the artifact versions aligned.
+    val composeBom = platform("androidx.compose:compose-bom:2024.09.03")
+    implementation(composeBom)
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-graphics")
+    implementation("androidx.compose.foundation:foundation")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.activity:activity-compose:1.9.2")
+    implementation("io.coil-kt:coil-compose:2.7.0")
+    debugImplementation("androidx.compose.ui:ui-tooling")
 
     // Play Integrity
     implementation("com.google.android.play:integrity:1.4.0")

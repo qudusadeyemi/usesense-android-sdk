@@ -30,6 +30,12 @@ jobs:
       - name: Build SDK
         run: ./gradlew :sdk:assembleDebug :sdk:assembleRelease
 
+      # Build the demo app too: it consumes the SDK like a customer, so this
+      # catches consumer-side breakage the :sdk build alone would miss (the
+      # Android analogue of the iOS "Build Example App" check).
+      - name: Build demo app (consumer)
+        run: ./gradlew :demo:assembleDebug
+
       - name: Run SDK unit tests
         run: ./gradlew :sdk:test
 
