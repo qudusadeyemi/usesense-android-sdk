@@ -61,7 +61,7 @@
     <string name="usesense_camera_not_found_message">No camera found on this device.</string>
 
     <!-- Hosted Page Strings (Section 10-12) -->
-    <string name="usesense_powered_by">Powered by UseSense</string>
+    <string name="usesense_powered_by">Powered by Sense</string>
     <string name="usesense_get_started">Get Started</string>
     <string name="usesense_got_it_start">Got it \u2014 Start</string>
     <string name="usesense_im_ready">I\'m Ready</string>

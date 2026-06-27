@@ -1,4 +1,4 @@
-# UseSense Android SDK
+# Sense Android SDK
 
 Native Android SDK for human presence verification. Verify real humans, detect deepfakes, and prevent identity fraud with three independent verification pillars.
 
@@ -169,7 +169,7 @@ UseSense.startVerification(
 The verification flow UI is fully customizable through two optional inputs you pass
 on a flow run: `appearance` (`FlowAppearance`) and `copy` (`FlowCopy`). Values are
 merged **SDK-init > dashboard (org settings) > built-in default**. Every field is
-optional; anything you omit keeps the UseSense default.
+optional; anything you omit keeps the Sense default.
 
 You can set this two ways: in code (below), or no-code via the dashboard's
 **Flows → Appearance** tab (saved on your org, delivered to every SDK and the hosted
@@ -202,11 +202,11 @@ Full reference: [`docs/WHITE_LABEL.md` in the web SDK](https://github.com/qudusa
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `apiKey` | `String` | Yes | — | Your API key from the [UseSense dashboard](https://watchtower.usesense.ai) |
+| `apiKey` | `String` | Yes | — | Your API key from the [Sense dashboard](https://watchtower.usesense.ai) |
 | `environment` | `UseSenseEnvironment` | No | `AUTO` | `SANDBOX`, `PRODUCTION`, or `AUTO` (detects from key prefix) |
 | `baseUrl` | `String` | No | `https://api.usesense.ai/v1` | API base URL (override for staging/testing) |
 | `branding` | `BrandingConfig?` | No | `null` | UI customization (colors, logo, fonts) |
-| `googleCloudProjectNumber` | `Long` | No | UseSense default | Google Cloud project for Play Integrity |
+| `googleCloudProjectNumber` | `Long` | No | Sense default | Google Cloud project for Play Integrity |
 
 ### BrandingConfig
 
@@ -428,7 +428,7 @@ unsubscribe()
 | `1001` | `CAMERA_UNAVAILABLE` | No suitable front-facing camera found | Device may lack front camera. Inform user. |
 | `1002` | `CAMERA_PERMISSION_DENIED` | Camera permission not granted by user | Request permission again or direct user to Settings. |
 | `1003` | `MICROPHONE_PERMISSION_DENIED` | Microphone permission not granted | Request permission or disable audio challenges. |
-| `2001` | `NETWORK_ERROR` | UseSense API is unreachable | Check connectivity. Retry with exponential backoff. |
+| `2001` | `NETWORK_ERROR` | Sense API is unreachable | Check connectivity. Retry with exponential backoff. |
 | `2002` | `NETWORK_TIMEOUT` | Request timed out | Retry. Check if device is behind a proxy. |
 | `3001` | `SESSION_EXPIRED` | 15-minute server-side session expiry reached | Start a new session. This is a hard server limit. |
 | `3002` | `UPLOAD_FAILED` | Signal upload failed after retries | Check connectivity. Retry with new session. |
