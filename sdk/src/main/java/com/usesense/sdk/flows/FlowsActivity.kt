@@ -41,6 +41,10 @@ import com.usesense.sdk.ui.compose.screens.DocumentConfirmScreen
 import com.usesense.sdk.ui.compose.screens.DocumentPrimerScreen
 import com.usesense.sdk.ui.compose.screens.DocumentTypeSelectScreen
 import com.usesense.sdk.ui.compose.screens.FacePrimerScreen
+import com.usesense.sdk.ui.compose.screens.FormScreen
+import com.usesense.sdk.ui.compose.screens.FormState
+import com.usesense.sdk.ui.compose.screens.IdNumberScreen
+import com.usesense.sdk.ui.compose.screens.IdTypeOption
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -69,6 +73,9 @@ internal class FlowsActivity : ComponentActivity() {
     private var facePrimerView: ComposeView? = null
     private var documentChromeView: ComposeView? = null
     private var documentConfirmView: ComposeView? = null
+    private var formState: FormState? = null
+    private var formChromeView: ComposeView? = null
+    private var idNumberChromeView: ComposeView? = null
     private var finishedReporting = false
     /** Per-field server validation errors from the last advance(). Cleared on
      *  the next success so a recovered form does not show stale highlights. */
@@ -196,6 +203,7 @@ internal class FlowsActivity : ComponentActivity() {
             is PendingAction.CaptureFace -> launchFaceCapture(action.toolId)
             is PendingAction.CaptureDocument -> presentDocumentCapture(action)
             is PendingAction.CaptureForm -> installFormSurface(action.fields)
+            is PendingAction.CaptureIdNumber -> presentIdNumber(action.idTypes)
             is PendingAction.Info -> installInfoSurface(action.info)
             is PendingAction.RedirectToConsent -> launchConsent(action.consentUrl)
         }
@@ -209,46 +217,102 @@ internal class FlowsActivity : ComponentActivity() {
     private data class FieldBinding(val read: () -> Any, val errorLabel: TextView)
 
     private fun installFormSurface(fields: List<FormField>) {
-        content.removeAllViews()
-        val title = TextView(this).apply {
-            text = "A few details"
-            textSize = 22f
-            setPadding(0, 0, 0, 24)
+        // Re-render after a server invalid_input: refresh the existing form's
+        // errors instead of re-overlaying (keeps the subject's input).
+        val existing = formState
+        if (existing != null) {
+            existing.errors.clear()
+            existing.errors.putAll(fieldErrors)
+            existing.isBusy = false
+            return
         }
-        content.addView(title)
-        val bindings = LinkedHashMap<String, FieldBinding>()
-        for (field in fields) {
-            bindings[field.key] = addFieldRow(field, fieldErrors[field.key])
+        val state = FormState(fields, fieldErrors)
+        formState = state
+        val view = ComposeView(this).apply {
+            setContent { FormScreen(state = state, onContinue = { submitForm() }) }
         }
-        val submit = Button(this).apply {
-            text = "Continue"
-            setOnClickListener {
-                // Client-side echo of modules/flows/form-validation.ts (the
-                // server is still authoritative; this is just inline feedback).
-                val clientErrors = LinkedHashMap<String, String>()
-                val values = JSONObject()
-                for (field in fields) {
-                    val raw = bindings[field.key]?.read() ?: ""
-                    val err = validate(field, raw)
-                    if (err != null) clientErrors[field.key] = err
-                    else values.put(field.key, coerce(field, raw))
-                }
-                if (clientErrors.isNotEmpty()) {
-                    for ((k, msg) in clientErrors) {
-                        val lbl = bindings[k]?.errorLabel ?: continue
-                        lbl.text = msg
-                        lbl.visibility = View.VISIBLE
-                    }
-                    return@setOnClickListener
-                }
-                lifecycleScope.launch { advance(values) }
+        formChromeView = view
+        root.addView(
+            view,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            ),
+        )
+    }
+
+    private fun submitForm() {
+        val state = formState ?: return
+        // Client-side echo of the server validation; the server stays authoritative.
+        val clientErrors = LinkedHashMap<String, String>()
+        val values = JSONObject()
+        for (field in state.fields) {
+            val raw = state.raw(field)
+            val err = validate(field, raw)
+            if (err != null) clientErrors[field.key] = err else values.put(field.key, coerce(field, raw))
+        }
+        if (clientErrors.isNotEmpty()) {
+            state.errors.clear()
+            state.errors.putAll(clientErrors)
+            return
+        }
+        state.errors.clear()
+        state.isBusy = true
+        lifecycleScope.launch {
+            advance(values)
+            // Still parked on a form -> server rejected (errors refreshed via the
+            // re-render guard); otherwise the run moved on, so remove the overlay.
+            if (view?.pendingAction is PendingAction.CaptureForm) {
+                state.isBusy = false
+            } else {
+                removeFormChrome()
             }
-            setPadding(24, 16, 24, 16)
         }
-        content.addView(submit, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-        ).apply { topMargin = 32 })
+    }
+
+    private fun presentIdNumber(idTypes: List<IdTypeSpec>) {
+        val options = idTypes.map {
+            IdTypeOption(
+                value = it.value,
+                label = it.label,
+                hint = it.hint,
+                field = it.field,
+                maxLength = it.maxLength,
+                numeric = it.numeric,
+            )
+        }
+        val view = ComposeView(this).apply {
+            setContent {
+                IdNumberScreen(
+                    idTypes = options,
+                    onSubmit = { idType, field, value ->
+                        removeIdNumberChrome()
+                        // Mirror the hosted page: advance({ id_type, [field]: value }).
+                        val inputs = JSONObject().put("id_type", idType).put(field, value)
+                        lifecycleScope.launch { advance(inputs) }
+                    },
+                )
+            }
+        }
+        idNumberChromeView = view
+        root.addView(
+            view,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            ),
+        )
+    }
+
+    private fun removeIdNumberChrome() {
+        idNumberChromeView?.let { root.removeView(it) }
+        idNumberChromeView = null
+    }
+
+    private fun removeFormChrome() {
+        formChromeView?.let { root.removeView(it) }
+        formChromeView = null
+        formState = null
     }
 
     private fun addFieldRow(field: FormField, serverError: String?): FieldBinding {

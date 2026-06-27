@@ -192,6 +192,32 @@ data class InfoAction(
  * matching native surface; unknown kinds surface as FlowError.UNSUPPORTED_ACTION.
  * See `guides/flows/action-contract` in the API docs.
  */
+/** One ID-type option for the id_number capture step (e.g. NIN / BVN). */
+data class IdTypeSpec(
+    val value: String,
+    val label: String,
+    val hint: String?,
+    val field: String,
+    val maxLength: Int?,
+    val numeric: Boolean,
+) {
+    companion object {
+        fun decode(raw: JSONObject): IdTypeSpec? {
+            val value = raw.opt("value") as? String ?: return null
+            val label = raw.opt("label") as? String ?: return null
+            val field = raw.opt("field") as? String ?: return null
+            return IdTypeSpec(
+                value = value,
+                label = label,
+                hint = raw.opt("hint") as? String,
+                field = field,
+                maxLength = if (raw.has("maxLength")) raw.optInt("maxLength") else null,
+                numeric = raw.optBoolean("numeric", false),
+            )
+        }
+    }
+}
+
 sealed class PendingAction {
     data class CaptureFace(val toolId: String?) : PendingAction()
     data class CaptureDocument(
@@ -204,6 +230,7 @@ sealed class PendingAction {
         val captureMethods: List<String>,
     ) : PendingAction()
     data class CaptureForm(val fields: List<FormField>) : PendingAction()
+    data class CaptureIdNumber(val idTypes: List<IdTypeSpec>) : PendingAction()
     data class Info(val info: InfoAction) : PendingAction()
     data class RedirectToConsent(val consentUrl: String) : PendingAction()
 
@@ -233,6 +260,16 @@ sealed class PendingAction {
                             for (i in 0 until arr.length()) fields.add(FormField.decode(arr.opt(i)))
                         }
                         CaptureForm(fields = fields)
+                    }
+                    "id_number" -> {
+                        val arr = raw.optJSONArray("idTypes")
+                        val types = ArrayList<IdTypeSpec>(arr?.length() ?: 0)
+                        if (arr != null) {
+                            for (i in 0 until arr.length()) {
+                                (arr.opt(i) as? JSONObject)?.let { obj -> IdTypeSpec.decode(obj)?.let(types::add) }
+                            }
+                        }
+                        CaptureIdNumber(idTypes = types)
                     }
                     else -> throw FlowError(FlowError.Code.UNSUPPORTED_ACTION, "Unknown capture variant: $capture")
                 }
