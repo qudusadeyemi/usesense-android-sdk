@@ -136,8 +136,8 @@
     <string name="usesense_recording">Recording…</string>
 
     <!-- Section 7.5: Face Guide -->
-    <string name="usesense_face_guide_label">Position your face in the oval</string>
-    <string name="usesense_face_guide_ready">My face is ready</string>
+    <string name="usesense_face_guide_label">Position your face inside the oval</string>
+    <string name="usesense_face_guide_ready">I\'m Ready</string>
 
     <!-- Section 7.7: Countdown -->
     <string name="usesense_countdown_label">Get ready…</string>
