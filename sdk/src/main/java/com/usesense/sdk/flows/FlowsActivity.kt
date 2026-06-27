@@ -17,7 +17,6 @@ import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
-import android.widget.ProgressBar
 import android.widget.Spinner
 import android.widget.TextView
 import androidx.activity.ComponentActivity
@@ -41,6 +40,7 @@ import com.usesense.sdk.ui.compose.screens.DocumentConfirmScreen
 import com.usesense.sdk.ui.compose.screens.DocumentPrimerScreen
 import com.usesense.sdk.ui.compose.screens.DocumentTypeSelectScreen
 import com.usesense.sdk.ui.compose.screens.FacePrimerScreen
+import com.usesense.sdk.ui.compose.screens.FlowLoadingScreen
 import com.usesense.sdk.ui.compose.screens.FormScreen
 import com.usesense.sdk.ui.compose.screens.FormState
 import com.usesense.sdk.ui.compose.screens.IdNumberScreen
@@ -68,7 +68,10 @@ internal class FlowsActivity : ComponentActivity() {
 
     private var view: FlowRunView? = null
     private lateinit var root: FrameLayout
-    private lateinit var spinner: ProgressBar
+    /** Branded full-screen loader (FlowLoadingScreen): between steps and during
+     *  document upload. The message updates in place via loadingMessage. */
+    private var loadingView: ComposeView? = null
+    private val loadingMessage = mutableStateOf("Loading")
     private lateinit var content: LinearLayout
     private var facePrimerView: ComposeView? = null
     private var documentChromeView: ComposeView? = null
@@ -730,7 +733,9 @@ internal class FlowsActivity : ComponentActivity() {
 
     /** Upload a document (picked or scanned) and advance the run. */
     private fun uploadDocumentUri(uri: Uri) {
-        showSpinner()
+        // Branded upload loader (mirrors the hosted page + iOS) so the subject
+        // sees progress instead of a bare spinner during the POST.
+        showSpinner("Submitting your document…")
         lifecycleScope.launch {
             try {
                 val base64 = withContext(Dispatchers.IO) {
@@ -810,31 +815,29 @@ internal class FlowsActivity : ComponentActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(48)
         }
-        spinner = ProgressBar(this).apply { visibility = View.GONE }
-        val spinnerWrap = FrameLayout(this).apply {
-            addView(spinner, FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.CENTER,
-            ))
+        val loader = ComposeView(this).apply {
+            visibility = View.GONE
+            setContent { FlowLoadingScreen(title = loadingMessage.value) }
         }
+        loadingView = loader
         root.addView(content, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT,
         ))
-        root.addView(spinnerWrap, FrameLayout.LayoutParams(
+        root.addView(loader, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT,
         ))
         setContentView(root)
     }
 
-    private fun showSpinner() {
-        spinner.visibility = View.VISIBLE
+    private fun showSpinner(message: String = "Loading") {
+        loadingMessage.value = message
+        loadingView?.visibility = View.VISIBLE
     }
 
     private fun hideSpinner() {
-        spinner.visibility = View.GONE
+        loadingView?.visibility = View.GONE
     }
 
     private fun reportSuccess(result: FlowRunResult) {
