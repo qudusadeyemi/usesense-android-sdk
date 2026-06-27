@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">UseSense Demo</string>
-    <string name="demo_title">UseSense SDK Demo</string>
+    <string name="app_name">Sense Demo</string>
+    <string name="demo_title">Sense SDK Demo</string>
     <string name="demo_subtitle">Human Presence Verification</string>
     <string name="demo_mode_label">Demo Mode</string>
     <string name="demo_mode_mock">Mock Server (Offline)</string>

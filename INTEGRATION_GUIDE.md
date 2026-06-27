@@ -1,12 +1,12 @@
-# UseSense Android Integration Guide
+# Sense Android Integration Guide
 
 ## How Verification Works
 
-1. Your app initializes the UseSense SDK with your API key (once, in `Application.onCreate()`)
+1. Your app initializes the Sense SDK with your API key (once, in `Application.onCreate()`)
 2. When you need to verify a user (e.g., during onboarding), call `startVerification()` with a callback
 3. The SDK launches a full-screen camera Activity
 4. The user completes a short challenge (5-15 seconds): following a dot, turning their head, or speaking a phrase
-5. The SDK captures frames, sensor data, and optional audio, then uploads everything encrypted to UseSense servers
+5. The SDK captures frames, sensor data, and optional audio, then uploads everything encrypted to Sense servers
 6. Server-side analysis runs three independent pillars (DeepSense, LiveSense, MatchSense) in parallel
 7. The SDK receives a preliminary result -- use this for UI feedback (show success/failure screen)
 8. The definitive verdict is delivered to **your backend** via HMAC-signed webhook -- this is what you use for access-control decisions
@@ -14,7 +14,7 @@
 
 ```
 ┌──────────┐     ┌──────────────┐     ┌─────────────┐     ┌──────────────┐
-│ Your App │     │ UseSense SDK │     │ UseSense API│     │ Your Backend │
+│ Your App │     │ Sense SDK    │     │ Sense API   │     │ Your Backend │
 └────┬─────┘     └──────┬───────┘     └──────┬──────┘     └──────┬───────┘
      │ initialize()     │                     │                   │
      │─────────────────>│                     │                   │
@@ -50,7 +50,7 @@
 
 Most verification providers return one confidence number. If channel integrity fails but liveness passes, a single composite score hides the risk.
 
-UseSense scores each dimension independently:
+Sense scores each dimension independently:
 
 - **DeepSense** (Channel & Device Integrity): App attestation via Play Integrity, runtime integrity checks (emulator, root, hooking frameworks), capture pipeline analysis. Produces a `channelTrustScore` (0-100).
 - **LiveSense** (Multimodal Proof-of-Life): Facial dynamics, visual integrity, temporal coherence, presentation attack detection, environmental corroboration, challenge compliance, audio authenticity. Produces a `livenessScore` (0-100).
@@ -164,7 +164,7 @@ class VerifyActivity : AppCompatActivity() {
 
 ### Process Death
 
-If the system kills your process while the UseSense camera Activity is in the foreground, the session is lost. The SDK handles this gracefully -- the callback receives an error or cancellation when the user returns. No credit is consumed for incomplete sessions.
+If the system kills your process while the Sense camera Activity is in the foreground, the session is lost. The SDK handles this gracefully -- the callback receives an error or cancellation when the user returns. No credit is consumed for incomplete sessions.
 
 ### Background Restrictions
 
@@ -186,7 +186,7 @@ The SDK can run on emulators for basic UI testing, but DeepSense channel trust s
 
 1. Switch from sandbox to production API key
 2. Set `environment` to `PRODUCTION` in `UseSenseConfig` (or use `AUTO`)
-3. Purchase credits in the [UseSense dashboard](https://watchtower.usesense.ai)
+3. Purchase credits in the [Sense dashboard](https://watchtower.usesense.ai)
 4. Configure your webhook endpoint for production
 5. Test full flow end-to-end on physical devices (multiple OEMs recommended)
 6. Ensure your backend handles all three decision types (`APPROVE`, `REJECT`, `MANUAL_REVIEW`)

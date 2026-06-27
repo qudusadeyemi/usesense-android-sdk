@@ -44,7 +44,7 @@
                     android:layout_width="40dp"
                     android:layout_height="40dp"
                     android:src="@drawable/usesense_logo"
-                    android:contentDescription="UseSense" />
+                    android:contentDescription="Sense" />
 
                 <ProgressBar
                     android:id="@+id/introSpinner"
@@ -84,7 +84,7 @@
                     android:layout_width="40dp"
                     android:layout_height="40dp"
                     android:src="@drawable/usesense_logo"
-                    android:contentDescription="UseSense" />
+                    android:contentDescription="Sense" />
 
                 <ImageView
                     android:id="@+id/permissionIcon"
@@ -136,7 +136,7 @@
                     android:layout_height="24dp"
                     android:layout_gravity="start"
                     android:src="@drawable/usesense_logo"
-                    android:contentDescription="UseSense" />
+                    android:contentDescription="Sense" />
 
                 <!-- Section 5.2: Video Container (max 340dp, 16dp radius, black bg) -->
                 <FrameLayout
@@ -488,7 +488,7 @@
                     android:layout_width="40dp"
                     android:layout_height="40dp"
                     android:src="@drawable/usesense_logo"
-                    android:contentDescription="UseSense" />
+                    android:contentDescription="Sense" />
 
                 <ProgressBar
                     android:layout_width="48dp"
@@ -528,7 +528,7 @@
                     android:layout_width="40dp"
                     android:layout_height="40dp"
                     android:src="@drawable/usesense_logo"
-                    android:contentDescription="UseSense" />
+                    android:contentDescription="Sense" />
 
                 <ImageView
                     android:id="@+id/successIcon"
@@ -576,7 +576,7 @@
                     android:layout_width="40dp"
                     android:layout_height="40dp"
                     android:src="@drawable/usesense_logo"
-                    android:contentDescription="UseSense" />
+                    android:contentDescription="Sense" />
 
                 <ImageView
                     android:id="@+id/deniedIcon"
@@ -634,7 +634,7 @@
                     android:layout_width="40dp"
                     android:layout_height="40dp"
                     android:src="@drawable/usesense_logo"
-                    android:contentDescription="UseSense" />
+                    android:contentDescription="Sense" />
 
                 <ImageView
                     android:layout_width="64dp"
@@ -682,7 +682,7 @@
                     android:layout_width="40dp"
                     android:layout_height="40dp"
                     android:src="@drawable/usesense_logo"
-                    android:contentDescription="UseSense" />
+                    android:contentDescription="Sense" />
 
                 <ImageView
                     android:layout_width="64dp"

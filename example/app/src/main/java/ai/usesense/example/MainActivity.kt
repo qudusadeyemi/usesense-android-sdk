@@ -310,7 +310,7 @@ fun MainScreen(activity: ComponentActivity) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("UseSense Example") },
+                title = { Text("Sense Example") },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                 ),

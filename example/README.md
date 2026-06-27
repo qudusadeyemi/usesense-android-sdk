@@ -1,4 +1,4 @@
-# UseSense Android Example App
+# Sense Android Example App
 
 Demonstrates SDK initialization, enrollment, authentication, event listening, and error handling.
 
