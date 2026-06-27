@@ -84,6 +84,8 @@ fun FormScreen(
     onContinue: () -> Unit,
     modifier: Modifier = Modifier,
     brandColor: Color? = null,
+    title: String = "A few details",
+    continueText: String = "Continue",
 ) {
     UseSenseTheme {
         val colors = UseSenseTheme.colors
@@ -92,7 +94,7 @@ fun FormScreen(
             modifier = modifier,
             footer = {
                 USButton(
-                    text = "Continue",
+                    text = continueText,
                     onClick = onContinue,
                     variant = USButtonVariant.Primary,
                     size = USButtonSize.Large,
@@ -102,7 +104,7 @@ fun FormScreen(
         ) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
                 Spacer(Modifier.height(4.dp))
-                Text("A few details", style = USType.h2.copy(fontSize = 24.sp), color = colors.foreground)
+                Text(title, style = USType.h2.copy(fontSize = 24.sp), color = colors.foreground)
                 Spacer(Modifier.height(18.dp))
                 state.fields.forEachIndexed { i, field ->
                     if (i > 0) Spacer(Modifier.height(18.dp))

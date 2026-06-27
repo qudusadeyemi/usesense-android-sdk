@@ -52,6 +52,9 @@ fun DocumentTypeSelectScreen(
     brandColor: Color? = null,
     displayName: String? = null,
     logoUrl: String? = null,
+    title: String = "Pick a document",
+    body: String = "Choose a document to verify your identity. We don't accept scans or copies.",
+    continueText: String = "Continue",
 ) {
     UseSenseTheme {
         val colors = UseSenseTheme.colors
@@ -66,7 +69,7 @@ fun DocumentTypeSelectScreen(
             },
             footer = {
                 USButton(
-                    text = "Continue",
+                    text = continueText,
                     onClick = { if (selected.isNotEmpty()) onContinue(selected) },
                     variant = USButtonVariant.Primary,
                     size = USButtonSize.Large,
@@ -74,10 +77,10 @@ fun DocumentTypeSelectScreen(
             },
         ) {
             Spacer(Modifier.height(4.dp))
-            Text("Pick a document", style = USType.h2.copy(fontSize = 24.sp), color = colors.foreground)
+            Text(title, style = USType.h2.copy(fontSize = 24.sp), color = colors.foreground)
             Spacer(Modifier.height(6.dp))
             Text(
-                "Choose a document to verify your identity. We don't accept scans or copies.",
+                body,
                 style = USType.body,
                 color = colors.mutedForeground,
             )
@@ -153,6 +156,11 @@ fun DocumentPrimerScreen(
     brandColor: Color? = null,
     displayName: String? = null,
     logoUrl: String? = null,
+    title: String? = null,
+    body: String = "We'll capture it and check it's clear and readable.",
+    scanText: String = "Take a photo",
+    uploadText: String = "Upload a file",
+    uploadInsteadText: String = "Upload a file instead",
 ) {
     val note: String? = if (issuingCountries.isEmpty()) {
         null
@@ -164,16 +172,18 @@ fun DocumentPrimerScreen(
     }
     PrimerScreen(
         icon = Icons.Filled.Description,
-        title = documentType?.let { "Get your ${it.lowercase()} ready" } ?: "Get your $categoryLabel ready",
-        subtitle = "We'll capture it and check it's clear and readable.",
+        title = title
+            ?: documentType?.let { "Get your ${it.lowercase()} ready" }
+            ?: "Get your $categoryLabel ready",
+        subtitle = body,
         points = listOf(
             PrimerPoint(Icons.Filled.CameraAlt, "Place it on a flat, dark surface in good light."),
             PrimerPoint(Icons.Filled.AutoAwesome, "Make sure all four corners are visible and details are sharp."),
         ),
         note = note,
-        primaryText = if (allowCamera) "Take a photo" else "Upload a file",
+        primaryText = if (allowCamera) scanText else uploadText,
         onPrimary = onPrimary,
-        secondaryText = if (allowCamera && allowUpload) "Upload a file instead" else null,
+        secondaryText = if (allowCamera && allowUpload) uploadInsteadText else null,
         onSecondary = if (allowCamera && allowUpload) onSecondary else null,
         isBusy = isBusy,
         brandColor = brandColor,

@@ -30,16 +30,29 @@ object USMotion {
 /**
  * Wraps content in the UseSense brand theme, selecting the light/dark colour set.
  * Read colours inside via `UseSenseTheme.colors`.
+ *
+ * When a [ResolvedFlowAppearance] has been provided via [LocalFlowAppearance]
+ * (by the Flows runner), its resolved palette, mode, button shape and fonts win
+ * over the defaults, so the parity screens reflect the white-label appearance
+ * automatically. With no appearance present this behaves exactly as before.
  */
 @Composable
 fun UseSenseTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
-    val colors = if (darkTheme) UseSenseDarkColors else UseSenseLightColors
+    val appearance = LocalFlowAppearance.current
+    val colors = appearance?.colors ?: if (darkTheme) UseSenseDarkColors else UseSenseLightColors
     CompositionLocalProvider(
         LocalUseSenseColors provides colors,
         LocalContentColor provides colors.foreground,
+        LocalUseSenseButtonRadius provides (appearance?.buttonRadius ?: USRadius.md),
+        LocalUseSenseButtonStyle provides
+            (appearance?.buttonStyle ?: com.usesense.sdk.flows.AppearanceShape.ButtonStyle.FILLED),
+        LocalUseSenseFonts provides UseSenseFonts(
+            body = appearance?.bodyFont,
+            display = appearance?.displayFont,
+        ),
         content = content,
     )
 }
@@ -48,4 +61,12 @@ fun UseSenseTheme(
 object UseSenseTheme {
     val colors: UseSenseColors
         @Composable @ReadOnlyComposable get() = LocalUseSenseColors.current
+
+    /** Custom result illustrations / icon-slot URLs, or null for built-in glyphs. */
+    val icons: com.usesense.sdk.flows.AppearanceIcons?
+        @Composable @ReadOnlyComposable get() = LocalFlowAppearance.current?.icons
+
+    /** Custom loader preset/asset, or null for the built-in spinner. */
+    val loader: com.usesense.sdk.flows.AppearanceLoader?
+        @Composable @ReadOnlyComposable get() = LocalFlowAppearance.current?.loader
 }

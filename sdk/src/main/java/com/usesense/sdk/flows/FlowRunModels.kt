@@ -318,6 +318,20 @@ data class FlowRunView(
         val logoUrl: String?,
         val primaryColor: String,
         val redirectUrl: String?,
+        /**
+         * Operator-configured white-label appearance (Phase 1c). Optional; when
+         * present it carries the full FlowAppearance contract delivered under the
+         * branding payload's `appearance` object. Merged below the SDK-init
+         * appearance and above the legacy primaryColor field.
+         */
+        val appearance: FlowAppearance? = null,
+        /**
+         * Operator-configured white-label copy (Phase 2). Optional; when present
+         * it carries the full FlowCopy contract delivered under the branding
+         * payload's `copy` object. Merged below the SDK-init copy and above the
+         * built-in defaults.
+         */
+        val copy: FlowCopy? = null,
     )
 
     companion object {
@@ -339,6 +353,8 @@ data class FlowRunView(
                         logoUrl = it.optString("logo_url", null),
                         primaryColor = it.optString("primary_color", "#4F7CFF"),
                         redirectUrl = it.optString("redirect_url", null),
+                        appearance = it.optJSONObject("appearance")?.let(FlowAppearance::decode),
+                        copy = it.optJSONObject("copy")?.let(FlowCopy::decode),
                     )
                 },
             )
@@ -358,6 +374,18 @@ data class RunFlowOptions(
     val flowRunId: String,
     val sdkToken: String,
     val apiBaseUrl: String = "https://api.usesense.ai",
+    /**
+     * Optional SDK-init white-label appearance (Phase 1c). Merged above the
+     * server-delivered appearance and the legacy primaryColor when resolving the
+     * runner theme. Null = inherit from server / built-in tokens.
+     */
+    val appearance: FlowAppearance? = null,
+    /**
+     * Optional SDK-init white-label copy (Phase 2). Merged above the
+     * server-delivered copy when resolving subject-facing strings. Null = inherit
+     * from server / built-in defaults.
+     */
+    val copy: FlowCopy? = null,
 )
 
 /** Host-app callback (no Kotlin sealed Result quirks — explicit success / failure / cancel). */

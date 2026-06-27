@@ -19,9 +19,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.usesense.sdk.ui.compose.USType
 import com.usesense.sdk.ui.compose.UseSenseTheme
 import com.usesense.sdk.ui.compose.components.USButton
@@ -39,13 +41,23 @@ fun FlowLoadingScreen(
 ) {
     UseSenseTheme {
         val colors = UseSenseTheme.colors
+        val loaderImageUrl = UseSenseTheme.loader?.imageUrl
         USScreenScaffold(modifier = modifier) {
             Column(
                 Modifier.fillMaxSize(),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                CircularProgressIndicator(color = colors.primary, strokeWidth = 4.dp, modifier = Modifier.size(48.dp))
+                if (loaderImageUrl != null) {
+                    AsyncImage(
+                        model = loaderImageUrl,
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.size(64.dp),
+                    )
+                } else {
+                    CircularProgressIndicator(color = colors.primary, strokeWidth = 4.dp, modifier = Modifier.size(48.dp))
+                }
                 Spacer(Modifier.height(18.dp))
                 Text(title, style = USType.h2.copy(fontSize = 20.sp), color = colors.foreground)
             }
