@@ -164,6 +164,38 @@ UseSense.startVerification(
 
 `startVerification()` requires an Activity context because the SDK launches a full-screen camera Activity.
 
+## White-labeling (Appearance & Copy)
+
+The verification flow UI is fully customizable through two optional inputs you pass
+on a flow run: `appearance` (`FlowAppearance`) and `copy` (`FlowCopy`). Values are
+merged **SDK-init > dashboard (org settings) > built-in default**. Every field is
+optional; anything you omit keeps the UseSense default.
+
+You can set this two ways: in code (below), or no-code via the dashboard's
+**Flows → Appearance** tab (saved on your org, delivered to every SDK and the hosted
+pages, no redeploy).
+
+Customizable surfaces: colors (plus dark-mode overrides), typography, shape and
+button style, logo, background, icons/illustrations, the loader, and every
+subject-facing string plus privacy copy.
+
+```kotlin
+UseSenseFlows.run(
+    context,
+    flowRunId,
+    sdkToken,
+    appearance = FlowAppearance(
+        colors = AppearanceColors(primary = "#E4002B"),
+        shape = AppearanceShape(buttonStyle = "outline"),
+    ),
+    copy = FlowCopy(
+        result = ResultCopy(successTitle = "You're verified"),
+    ),
+)
+```
+
+Full reference: [`docs/WHITE_LABEL.md` in the web SDK](https://github.com/qudusadeyemi/usesense-web-sdk/blob/main/docs/WHITE_LABEL.md).
+
 ## Configuration
 
 ### UseSenseConfig
