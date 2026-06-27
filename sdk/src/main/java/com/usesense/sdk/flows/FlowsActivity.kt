@@ -163,6 +163,16 @@ internal class FlowsActivity : ComponentActivity() {
         setContent { FlowAppearanceHost(appearance) { content() } }
     }
 
+    // ── White-label copy ────────────────────────────────────────────────────────
+
+    /**
+     * The merged FlowCopy driving the runner's subject-facing strings, resolved
+     * fresh each time a surface is rendered so it reflects the latest server
+     * branding. Merge order (highest first): SDK-init (options.copy) > server
+     * (branding.copy) > built-in defaults.
+     */
+    private fun mergedCopy(): FlowCopy? = mergeCopy(options.copy, view?.branding?.copy)
+
     // ── Driver ────────────────────────────────────────────────────────────────
 
     private suspend fun refreshAndDrive() {
@@ -259,8 +269,16 @@ internal class FlowsActivity : ComponentActivity() {
         }
         val state = FormState(fields, fieldErrors)
         formState = state
+        val c = mergedCopy()
         val view = ComposeView(this).apply {
-            themedContent { FormScreen(state = state, onContinue = { submitForm() }) }
+            themedContent {
+                FormScreen(
+                    state = state,
+                    onContinue = { submitForm() },
+                    title = text(c?.form?.title, "A few details"),
+                    continueText = text(c?.buttons?.continueLabel, "Continue"),
+                )
+            }
         }
         formChromeView = view
         root.addView(
@@ -312,6 +330,7 @@ internal class FlowsActivity : ComponentActivity() {
                 numeric = it.numeric,
             )
         }
+        val c = mergedCopy()
         val view = ComposeView(this).apply {
             themedContent {
                 IdNumberScreen(
@@ -322,6 +341,9 @@ internal class FlowsActivity : ComponentActivity() {
                         val inputs = JSONObject().put("id_type", idType).put(field, value)
                         lifecycleScope.launch { advance(inputs) }
                     },
+                    title = text(c?.idNumber?.title, "Select an option"),
+                    body = text(c?.idNumber?.body, "Choose the type of ID to validate."),
+                    continueText = text(c?.buttons?.continueLabel, "Continue"),
                 )
             }
         }
@@ -545,6 +567,7 @@ internal class FlowsActivity : ComponentActivity() {
         // then mint the capture session on the CTA and hand off to the existing
         // capture UI. The CTA shows progress while init-session is in flight.
         val busy = mutableStateOf(false)
+        val c = mergedCopy()
         val primer = ComposeView(this).apply {
             themedContent {
                 FacePrimerScreen(
@@ -553,6 +576,9 @@ internal class FlowsActivity : ComponentActivity() {
                         beginFaceCapture(toolId)
                     },
                     isBusy = busy.value,
+                    title = text(c?.face?.title, "Take a selfie"),
+                    body = text(c?.face?.body, "A quick, secure face scan confirms you're a real, live person."),
+                    startText = text(c?.face?.start, "Start face scan"),
                 )
             }
         }
@@ -588,7 +614,10 @@ internal class FlowsActivity : ComponentActivity() {
                     }
 
                     override fun onError(error: UseSenseError) {
-                        reportError(FlowError(Code.PROVIDER_UNAVAILABLE, error.message ?: "Face capture failed"))
+                        reportError(FlowError(
+                            Code.PROVIDER_UNAVAILABLE,
+                            error.message ?: text(mergedCopy()?.errors?.providerUnavailable, "Face capture failed"),
+                        ))
                     }
 
                     override fun onCancelled() {
@@ -619,6 +648,7 @@ internal class FlowsActivity : ComponentActivity() {
         val methods = action.captureMethods
         val canScan = methods.isEmpty() || methods.contains("camera")
         val canUpload = methods.isEmpty() || methods.contains("upload")
+        val c = mergedCopy()
 
         fun showPrimer(docType: String?) {
             val primer = ComposeView(this).apply {
@@ -638,6 +668,13 @@ internal class FlowsActivity : ComponentActivity() {
                         } else {
                             null
                         },
+                        // primerTitle is optional: null keeps the computed
+                        // "Get your <type> ready" default in the screen.
+                        title = c?.document?.primerTitle?.takeIf { it.isNotBlank() },
+                        body = text(c?.document?.primerBody, "We'll capture it and check it's clear and readable."),
+                        scanText = text(c?.buttons?.scan, "Take a photo"),
+                        uploadText = text(c?.buttons?.upload, "Upload a file"),
+                        uploadInsteadText = text(c?.buttons?.uploadInstead, "Upload a file instead"),
                     )
                 }
             }
@@ -650,6 +687,9 @@ internal class FlowsActivity : ComponentActivity() {
                     DocumentTypeSelectScreen(
                         documentTypes = action.documentTypes,
                         onContinue = { selected -> showPrimer(selected) },
+                        title = text(c?.document?.selectTitle, "Pick a document"),
+                        body = text(c?.document?.selectBody, "Choose a document to verify your identity. We don't accept scans or copies."),
+                        continueText = text(c?.buttons?.continueLabel, "Continue"),
                     )
                 }
             }
@@ -734,6 +774,7 @@ internal class FlowsActivity : ComponentActivity() {
             uploadDocumentUri(uri)
             return
         }
+        val c = mergedCopy()
         val confirmView = ComposeView(this).apply {
             themedContent {
                 DocumentConfirmScreen(
@@ -741,6 +782,11 @@ internal class FlowsActivity : ComponentActivity() {
                     onUse = { removeDocumentConfirm(); uploadDocumentUri(uri) },
                     onRetake = { removeDocumentConfirm(); retake() },
                     onUploadInstead = { removeDocumentConfirm(); launchDocumentPicker() },
+                    title = text(c?.document?.confirmTitle, "Check your document is clear"),
+                    retakeText = text(c?.buttons?.retake, "Retake"),
+                    useThisPhotoText = text(c?.buttons?.useThisPhoto, "Use this photo"),
+                    uploadInsteadText = text(c?.buttons?.uploadInstead, "Upload a different file"),
+                    checkingQualityText = text(c?.loading?.checkingQuality, "Checking image quality…"),
                 )
             }
         }
@@ -763,7 +809,8 @@ internal class FlowsActivity : ComponentActivity() {
     private fun uploadDocumentUri(uri: Uri) {
         // Branded upload loader (mirrors the hosted page + iOS) so the subject
         // sees progress instead of a bare spinner during the POST.
-        showSpinner("Submitting your document…")
+        val c = mergedCopy()
+        showSpinner(text(c?.loading?.submittingDocument, "Submitting your document…"))
         lifecycleScope.launch {
             try {
                 val base64 = withContext(Dispatchers.IO) {
@@ -782,9 +829,9 @@ internal class FlowsActivity : ComponentActivity() {
                 if (response.status == "failed") {
                     val code = if (response.reason == "provider") Code.PROVIDER_UNAVAILABLE else Code.UNKNOWN
                     val message = if (response.reason == "provider")
-                        "Verification is temporarily unavailable."
+                        text(c?.errors?.providerUnavailable, "Verification is temporarily unavailable.")
                     else
-                        "We couldn't read that document. Please retake it."
+                        text(c?.errors?.documentUnreadable, "We couldn't read that document. Please retake it.")
                     reportError(FlowError(code, message))
                     return@launch
                 }
@@ -861,8 +908,10 @@ internal class FlowsActivity : ComponentActivity() {
         setContentView(root)
     }
 
-    private fun showSpinner(message: String = "Loading") {
-        loadingMessage.value = message
+    /** Show the branded loader. With no explicit message the generic loading
+     *  title is used, honouring the merged-copy `loading.default` override. */
+    private fun showSpinner(message: String? = null) {
+        loadingMessage.value = message ?: text(mergedCopy()?.loading?.default, "Loading")
         loadingView?.visibility = View.VISIBLE
     }
 

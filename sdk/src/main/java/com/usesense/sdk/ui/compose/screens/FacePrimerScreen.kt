@@ -52,6 +52,9 @@ fun FacePrimerScreen(
     isBusy: Boolean = false,
     displayName: String? = null,
     logoUrl: String? = null,
+    title: String = "Take a selfie",
+    body: String = "A quick, secure face scan confirms you're a real, live person.",
+    startText: String = "Start face scan",
 ) {
     UseSenseTheme {
         val colors = UseSenseTheme.colors
@@ -83,7 +86,7 @@ fun FacePrimerScreen(
                         )
                     }
                     USButton(
-                        text = "Start face scan",
+                        text = startText,
                         onClick = onStart,
                         variant = USButtonVariant.Primary,
                         size = USButtonSize.Large,
@@ -103,10 +106,10 @@ fun FacePrimerScreen(
                 Icon(Icons.Filled.CenterFocusStrong, null, tint = brand, modifier = Modifier.size(28.dp))
             }
             Spacer(Modifier.height(20.dp))
-            Text("Take a selfie", style = USType.h2.copy(fontSize = 24.sp), color = colors.foreground)
+            Text(title, style = USType.h2.copy(fontSize = 24.sp), color = colors.foreground)
             Spacer(Modifier.height(6.dp))
             Text(
-                "A quick, secure face scan confirms you're a real, live person.",
+                body,
                 style = USType.body,
                 color = colors.mutedForeground,
             )

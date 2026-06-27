@@ -37,18 +37,24 @@ fun FlowResultScreen(
     onContinue: (() -> Unit)? = null,
     displayName: String? = null,
     logoUrl: String? = null,
+    successTitle: String = "Verification complete",
+    successBody: String = "Thank you. You can close this page.",
+    reviewTitle: String = "Under review",
+    reviewBody: String = "Your details are being reviewed.",
+    notVerifiedTitle: String = "Not verified",
+    notVerifiedBody: String = "We could not complete your verification.",
 ) {
     UseSenseTheme {
         val colors = UseSenseTheme.colors
         val title = when (kind) {
-            FlowResultKind.Success -> "Verification complete"
-            FlowResultKind.Review -> "Under review"
-            FlowResultKind.NotVerified -> "Not verified"
+            FlowResultKind.Success -> successTitle
+            FlowResultKind.Review -> reviewTitle
+            FlowResultKind.NotVerified -> notVerifiedTitle
         }
         val subtitle = when (kind) {
-            FlowResultKind.Success -> "Thank you. You can close this page."
-            FlowResultKind.Review -> "Your details are being reviewed."
-            FlowResultKind.NotVerified -> "We could not complete your verification."
+            FlowResultKind.Success -> successBody
+            FlowResultKind.Review -> reviewBody
+            FlowResultKind.NotVerified -> notVerifiedBody
         }
         val iconKind = when (kind) {
             FlowResultKind.Success -> USResultKind.Success

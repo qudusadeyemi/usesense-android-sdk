@@ -66,6 +66,12 @@ fun DocumentConfirmScreen(
     brandColor: Color? = null,
     displayName: String? = null,
     logoUrl: String? = null,
+    title: String = "Check your document is clear",
+    retakeText: String = "Retake",
+    useAnywayText: String = "Use anyway",
+    useThisPhotoText: String = "Use this photo",
+    uploadInsteadText: String = "Upload a different file",
+    checkingQualityText: String = "Checking image quality…",
 ) {
     UseSenseTheme {
         val colors = UseSenseTheme.colors
@@ -82,15 +88,15 @@ fun DocumentConfirmScreen(
             footer = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (issue != null) {
-                        USButton("Retake", onClick = onRetake, variant = USButtonVariant.Primary, size = USButtonSize.Large)
-                        USButton("Use anyway", onClick = onUse, variant = USButtonVariant.Secondary, size = USButtonSize.Large)
+                        USButton(retakeText, onClick = onRetake, variant = USButtonVariant.Primary, size = USButtonSize.Large)
+                        USButton(useAnywayText, onClick = onUse, variant = USButtonVariant.Secondary, size = USButtonSize.Large)
                     } else {
-                        USButton("Use this photo", onClick = onUse, variant = USButtonVariant.Primary, size = USButtonSize.Large, loading = checking)
-                        USButton("Retake", onClick = onRetake, variant = USButtonVariant.Secondary, size = USButtonSize.Large)
+                        USButton(useThisPhotoText, onClick = onUse, variant = USButtonVariant.Primary, size = USButtonSize.Large, loading = checking)
+                        USButton(retakeText, onClick = onRetake, variant = USButtonVariant.Secondary, size = USButtonSize.Large)
                     }
                     if (onUploadInstead != null) {
                         Text(
-                            "Upload a different file",
+                            uploadInsteadText,
                             style = USType.body.copy(fontSize = 12.sp),
                             color = colors.mutedForeground,
                             textAlign = TextAlign.Center,
@@ -102,7 +108,7 @@ fun DocumentConfirmScreen(
         ) {
             Spacer(Modifier.height(4.dp))
             Text(
-                "Check your document is clear",
+                title,
                 style = USType.body.copy(fontSize = 15.sp),
                 color = colors.foreground,
                 textAlign = TextAlign.Center,
@@ -135,7 +141,7 @@ fun DocumentConfirmScreen(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             CircularProgressIndicator(color = Color.White, strokeWidth = 3.dp, modifier = Modifier.size(28.dp))
                             Spacer(Modifier.height(8.dp))
-                            Text("Checking image quality…", style = USType.body.copy(fontSize = 13.sp), color = Color.White)
+                            Text(checkingQualityText, style = USType.body.copy(fontSize = 13.sp), color = Color.White)
                         }
                     }
                 }

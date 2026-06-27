@@ -63,6 +63,9 @@ fun IdNumberScreen(
     brandColor: Color? = null,
     displayName: String? = null,
     logoUrl: String? = null,
+    title: String = "Select an option",
+    body: String = "Choose the type of ID to validate.",
+    continueText: String = "Continue",
 ) {
     UseSenseTheme {
         val colors = UseSenseTheme.colors
@@ -81,7 +84,7 @@ fun IdNumberScreen(
             },
             footer = {
                 USButton(
-                    text = "Continue",
+                    text = continueText,
                     onClick = {
                         val sel = selected
                         if (sel != null && !tooShort) onSubmit(sel.value, sel.field, value.trim())
@@ -93,9 +96,9 @@ fun IdNumberScreen(
             },
         ) {
             Spacer(Modifier.height(4.dp))
-            Text("Select an option", style = USType.h2.copy(fontSize = 24.sp), color = colors.foreground)
+            Text(title, style = USType.h2.copy(fontSize = 24.sp), color = colors.foreground)
             Spacer(Modifier.height(6.dp))
-            Text("Choose the type of ID to validate.", style = USType.body, color = colors.mutedForeground)
+            Text(body, style = USType.body, color = colors.mutedForeground)
             Spacer(Modifier.height(24.dp))
             idTypes.forEachIndexed { i, opt ->
                 if (i > 0) Spacer(Modifier.height(8.dp))

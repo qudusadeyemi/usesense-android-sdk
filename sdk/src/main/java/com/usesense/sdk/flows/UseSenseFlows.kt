@@ -44,12 +44,18 @@ object UseSenseFlows {
          * over the operator's server-delivered appearance when theming the runner.
          */
         appearance: FlowAppearance? = null,
+        /**
+         * Optional SDK-init white-label copy (Phase 2). Takes precedence over the
+         * operator's server-delivered copy when resolving subject-facing strings.
+         */
+        copy: FlowCopy? = null,
     ) {
         pendingOptions = RunFlowOptions(
             flowRunId = flowRunId,
             sdkToken = sdkToken,
             apiBaseUrl = apiBaseUrl,
             appearance = appearance,
+            copy = copy,
         )
         pendingCallback = callback
         val intent = Intent(activity, FlowsActivity::class.java)

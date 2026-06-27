@@ -54,6 +54,13 @@ data class BrandingConfig(
      * (server appearance, then legacy fields, then built-in hosted-page tokens).
      */
     val appearance: com.usesense.sdk.flows.FlowAppearance? = null,
+    /**
+     * Full white-label copy/messaging overrides for the Flows runner (Phase 2).
+     * When set this takes precedence over server-delivered copy. Mirrors the web
+     * SDK's `copy` run option. Null = inherit (server copy, then built-in
+     * hosted-page strings). Presentation only; never affects capture/scoring.
+     */
+    val copy: com.usesense.sdk.flows.FlowCopy? = null,
 ) {
     companion object {
         const val DEFAULT_PRIMARY_COLOR = "#4F7CFF"
