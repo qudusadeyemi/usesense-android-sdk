@@ -84,7 +84,10 @@ fun resolveFlowAppearance(appearance: FlowAppearance?, dark: Boolean): ResolvedF
     }
 
     val layer = appearance.colors?.forMode(dark)
-    val bg = parseColor(appearance.background?.color) ?: parseColor(layer?.background) ?: base.background
+    // `background.color` is a single LIGHT color: only apply it in light mode so it
+    // can't shadow `colors.dark.background` / the dark base and render white-on-dark.
+    val bg = (if (!dark) parseColor(appearance.background?.color) else null)
+        ?: parseColor(layer?.background) ?: base.background
     val colors = base.copy(
         background = bg,
         foreground = parseColor(layer?.foreground) ?: base.foreground,
