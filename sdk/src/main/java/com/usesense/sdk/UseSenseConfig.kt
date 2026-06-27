@@ -47,6 +47,13 @@ data class BrandingConfig(
     val redirectUrl: String? = null,   // null = inherit from org
     val buttonRadius: Int = 12,
     val fontFamily: String? = null,
+    /**
+     * Full white-label appearance for the Flows runner (Phase 1c). When set this
+     * takes precedence over server branding and the legacy primaryColor/buttonRadius
+     * fields above. Mirrors the web SDK's `appearance` run option. Null = inherit
+     * (server appearance, then legacy fields, then built-in hosted-page tokens).
+     */
+    val appearance: com.usesense.sdk.flows.FlowAppearance? = null,
 ) {
     companion object {
         const val DEFAULT_PRIMARY_COLOR = "#4F7CFF"

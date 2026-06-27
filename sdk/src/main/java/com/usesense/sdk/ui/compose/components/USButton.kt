@@ -32,10 +32,11 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.usesense.sdk.flows.AppearanceShape
 import com.usesense.sdk.ui.compose.USMotion
-import com.usesense.sdk.ui.compose.USRadius
-import com.usesense.sdk.ui.compose.USType
+import com.usesense.sdk.ui.compose.UseSenseShape
 import com.usesense.sdk.ui.compose.UseSenseTheme
+import com.usesense.sdk.ui.compose.UseSenseTypeRamp
 
 enum class USButtonVariant { Primary, Secondary, Ghost }
 
@@ -71,17 +72,29 @@ fun USButton(
         label = "us_btn_scale",
     )
 
-    val bg = when (variant) {
-        USButtonVariant.Primary -> colors.primary
-        USButtonVariant.Secondary -> colors.secondary
-        USButtonVariant.Ghost -> Color.Transparent
+    // White-label: the resolved appearance can request an outlined primary
+    // (buttonStyle = outline) and a custom corner radius. Outline turns the
+    // filled primary into a transparent, brand-bordered button.
+    val outlinePrimary =
+        variant == USButtonVariant.Primary && UseSenseShape.buttonStyle == AppearanceShape.ButtonStyle.OUTLINE
+    val bg = when {
+        outlinePrimary -> Color.Transparent
+        variant == USButtonVariant.Primary -> colors.primary
+        variant == USButtonVariant.Secondary -> colors.secondary
+        else -> Color.Transparent // Ghost
     }
-    val fg = when (variant) {
-        USButtonVariant.Primary -> Color.White
-        USButtonVariant.Secondary -> colors.foreground
-        USButtonVariant.Ghost -> colors.primary
+    val fg = when {
+        outlinePrimary -> colors.primary
+        variant == USButtonVariant.Primary -> colors.primaryForeground
+        variant == USButtonVariant.Secondary -> colors.foreground
+        else -> colors.primary // Ghost
     }
-    val shape = RoundedCornerShape(USRadius.md)
+    val shape = RoundedCornerShape(UseSenseShape.buttonRadius)
+    val borderStroke: BorderStroke? = when {
+        outlinePrimary -> BorderStroke(1.5.dp, colors.primary)
+        variant == USButtonVariant.Secondary -> BorderStroke(1.dp, colors.border)
+        else -> null
+    }
 
     Box(
         modifier
@@ -95,8 +108,8 @@ fun USButton(
             .clip(shape)
             .background(bg)
             .then(
-                if (variant == USButtonVariant.Secondary) {
-                    Modifier.border(BorderStroke(1.dp, colors.border), shape)
+                if (borderStroke != null) {
+                    Modifier.border(borderStroke, shape)
                 } else {
                     Modifier
                 },
@@ -117,7 +130,7 @@ fun USButton(
                 Icon(leadingIcon, contentDescription = null, tint = fg, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
             }
-            Text(text, style = USType.button, color = fg)
+            Text(text, style = UseSenseTypeRamp.button, color = fg)
         }
     }
 }

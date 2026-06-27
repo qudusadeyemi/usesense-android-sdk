@@ -39,8 +39,18 @@ object UseSenseFlows {
         sdkToken: String,
         callback: FlowsCallback,
         apiBaseUrl: String = "https://api.usesense.ai",
+        /**
+         * Optional SDK-init white-label appearance (Phase 1c). Takes precedence
+         * over the operator's server-delivered appearance when theming the runner.
+         */
+        appearance: FlowAppearance? = null,
     ) {
-        pendingOptions = RunFlowOptions(flowRunId = flowRunId, sdkToken = sdkToken, apiBaseUrl = apiBaseUrl)
+        pendingOptions = RunFlowOptions(
+            flowRunId = flowRunId,
+            sdkToken = sdkToken,
+            apiBaseUrl = apiBaseUrl,
+            appearance = appearance,
+        )
         pendingCallback = callback
         val intent = Intent(activity, FlowsActivity::class.java)
         if (activity !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

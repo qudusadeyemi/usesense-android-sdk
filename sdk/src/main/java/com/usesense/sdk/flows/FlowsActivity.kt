@@ -33,9 +33,11 @@ import com.usesense.sdk.UseSenseConfig
 import com.usesense.sdk.UseSenseError
 import com.usesense.sdk.UseSenseResult
 import com.usesense.sdk.flows.FlowError.Code
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.ComposeView
 import com.usesense.sdk.ui.HostedPageActivity
+import com.usesense.sdk.ui.compose.FlowAppearanceHost
 import com.usesense.sdk.ui.compose.screens.DocumentConfirmScreen
 import com.usesense.sdk.ui.compose.screens.DocumentPrimerScreen
 import com.usesense.sdk.ui.compose.screens.DocumentTypeSelectScreen
@@ -135,6 +137,32 @@ internal class FlowsActivity : ComponentActivity() {
         super.onDestroy()
     }
 
+    // ── White-label appearance ─────────────────────────────────────────────────
+
+    /**
+     * The merged FlowAppearance driving the runner theme, resolved fresh each
+     * time a surface is rendered so it reflects the latest server branding.
+     * Merge order (highest first): SDK-init (options.appearance) > server
+     * (branding.appearance) > legacy primaryColor (synthesised into an
+     * appearance) > built-in hosted-page tokens.
+     */
+    private fun mergedAppearance(): FlowAppearance? {
+        val sdkInit = options.appearance
+        val serverAppearance = view?.branding?.appearance
+        // Legacy fallback: fold the flat primary_color into an appearance so a
+        // server that only sends primaryColor still tints the runner.
+        val legacy = view?.branding?.primaryColor
+            ?.takeIf { it.isNotBlank() && serverAppearance?.colors?.primary == null && sdkInit?.colors?.primary == null }
+            ?.let { FlowAppearance(colors = AppearanceColors(primary = it)) }
+        return mergeAppearance(sdkInit, mergeAppearance(serverAppearance, legacy))
+    }
+
+    /** Wrap a Compose surface in the resolved white-label appearance. */
+    private fun ComposeView.themedContent(content: @Composable () -> Unit) {
+        val appearance = mergedAppearance()
+        setContent { FlowAppearanceHost(appearance) { content() } }
+    }
+
     // ── Driver ────────────────────────────────────────────────────────────────
 
     private suspend fun refreshAndDrive() {
@@ -232,7 +260,7 @@ internal class FlowsActivity : ComponentActivity() {
         val state = FormState(fields, fieldErrors)
         formState = state
         val view = ComposeView(this).apply {
-            setContent { FormScreen(state = state, onContinue = { submitForm() }) }
+            themedContent { FormScreen(state = state, onContinue = { submitForm() }) }
         }
         formChromeView = view
         root.addView(
@@ -285,7 +313,7 @@ internal class FlowsActivity : ComponentActivity() {
             )
         }
         val view = ComposeView(this).apply {
-            setContent {
+            themedContent {
                 IdNumberScreen(
                     idTypes = options,
                     onSubmit = { idType, field, value ->
@@ -518,7 +546,7 @@ internal class FlowsActivity : ComponentActivity() {
         // capture UI. The CTA shows progress while init-session is in flight.
         val busy = mutableStateOf(false)
         val primer = ComposeView(this).apply {
-            setContent {
+            themedContent {
                 FacePrimerScreen(
                     onStart = {
                         busy.value = true
@@ -594,7 +622,7 @@ internal class FlowsActivity : ComponentActivity() {
 
         fun showPrimer(docType: String?) {
             val primer = ComposeView(this).apply {
-                setContent {
+                themedContent {
                     DocumentPrimerScreen(
                         onPrimary = {
                             removeDocumentChrome()
@@ -618,7 +646,7 @@ internal class FlowsActivity : ComponentActivity() {
 
         if (action.documentTypes.isNotEmpty()) {
             val typeView = ComposeView(this).apply {
-                setContent {
+                themedContent {
                     DocumentTypeSelectScreen(
                         documentTypes = action.documentTypes,
                         onContinue = { selected -> showPrimer(selected) },
@@ -707,7 +735,7 @@ internal class FlowsActivity : ComponentActivity() {
             return
         }
         val confirmView = ComposeView(this).apply {
-            setContent {
+            themedContent {
                 DocumentConfirmScreen(
                     bitmap = bitmap,
                     onUse = { removeDocumentConfirm(); uploadDocumentUri(uri) },
@@ -817,7 +845,9 @@ internal class FlowsActivity : ComponentActivity() {
         }
         val loader = ComposeView(this).apply {
             visibility = View.GONE
-            setContent { FlowLoadingScreen(title = loadingMessage.value) }
+            // SDK-init appearance only here (server branding may not have loaded
+            // yet); the per-step surfaces re-resolve with server branding folded in.
+            themedContent { FlowLoadingScreen(title = loadingMessage.value) }
         }
         loadingView = loader
         root.addView(content, FrameLayout.LayoutParams(
