@@ -229,68 +229,68 @@ fun mergeCopy(high: FlowCopy?, low: FlowCopy?): FlowCopy? {
     if (low == null) return high
     return FlowCopy(
         welcome = WelcomeCopy(
-            title = high.welcome?.title ?: low.welcome?.title,
-            body = high.welcome?.body ?: low.welcome?.body,
+            title = pick(high.welcome?.title, low.welcome?.title),
+            body = pick(high.welcome?.body, low.welcome?.body),
         ).takeIf { high.welcome != null || low.welcome != null },
         buttons = ButtonsCopy(
-            continueLabel = high.buttons?.continueLabel ?: low.buttons?.continueLabel,
-            cancel = high.buttons?.cancel ?: low.buttons?.cancel,
-            tryAgain = high.buttons?.tryAgain ?: low.buttons?.tryAgain,
-            retake = high.buttons?.retake ?: low.buttons?.retake,
-            useThisPhoto = high.buttons?.useThisPhoto ?: low.buttons?.useThisPhoto,
-            uploadInstead = high.buttons?.uploadInstead ?: low.buttons?.uploadInstead,
-            scan = high.buttons?.scan ?: low.buttons?.scan,
-            upload = high.buttons?.upload ?: low.buttons?.upload,
-            submitting = high.buttons?.submitting ?: low.buttons?.submitting,
+            continueLabel = pick(high.buttons?.continueLabel, low.buttons?.continueLabel),
+            cancel = pick(high.buttons?.cancel, low.buttons?.cancel),
+            tryAgain = pick(high.buttons?.tryAgain, low.buttons?.tryAgain),
+            retake = pick(high.buttons?.retake, low.buttons?.retake),
+            useThisPhoto = pick(high.buttons?.useThisPhoto, low.buttons?.useThisPhoto),
+            uploadInstead = pick(high.buttons?.uploadInstead, low.buttons?.uploadInstead),
+            scan = pick(high.buttons?.scan, low.buttons?.scan),
+            upload = pick(high.buttons?.upload, low.buttons?.upload),
+            submitting = pick(high.buttons?.submitting, low.buttons?.submitting),
         ).takeIf { high.buttons != null || low.buttons != null },
         loading = LoadingCopy(
-            default = high.loading?.default ?: low.loading?.default,
-            verifying = high.loading?.verifying ?: low.loading?.verifying,
-            submittingDocument = high.loading?.submittingDocument ?: low.loading?.submittingDocument,
-            checkingQuality = high.loading?.checkingQuality ?: low.loading?.checkingQuality,
+            default = pick(high.loading?.default, low.loading?.default),
+            verifying = pick(high.loading?.verifying, low.loading?.verifying),
+            submittingDocument = pick(high.loading?.submittingDocument, low.loading?.submittingDocument),
+            checkingQuality = pick(high.loading?.checkingQuality, low.loading?.checkingQuality),
         ).takeIf { high.loading != null || low.loading != null },
         face = FaceCopy(
-            title = high.face?.title ?: low.face?.title,
-            body = high.face?.body ?: low.face?.body,
-            start = high.face?.start ?: low.face?.start,
+            title = pick(high.face?.title, low.face?.title),
+            body = pick(high.face?.body, low.face?.body),
+            start = pick(high.face?.start, low.face?.start),
         ).takeIf { high.face != null || low.face != null },
         document = DocumentCopy(
-            selectTitle = high.document?.selectTitle ?: low.document?.selectTitle,
-            selectBody = high.document?.selectBody ?: low.document?.selectBody,
-            primerTitle = high.document?.primerTitle ?: low.document?.primerTitle,
-            primerBody = high.document?.primerBody ?: low.document?.primerBody,
-            uploadTitle = high.document?.uploadTitle ?: low.document?.uploadTitle,
-            uploadBody = high.document?.uploadBody ?: low.document?.uploadBody,
-            scanTitle = high.document?.scanTitle ?: low.document?.scanTitle,
-            scanBody = high.document?.scanBody ?: low.document?.scanBody,
-            confirmTitle = high.document?.confirmTitle ?: low.document?.confirmTitle,
-            confirmBody = high.document?.confirmBody ?: low.document?.confirmBody,
+            selectTitle = pick(high.document?.selectTitle, low.document?.selectTitle),
+            selectBody = pick(high.document?.selectBody, low.document?.selectBody),
+            primerTitle = pick(high.document?.primerTitle, low.document?.primerTitle),
+            primerBody = pick(high.document?.primerBody, low.document?.primerBody),
+            uploadTitle = pick(high.document?.uploadTitle, low.document?.uploadTitle),
+            uploadBody = pick(high.document?.uploadBody, low.document?.uploadBody),
+            scanTitle = pick(high.document?.scanTitle, low.document?.scanTitle),
+            scanBody = pick(high.document?.scanBody, low.document?.scanBody),
+            confirmTitle = pick(high.document?.confirmTitle, low.document?.confirmTitle),
+            confirmBody = pick(high.document?.confirmBody, low.document?.confirmBody),
         ).takeIf { high.document != null || low.document != null },
         form = FormCopy(
-            title = high.form?.title ?: low.form?.title,
+            title = pick(high.form?.title, low.form?.title),
         ).takeIf { high.form != null || low.form != null },
         idNumber = IdNumberCopy(
-            title = high.idNumber?.title ?: low.idNumber?.title,
-            body = high.idNumber?.body ?: low.idNumber?.body,
+            title = pick(high.idNumber?.title, low.idNumber?.title),
+            body = pick(high.idNumber?.body, low.idNumber?.body),
         ).takeIf { high.idNumber != null || low.idNumber != null },
         result = ResultCopy(
-            successTitle = high.result?.successTitle ?: low.result?.successTitle,
-            successBody = high.result?.successBody ?: low.result?.successBody,
-            reviewTitle = high.result?.reviewTitle ?: low.result?.reviewTitle,
-            reviewBody = high.result?.reviewBody ?: low.result?.reviewBody,
-            notVerifiedTitle = high.result?.notVerifiedTitle ?: low.result?.notVerifiedTitle,
-            notVerifiedBody = high.result?.notVerifiedBody ?: low.result?.notVerifiedBody,
-            cancelledTitle = high.result?.cancelledTitle ?: low.result?.cancelledTitle,
+            successTitle = pick(high.result?.successTitle, low.result?.successTitle),
+            successBody = pick(high.result?.successBody, low.result?.successBody),
+            reviewTitle = pick(high.result?.reviewTitle, low.result?.reviewTitle),
+            reviewBody = pick(high.result?.reviewBody, low.result?.reviewBody),
+            notVerifiedTitle = pick(high.result?.notVerifiedTitle, low.result?.notVerifiedTitle),
+            notVerifiedBody = pick(high.result?.notVerifiedBody, low.result?.notVerifiedBody),
+            cancelledTitle = pick(high.result?.cancelledTitle, low.result?.cancelledTitle),
         ).takeIf { high.result != null || low.result != null },
         errors = ErrorsCopy(
-            generic = high.errors?.generic ?: low.errors?.generic,
-            providerUnavailable = high.errors?.providerUnavailable ?: low.errors?.providerUnavailable,
-            documentUnreadable = high.errors?.documentUnreadable ?: low.errors?.documentUnreadable,
+            generic = pick(high.errors?.generic, low.errors?.generic),
+            providerUnavailable = pick(high.errors?.providerUnavailable, low.errors?.providerUnavailable),
+            documentUnreadable = pick(high.errors?.documentUnreadable, low.errors?.documentUnreadable),
         ).takeIf { high.errors != null || low.errors != null },
         privacy = PrivacyCopy(
-            disclosure = high.privacy?.disclosure ?: low.privacy?.disclosure,
-            consentTitle = high.privacy?.consentTitle ?: low.privacy?.consentTitle,
-            consentBody = high.privacy?.consentBody ?: low.privacy?.consentBody,
+            disclosure = pick(high.privacy?.disclosure, low.privacy?.disclosure),
+            consentTitle = pick(high.privacy?.consentTitle, low.privacy?.consentTitle),
+            consentBody = pick(high.privacy?.consentBody, low.privacy?.consentBody),
         ).takeIf { high.privacy != null || low.privacy != null },
         help = when {
             high.help != null && low.help != null -> low.help + high.help
@@ -298,6 +298,13 @@ fun mergeCopy(high: FlowCopy?, low: FlowCopy?): FlowCopy? {
         },
     )
 }
+
+/**
+ * Pick the higher-priority string, treating a blank (empty/whitespace) high
+ * value as unset so the lower-priority (server) value shows through. Mirrors the
+ * blank-high-as-unset guard in the web SDK's `mergeGroup` (copy.ts).
+ */
+private fun pick(hi: String?, lo: String?): String? = if (!hi.isNullOrBlank()) hi else lo
 
 /**
  * Read an override or fall back to the built-in default. Treats empty/blank
