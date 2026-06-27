@@ -8,6 +8,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.usesense.sdk.flows.AppearanceIcons
+import com.usesense.sdk.flows.AppearanceLoader
 import com.usesense.sdk.flows.AppearanceShape
 import com.usesense.sdk.flows.FlowAppearance
 import com.usesense.sdk.flows.forMode
@@ -33,6 +35,10 @@ data class ResolvedFlowAppearance(
     val logoUrl: String?,
     val logoPlacement: com.usesense.sdk.flows.AppearanceLogo.Placement?,
     val logoHeight: Dp?,
+    /** Custom result illustrations / icon-slot URLs (null = use built-in glyphs). */
+    val icons: AppearanceIcons?,
+    /** Custom loader preset/asset (null = built-in spinner). */
+    val loader: AppearanceLoader?,
     val isDark: Boolean,
 )
 
@@ -71,6 +77,8 @@ fun resolveFlowAppearance(appearance: FlowAppearance?, dark: Boolean): ResolvedF
             logoUrl = null,
             logoPlacement = null,
             logoHeight = null,
+            icons = null,
+            loader = null,
             isDark = dark,
         )
     }
@@ -107,6 +115,8 @@ fun resolveFlowAppearance(appearance: FlowAppearance?, dark: Boolean): ResolvedF
         logoUrl = appearance.logo?.url,
         logoPlacement = appearance.logo?.placement,
         logoHeight = appearance.logo?.height?.dp,
+        icons = appearance.icons,
+        loader = appearance.loader,
         isDark = dark,
     )
 }

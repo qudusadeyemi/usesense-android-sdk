@@ -61,4 +61,12 @@ fun UseSenseTheme(
 object UseSenseTheme {
     val colors: UseSenseColors
         @Composable @ReadOnlyComposable get() = LocalUseSenseColors.current
+
+    /** Custom result illustrations / icon-slot URLs, or null for built-in glyphs. */
+    val icons: com.usesense.sdk.flows.AppearanceIcons?
+        @Composable @ReadOnlyComposable get() = LocalFlowAppearance.current?.icons
+
+    /** Custom loader preset/asset, or null for the built-in spinner. */
+    val loader: com.usesense.sdk.flows.AppearanceLoader?
+        @Composable @ReadOnlyComposable get() = LocalFlowAppearance.current?.loader
 }

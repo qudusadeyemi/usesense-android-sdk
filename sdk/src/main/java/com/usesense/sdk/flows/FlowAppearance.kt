@@ -19,6 +19,10 @@ data class FlowAppearance(
     val shape: AppearanceShape? = null,
     val logo: AppearanceLogo? = null,
     val background: AppearanceBackground? = null,
+    /** Custom illustrations for result screens / icon slots (image URLs). */
+    val icons: AppearanceIcons? = null,
+    /** Loading-animation preset or custom asset. */
+    val loader: AppearanceLoader? = null,
     /** Force a palette or follow the OS (default [Mode.AUTO]). */
     val mode: Mode? = null,
 ) {
@@ -43,6 +47,8 @@ data class FlowAppearance(
             shape = raw.optJSONObject("shape")?.let(AppearanceShape::decode),
             logo = raw.optJSONObject("logo")?.let(AppearanceLogo::decode),
             background = raw.optJSONObject("background")?.let(AppearanceBackground::decode),
+            icons = raw.optJSONObject("icons")?.let(AppearanceIcons::decode),
+            loader = raw.optJSONObject("loader")?.let(AppearanceLoader::decode),
             mode = Mode.fromWire(raw.optStringOrNull("mode")),
         )
     }
@@ -154,6 +160,65 @@ data class AppearanceBackground(
 }
 
 /**
+ * Custom illustration/icon overrides (image URLs replacing built-in glyphs).
+ * The named result slots ([success]/[review]/[notVerified]) plus any extra named
+ * slots are addressable via [slot]. Mirrors `AppearanceIcons` in the web SDK.
+ */
+data class AppearanceIcons(
+    /** Success result screen. */
+    val success: String? = null,
+    /** Under-review result screen. */
+    val review: String? = null,
+    /** Not-verified result screen. */
+    val notVerified: String? = null,
+    /** Every named slot (including the three above) keyed by its wire name. */
+    val slots: Map<String, String> = emptyMap(),
+) {
+    /** Look up a slot URL by name (e.g. "success", "review", "not_verified"). */
+    fun slot(name: String): String? = slots[name]
+
+    companion object {
+        fun decode(raw: JSONObject): AppearanceIcons {
+            val slots = LinkedHashMap<String, String>()
+            for (key in raw.keys()) {
+                if (raw.isNull(key)) continue
+                val value = raw.optString(key, "").takeIf { it.isNotEmpty() } ?: continue
+                slots[key] = value
+            }
+            return AppearanceIcons(
+                success = slots["success"],
+                review = slots["review"],
+                notVerified = slots["not_verified"] ?: slots["notVerified"],
+                slots = slots,
+            )
+        }
+    }
+}
+
+/** Loading animation: a built-in preset or a custom asset. Mirrors `AppearanceLoader`. */
+data class AppearanceLoader(
+    /** Built-in preset. Default [Style.SPINNER]. */
+    val style: Style? = null,
+    /** Custom loader asset URL; overrides [style] when set. */
+    val imageUrl: String? = null,
+) {
+    enum class Style(val wire: String) {
+        SPINNER("spinner"), DOTS("dots"), BAR("bar");
+
+        companion object {
+            fun fromWire(s: String?): Style? = values().firstOrNull { it.wire == s }
+        }
+    }
+
+    companion object {
+        fun decode(raw: JSONObject): AppearanceLoader = AppearanceLoader(
+            style = Style.fromWire(raw.optStringOrNull("style")),
+            imageUrl = raw.optStringOrNull("image_url") ?: raw.optStringOrNull("imageUrl"),
+        )
+    }
+}
+
+/**
  * Deep-merge a higher-priority appearance over a lower one (for SDK > server).
  * Returns null only when both inputs are null. Mirrors `mergeAppearance` in the
  * web SDK.
@@ -181,7 +246,26 @@ fun mergeAppearance(high: FlowAppearance?, low: FlowAppearance?): FlowAppearance
             color = high.background?.color ?: low.background?.color,
             imageUrl = high.background?.imageUrl ?: low.background?.imageUrl,
         ).takeIf { high.background != null || low.background != null },
+        icons = mergeIcons(high.icons, low.icons),
+        loader = AppearanceLoader(
+            style = high.loader?.style ?: low.loader?.style,
+            imageUrl = high.loader?.imageUrl ?: low.loader?.imageUrl,
+        ).takeIf { high.loader != null || low.loader != null },
         mode = high.mode ?: low.mode,
+    )
+}
+
+private fun mergeIcons(high: AppearanceIcons?, low: AppearanceIcons?): AppearanceIcons? {
+    if (high == null) return low
+    if (low == null) return high
+    val slots = LinkedHashMap<String, String>()
+    slots.putAll(low.slots)
+    slots.putAll(high.slots)
+    return AppearanceIcons(
+        success = high.success ?: low.success,
+        review = high.review ?: low.review,
+        notVerified = high.notVerified ?: low.notVerified,
+        slots = slots,
     )
 }
 
