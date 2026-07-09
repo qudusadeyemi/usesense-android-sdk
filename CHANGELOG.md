@@ -4,6 +4,11 @@ All notable changes to the UseSense Android SDK will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [4.6.3] - 2026-07-09
+
+### Fixed
+- **Consumers on Kotlin < 2.2 still couldn't link, even after 4.6.2**, because the SDK transitively pulled `kotlin-stdlib:2.2.10` (metadata 2.2.0) — Gradle resolves the whole consumer graph to that highest version, and Kotlin 1.9 (React Native) can't read it (`Class 'kotlin.Unit' was compiled with an incompatible version of Kotlin`). Now the SDK pins its own `kotlin-stdlib` to `2.0.21` (`kotlin.stdlib.default.dependency=false` + explicit dependency), so consumers resolve a 1.9-readable stdlib automatically. React Native (and other Kotlin 1.9 integrators) no longer need a `resolutionStrategy` force — only `minSdk 28`. No public API or runtime change.
+
 ## [4.6.2] - 2026-07-09
 
 ### Fixed

@@ -38,6 +38,10 @@ android {
 dependencies {
     implementation(project(":sdk"))
 
+    // Explicit stdlib: gradle.properties sets kotlin.stdlib.default.dependency=false
+    // project-wide, so every module must declare kotlin-stdlib itself.
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.0.21")
+
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.12.0")

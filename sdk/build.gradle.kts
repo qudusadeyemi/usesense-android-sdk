@@ -206,6 +206,13 @@ afterEvaluate {
 }
 
 dependencies {
+    // Kotlin stdlib pinned to 2.0.21 (not the compiler's 2.2.10): the module is
+    // compiled with apiVersion 2.0, so it needs no newer stdlib API, and the
+    // published POM must advertise a stdlib whose metadata is readable by Kotlin
+    // 1.9 consumers (React Native). `kotlin.stdlib.default.dependency=false` in
+    // gradle.properties disables the auto-added 2.2.10 so this wins.
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.0.21")
+
     // CameraX
     val cameraVersion = "1.3.4"
     implementation("androidx.camera:camera-core:$cameraVersion")
