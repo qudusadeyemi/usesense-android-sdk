@@ -4,6 +4,11 @@ All notable changes to the UseSense Android SDK will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [4.6.4] - 2026-07-09
+
+### Fixed
+- **Consumers on Kotlin < 2.2 no longer need a `kotlin-stdlib` resolutionStrategy force** (React Native, older native integrators). The SDK enabled `viewBinding` (unused — the UI is Compose), which under AGP 9.1 pulled `androidx.databinding:viewbinding:9.1.0`. That artifact carries a dependency *constraint* forcing `kotlin-stdlib` to 2.2.10 onto every consumer — and a constraint overrides ordinary version pins, so 4.6.3's explicit stdlib pin couldn't win. Disabling the unused `viewBinding` removes the transitive `viewbinding` dependency and its constraint, so consumers resolve the SDK's own `kotlin-stdlib:2.0.21` (metadata readable by Kotlin 1.9). RN Android now builds with only `minSdk 28` on the app side. No public API or runtime change.
+
 ## [4.6.3] - 2026-07-09
 
 ### Fixed
