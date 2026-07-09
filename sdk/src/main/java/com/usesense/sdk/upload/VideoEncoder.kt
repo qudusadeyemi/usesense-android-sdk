@@ -147,15 +147,25 @@ class VideoEncoder(
                     // Unhandled negative status; skip
                 }
                 else -> {
-                    val encoded: ByteBuffer = codec.getOutputBuffer(outputIndex)
-                        ?: run { codec.releaseOutputBuffer(outputIndex, false); continue }
-                    if (info.size != 0 && muxerStarted && (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0) {
-                        encoded.position(info.offset)
-                        encoded.limit(info.offset + info.size)
-                        muxer.writeSampleData(trackIndex, encoded, info)
+                    // Written as if/else rather than `?: run { … continue }`:
+                    // `continue`/`break` inside an inline lambda requires Kotlin
+                    // language version 2.2, but this module pins languageVersion
+                    // 2.0 so its AAR metadata stays readable by Kotlin 1.9
+                    // consumers (React Native). A null buffer just releases and
+                    // falls through to the next loop iteration — the `when` is the
+                    // whole loop body, so falling through == the old `continue`.
+                    val encoded: ByteBuffer? = codec.getOutputBuffer(outputIndex)
+                    if (encoded == null) {
+                        codec.releaseOutputBuffer(outputIndex, false)
+                    } else {
+                        if (info.size != 0 && muxerStarted && (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0) {
+                            encoded.position(info.offset)
+                            encoded.limit(info.offset + info.size)
+                            muxer.writeSampleData(trackIndex, encoded, info)
+                        }
+                        codec.releaseOutputBuffer(outputIndex, false)
+                        if ((info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) return
                     }
-                    codec.releaseOutputBuffer(outputIndex, false)
-                    if ((info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) return
                 }
             }
         }
