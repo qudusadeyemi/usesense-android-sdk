@@ -65,7 +65,12 @@ android {
     }
 
     buildFeatures {
-        viewBinding = true
+        // viewBinding deliberately OFF: the SDK's UI is Compose, nothing uses
+        // ViewBinding. With AGP 9.1 it pulled androidx.databinding:viewbinding:9.1.0,
+        // which carries a dependency *constraint* forcing kotlin-stdlib to 2.2.10
+        // onto every consumer — unreadable by RN's Kotlin 1.9 toolchain, and a
+        // constraint overrides ordinary version pins. Dropping it lets consumers
+        // resolve the SDK's own kotlin-stdlib 2.0.21 with no resolutionStrategy force.
         compose = true
     }
 
