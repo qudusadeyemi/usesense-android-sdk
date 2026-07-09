@@ -245,9 +245,19 @@ dependencies {
     // glare/finger detection). Honors the capture contract's camera method.
     implementation("com.google.android.gms:play-services-mlkit-document-scanner:16.0.0-beta1")
 
-    // TensorFlow Lite (v4.2: on-device antispoof classifier, feature-flagged)
-    implementation("org.tensorflow:tensorflow-lite:2.14.0")
-    implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
+    // TensorFlow Lite (v4.2: on-device antispoof classifier, feature-flagged).
+    // 2.16.1, not 2.14.0: in 2.14 the transitive `tensorflow-lite-api` artifact
+    // declares the SAME `org.tensorflow.lite` namespace as `tensorflow-lite`,
+    // which AGP 8.x rejects at an app's release manifest merge
+    // ("Namespace 'org.tensorflow.lite' is used in multiple modules"). It never
+    // failed our own CI because we only build the AAR + a debug demo, never a
+    // release *app*. 2.16.1 gives the -api artifact its own namespace. The SDK
+    // uses only the core Interpreter + NnApiDelegate API (see AntiSpoofClassifier),
+    // which is unchanged across 2.14–2.16.
+    implementation("org.tensorflow:tensorflow-lite:2.16.1")
+    // NOTE: tensorflow-lite-support was removed. It was unused (no TensorImage/
+    // TensorBuffer/ImageProcessor anywhere in the SDK) and its 0.4.4 -api split
+    // carried the same duplicate-namespace collision with no fixed release.
 
     // Testing
     testImplementation("junit:junit:4.13.2")

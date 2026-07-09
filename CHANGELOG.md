@@ -4,6 +4,14 @@ All notable changes to the UseSense Android SDK will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [4.6.1] - 2026-07-09
+
+### Fixed
+- **Release builds of consumer apps failing at manifest merge on AGP 8.x.** The SDK pulled `org.tensorflow:tensorflow-lite:2.14.0`, whose transitive `tensorflow-lite-api` artifact declares the same `org.tensorflow.lite` namespace as the main artifact. Modern AGP rejects duplicate namespaces during an application module's release manifest merge, so any consumer (native Android, Flutter, React Native) building a `--release` app on a recent AGP failed with `Namespace 'org.tensorflow.lite' is used in multiple modules and/or libraries`. Bumped TensorFlow Lite to `2.16.1` (the `-api` artifact gets its own namespace there; the SDK uses only the core `Interpreter`/`NnApiDelegate` API, unchanged across 2.14–2.16) and removed the unused `tensorflow-lite-support:0.4.4` dependency (which had the same collision with no fixed release). No public API or runtime behaviour change.
+
+### CI
+- The demo app is now built in **release** as well as debug (`:demo:assembleRelease`). The strict release manifest merge is the only place transitive duplicate-namespace collisions surface; building only the AAR + debug demo is why the TFLite collision above shipped undetected.
+
 ## [4.4.0] - 2026-06-23
 
 Minor release bringing **on-device antispoof + LiveSense v4** to Android, at
