@@ -50,6 +50,18 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+        // Emit Kotlin metadata that older consumer toolchains can read. The
+        // module compiles with Kotlin 2.2.10, which by default writes metadata
+        // version 2.2.0 — unreadable by any compiler older than 2.2. React
+        // Native (even 0.76) ships Kotlin 1.9.x, whose compiler reads metadata
+        // only up to 2.0.0, so `react-native-usesense` failed to compile against
+        // this AAR ("Class … was compiled with an incompatible version of
+        // Kotlin. metadata version is 2.2.0, but the compiler … can read up to
+        // 2.0.0"). Pinning api/languageVersion to 2.0 makes the compiler emit
+        // 2.0-readable metadata, so Kotlin 1.9+ consumers (RN, older native
+        // integrators) can link against it. Flutter is unaffected either way.
+        apiVersion = "2.0"
+        languageVersion = "2.0"
     }
 
     buildFeatures {

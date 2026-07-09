@@ -4,6 +4,11 @@ All notable changes to the UseSense Android SDK will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [4.6.2] - 2026-07-09
+
+### Fixed
+- **Consumers on Kotlin < 2.2 could not compile against the SDK** (`Class 'com.usesense.sdk.UseSense' was compiled with an incompatible version of Kotlin. metadata version is 2.2.0, but the compiler … can read up to 2.0.0`). The module compiles with Kotlin 2.2.10, which by default emits metadata 2.2.0 — unreadable by any older toolchain. React Native (even 0.76) ships Kotlin 1.9.x, so `react-native-usesense` on Android was unbuildable. Pinned `apiVersion`/`languageVersion` to `2.0`, so the emitted metadata is readable by Kotlin 1.9+ consumers. No public API or runtime change; Flutter (already on Kotlin ≥2.2) is unaffected.
+
 ## [4.6.1] - 2026-07-09
 
 ### Fixed
