@@ -33,8 +33,14 @@ jobs:
       # Build the demo app too: it consumes the SDK like a customer, so this
       # catches consumer-side breakage the :sdk build alone would miss (the
       # Android analogue of the iOS "Build Example App" check).
-      - name: Build demo app (consumer)
-        run: ./gradlew :demo:assembleDebug
+      #
+      # RELEASE as well as debug: the strict manifest merge that runs for an
+      # application module's release variant is the ONLY place a transitive
+      # duplicate-namespace collision (e.g. tensorflow-lite vs tensorflow-lite-api
+      # both declaring org.tensorflow.lite) surfaces. Building only the :sdk AAR
+      # or the debug demo let that class of defect ship to customers undetected.
+      - name: Build demo app (consumer, debug + release)
+        run: ./gradlew :demo:assembleDebug :demo:assembleRelease
 
       - name: Run SDK unit tests
         run: ./gradlew :sdk:test
