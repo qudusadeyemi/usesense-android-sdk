@@ -4,6 +4,14 @@ All notable changes to the UseSense Android SDK will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [4.6.5] - 2026-07-31
+
+### Fixed
+- **Android verification could hang forever on "Finalizing Enrollment", having sent nothing to the server.** `PlayIntegrityManager.requestIntegrityToken` wrapped Google's `requestIntegrityToken` in a bare `suspendCancellableCoroutine` with no timeout, and `UseSenseSession.uploadSignals` opened with an unbounded `integrityJob?.join()`. Google's API calls Play services and then Google's servers, and in the field it can settle neither listener (stale Play services, signed-out Play Store, mismatched cloud project number, a network that stalls mid round-trip). When that happened the coroutine never resumed, the join never returned, and the whole verification wedged on the finalizing screen *before the first HTTP request was issued* — leaving the session at `created` with no signals and no server-side trace. Both waits are now bounded: 5s on the token request and 3s on the join. Attestation was always best-effort (the launch site says so), and sessions already complete with no token, so timing out costs an optional signal instead of the entire verification.
+
+### Changed
+- `SDK_VERSION` now reports the real version. It had drifted to `4.5.0` while the SDK shipped 4.6.4, and the `User-Agent` was stuck further back at `4.1.0`, which made `sessions.sdk_version` useless for identifying which build a customer was running. The User-Agent is now derived from `SDK_VERSION` so the two cannot diverge again.
+
 ## [4.6.4] - 2026-07-09
 
 ### Fixed

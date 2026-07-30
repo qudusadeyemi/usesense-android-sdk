@@ -15,6 +15,7 @@ import retrofit2.converter.moshi.MoshiConverterFactory
 import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import com.usesense.sdk.signals.DeviceSignalCollector
 
 internal class UseSenseApiClient(private val config: UseSenseConfig) {
 
@@ -71,7 +72,9 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
             .build()
         builder.url(urlWithEnv)
 
-        builder.addHeader("User-Agent", "UseSense-Android-SDK/4.1.0")
+        // Single source of truth; a hardcoded literal here silently went stale
+        // at 4.1.0 across five releases.
+        builder.addHeader("User-Agent", "UseSense-Android-SDK/${DeviceSignalCollector.SDK_VERSION}")
 
         // v4 SDK opt-in. Server v4-flag-resolver enforces the org feature
         // flag in addition to this header (PRD section 9.1).

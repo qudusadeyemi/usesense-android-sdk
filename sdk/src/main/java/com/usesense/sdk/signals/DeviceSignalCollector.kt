@@ -411,6 +411,14 @@ class DeviceSignalCollector(private val context: Context, cloudProjectNumber: Lo
     }
 
     companion object {
-        const val SDK_VERSION = "4.5.0"
+        /**
+         * Reported in `sdk_version`, the metadata payload and the User-Agent.
+         *
+         * Bump this with every release. It had drifted to 4.5.0 while the SDK
+         * shipped 4.6.4, and the User-Agent was stuck further back at 4.1.0,
+         * which made `sessions.sdk_version` useless for telling which build a
+         * customer was actually running while diagnosing a field problem.
+         */
+        const val SDK_VERSION = "4.6.5"
     }
 }
