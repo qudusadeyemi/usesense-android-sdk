@@ -47,6 +47,17 @@ internal class UseSenseSession(
     private var captureStartTime: Date? = null
     private var captureEndTime: Date? = null
 
+    private companion object {
+        /**
+         * Ceiling on waiting for the Play Integrity job in uploadSignals().
+         * Deliberately shorter than PlayIntegrityManager.TOKEN_TIMEOUT_MS: by
+         * the time capture finishes the job has usually been running for the
+         * whole capture already, so anything still outstanding is not about to
+         * arrive.
+         */
+        const val INTEGRITY_JOIN_TIMEOUT_MS = 3_000L
+    }
+
     // v4.1: Liveness & PAD components
     internal val faceMeshManager = FaceMeshManager(context)
     internal val threeDMMFitter = OnDevice3DMMFitter()
@@ -233,8 +244,15 @@ internal class UseSenseSession(
     suspend fun uploadSignals(): Result<UploadSignalsResponse> {
         stateMachine.transition(SessionState.UPLOADING)
 
-        // Ensure Play Integrity token is ready before collecting signals
-        integrityJob?.join()
+        // Give the Play Integrity token a bounded chance to arrive before we
+        // collect signals. Bounded, because attestation is best-effort (see the
+        // launch site) while the upload is not: an unbounded join here meant a
+        // Play services call that never settled wedged the entire verification
+        // on the "Finalizing Enrollment" screen, before a single request had
+        // been sent. PlayIntegrityManager caps the request itself; this is the
+        // backstop for a job that is wedged some other way, so neither layer
+        // alone can strand the subject.
+        withTimeoutOrNull(INTEGRITY_JOIN_TIMEOUT_MS) { integrityJob?.join() }
 
         val sid = sessionId ?: return Result.failure(
             ApiException(UseSenseError.invalidConfig("No session ID"))
