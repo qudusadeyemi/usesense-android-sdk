@@ -195,12 +195,16 @@ data class ErrorsCopy(
     val generic: String? = null,
     val providerUnavailable: String? = null,
     val documentUnreadable: String? = null,
+    /** Distinct from [documentUnreadable]: the document was fine, the transfer
+     *  was not, so this copy must ask for a resend and never for a retake. */
+    val documentIncomplete: String? = null,
 ) {
     companion object {
         fun decode(raw: JSONObject) = ErrorsCopy(
             generic = raw.optStringOrNull("generic"),
             providerUnavailable = raw.optStringOrNull("provider_unavailable") ?: raw.optStringOrNull("providerUnavailable"),
             documentUnreadable = raw.optStringOrNull("document_unreadable") ?: raw.optStringOrNull("documentUnreadable"),
+            documentIncomplete = raw.optStringOrNull("document_incomplete") ?: raw.optStringOrNull("documentIncomplete"),
         )
     }
 }
@@ -286,6 +290,7 @@ fun mergeCopy(high: FlowCopy?, low: FlowCopy?): FlowCopy? {
             generic = pick(high.errors?.generic, low.errors?.generic),
             providerUnavailable = pick(high.errors?.providerUnavailable, low.errors?.providerUnavailable),
             documentUnreadable = pick(high.errors?.documentUnreadable, low.errors?.documentUnreadable),
+            documentIncomplete = pick(high.errors?.documentIncomplete, low.errors?.documentIncomplete),
         ).takeIf { high.errors != null || low.errors != null },
         privacy = PrivacyCopy(
             disclosure = pick(high.privacy?.disclosure, low.privacy?.disclosure),
