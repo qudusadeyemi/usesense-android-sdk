@@ -122,7 +122,16 @@ class FlowsClient(
             ?: throw FlowError(FlowError.Code.UNKNOWN, "Failed to decode init-session response")
     }
 
-    data class UploadDocumentResponse(val documentId: String, val status: String, val reason: String?)
+    /** `message` carries the server's instruction for the reasons where our
+     *  built-in copy would be wrong ('too_large', 'incomplete'): only the
+     *  server knows the limit that was exceeded, or that the bytes arrived
+     *  cut short. Null for every other reason, where our copy is correct. */
+    data class UploadDocumentResponse(
+        val documentId: String,
+        val status: String,
+        val reason: String?,
+        val message: String?,
+    )
 
     fun uploadDocument(data: String, mimeType: String, side: String, documentType: String?): UploadDocumentResponse {
         val body = JSONObject().apply {
@@ -136,6 +145,7 @@ class FlowsClient(
             documentId = res.getString("document_id"),
             status = res.getString("status"),
             reason = res.optString("reason", null),
+            message = res.optString("message", null),
         )
     }
 

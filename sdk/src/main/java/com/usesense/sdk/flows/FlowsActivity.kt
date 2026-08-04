@@ -827,11 +827,27 @@ internal class FlowsActivity : ComponentActivity() {
                     client.uploadDocument(data = base64, mimeType = mime, side = "single", documentType = docType)
                 }
                 if (response.status == "failed") {
-                    val code = if (response.reason == "provider") Code.PROVIDER_UNAVAILABLE else Code.UNKNOWN
-                    val message = if (response.reason == "provider")
-                        text(c?.errors?.providerUnavailable, "Verification is temporarily unavailable.")
-                    else
-                        text(c?.errors?.documentUnreadable, "We couldn't read that document. Please retake it.")
+                    // 'incomplete' is neither a provider outage nor an unreadable
+                    // document: the bytes arrived cut short, so the photo was fine
+                    // and a retake changes nothing. Telling someone to re-shoot a
+                    // good licence is what this branch used to do, via 'provider'.
+                    val code = when (response.reason) {
+                        "provider" -> Code.PROVIDER_UNAVAILABLE
+                        else -> Code.UNKNOWN
+                    }
+                    val message = when (response.reason) {
+                        "provider" ->
+                            text(c?.errors?.providerUnavailable, "Verification is temporarily unavailable.")
+                        // The server sends the instruction; only it knows the
+                        // limit that was exceeded or that the transfer was cut.
+                        "incomplete" -> response.message
+                            ?: text(c?.errors?.documentIncomplete,
+                                "That image did not upload completely. Check your connection and send it again.")
+                        "too_large" -> response.message
+                            ?: text(c?.errors?.documentUnreadable, "That image is too large. Please use a smaller file.")
+                        else ->
+                            text(c?.errors?.documentUnreadable, "We couldn't read that document. Please retake it.")
+                    }
                     reportError(FlowError(code, message))
                     return@launch
                 }
