@@ -107,7 +107,7 @@ internal class FlowsActivity : ComponentActivity() {
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
             val uri = GmsDocumentScanningResult.fromActivityResultIntent(result.data)
                 ?.pages?.firstOrNull()?.imageUri
-            if (uri != null) confirmDocument(uri) { launchDocumentScanner() } else lifecycleScope.launch { cancelRun() }
+            if (uri != null) confirmDocument(uri, CAPTURE_CAMERA) { launchDocumentScanner() } else lifecycleScope.launch { cancelRun() }
         } else {
             lifecycleScope.launch { cancelRun() }
         }
@@ -758,20 +758,20 @@ internal class FlowsActivity : ComponentActivity() {
 
     private fun handlePickedDocument(data: Intent) {
         val uri = data.data ?: return
-        confirmDocument(uri) { launchDocumentPicker() }
+        confirmDocument(uri, CAPTURE_UPLOAD) { launchDocumentPicker() }
     }
 
     /** Hosted parity: confirm the captured document (preview + Use / Retake)
      *  before uploading. Falls back to a direct upload if the preview can't be
      *  decoded. */
-    private fun confirmDocument(uri: Uri, retake: () -> Unit) {
+    private fun confirmDocument(uri: Uri, captureMethod: String, retake: () -> Unit) {
         val bitmap = try {
             contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
         } catch (e: Throwable) {
             null
         }
         if (bitmap == null) {
-            uploadDocumentUri(uri)
+            uploadDocumentUri(uri, captureMethod)
             return
         }
         val c = mergedCopy()
@@ -779,7 +779,7 @@ internal class FlowsActivity : ComponentActivity() {
             themedContent {
                 DocumentConfirmScreen(
                     bitmap = bitmap,
-                    onUse = { removeDocumentConfirm(); uploadDocumentUri(uri) },
+                    onUse = { removeDocumentConfirm(); uploadDocumentUri(uri, captureMethod) },
                     onRetake = { removeDocumentConfirm(); retake() },
                     onUploadInstead = { removeDocumentConfirm(); launchDocumentPicker() },
                     title = text(c?.document?.confirmTitle, "Check your document is clear"),
@@ -806,7 +806,7 @@ internal class FlowsActivity : ComponentActivity() {
     }
 
     /** Upload a document (picked or scanned) and advance the run. */
-    private fun uploadDocumentUri(uri: Uri) {
+    private fun uploadDocumentUri(uri: Uri, captureMethod: String) {
         // Branded upload loader (mirrors the hosted page + iOS) so the subject
         // sees progress instead of a bare spinner during the POST.
         val c = mergedCopy()
@@ -824,7 +824,7 @@ internal class FlowsActivity : ComponentActivity() {
                 val docType = pending?.category ?: "identity"
                 val mime = contentResolver.getType(uri) ?: "image/jpeg"
                 val response = withContext(Dispatchers.IO) {
-                    client.uploadDocument(data = base64, mimeType = mime, side = "single", documentType = docType)
+                    client.uploadDocument(data = base64, mimeType = mime, side = "single", documentType = docType, captureMethod = captureMethod)
                 }
                 if (response.status == "failed") {
                     // 'incomplete' is neither a provider outage nor an unreadable
@@ -954,6 +954,12 @@ internal class FlowsActivity : ComponentActivity() {
     }
 
     companion object {
+        /** How the subject supplied a document. Sent with the upload so the
+         *  server can tailor failure guidance: steadiness and focus advice only
+         *  makes sense for a live scan, not for a file the subject chose. */
+        private const val CAPTURE_CAMERA = "camera"
+        private const val CAPTURE_UPLOAD = "upload"
+
         private val TERMINAL_STATES = setOf(
             FlowRunState.COMPLETED, FlowRunState.ERRORED, FlowRunState.CANCELLED, FlowRunState.ABANDONED,
         )

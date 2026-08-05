@@ -133,12 +133,27 @@ class FlowsClient(
         val message: String?,
     )
 
-    fun uploadDocument(data: String, mimeType: String, side: String, documentType: String?): UploadDocumentResponse {
+    /**
+     * @param captureMethod how the subject supplied the document -- "camera" for
+     *   a live scan, "upload" for a file they chose. The server tailors failure
+     *   guidance to it: "hold the document still and wait for the camera to
+     *   focus" is the right instruction for a scan and meaningless for someone
+     *   who picked an existing file. Optional; omitting it makes the server fall
+     *   back to the step's configured capture methods.
+     */
+    fun uploadDocument(
+        data: String,
+        mimeType: String,
+        side: String,
+        documentType: String?,
+        captureMethod: String? = null,
+    ): UploadDocumentResponse {
         val body = JSONObject().apply {
             put("data", data)
             put("mimeType", mimeType)
             put("side", side)
             documentType?.let { put("documentType", it) }
+            captureMethod?.let { put("captureMethod", it) }
         }
         val res = send(request("POST", "/documents", body))
         return UploadDocumentResponse(
