@@ -4,6 +4,23 @@ All notable changes to the UseSense Android SDK will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [4.6.7] - 2026-08-05
+
+Patch release: the runner now tells the server how the document was supplied.
+
+### Changed
+
+- **Report the document capture route.** The server tailors failure guidance to
+  it: "hold the document still and wait for the camera to focus" is the right
+  instruction for a live scan and meaningless to someone who chose a file, since
+  the photo already exists and there is nothing left to hold. The ML Kit
+  document scanner is reported as `camera`, `ACTION_GET_CONTENT` as `upload`.
+  The runner already distinguished them for its own UI; it just never told the
+  server.
+- `captureMethod` is optional on the wire, so an older server ignores it and a
+  runner that omits it makes the server fall back to the step's configured
+  capture methods. No coordinated release required.
+
 ## [4.6.6] - 2026-08-04
 
 Patch release: an upload that arrives incomplete is no longer reported as an outage.
