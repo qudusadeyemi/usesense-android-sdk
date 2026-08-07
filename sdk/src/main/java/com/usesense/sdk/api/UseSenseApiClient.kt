@@ -12,12 +12,54 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
+import okio.Buffer
+import okio.BufferedSink
+import okio.ForwardingSink
+import okio.buffer
+import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import java.util.zip.GZIPOutputStream
 import com.usesense.sdk.signals.DeviceSignalCollector
 
 internal class UseSenseApiClient(private val config: UseSenseConfig) {
+
+    companion object {
+        /**
+         * Write timeout for the signals upload, the one request that carries
+         * megabytes. Everything else is small JSON and finishes well inside it.
+         */
+        const val UPLOAD_WRITE_TIMEOUT_SECONDS = 300L
+
+        /**
+         * gzip a payload, or null if that would not help.
+         *
+         * The server detects compression from the gzip magic bytes, and
+         * [GZIPOutputStream] emits proper RFC 1952 framing, so no hand-rolled
+         * header is needed here. Callers fall back to the raw bytes on null.
+         */
+        internal fun gzip(data: ByteArray): ByteArray? {
+            if (data.isEmpty()) return null
+            return try {
+                val out = ByteArrayOutputStream()
+                GZIPOutputStream(out).use { it.write(data) }
+                val compressed = out.toByteArray()
+                // Only worth sending if it actually got smaller.
+                if (compressed.size < data.size) compressed else null
+            } catch (e: IOException) {
+                null
+            }
+        }
+    }
+
+    /**
+     * Fires as the signals body goes out: (bytesSent, totalBytes).
+     *
+     * A multi-megabyte upload was previously an indeterminate spinner the
+     * subject could not tell apart from a hang.
+     */
+    var onUploadProgress: ((Long, Long) -> Unit)? = null
 
     private val moshi: Moshi = Moshi.Builder()
         .addLast(KotlinJsonAdapterFactory())
@@ -151,13 +193,37 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
         response ?: throw (exception ?: IOException("Request failed after retries"))
     }
 
+    /**
+     * Wraps the signals request body so the bytes can be counted as they go
+     * out. Applied here rather than per-part so it measures the fully assembled
+     * multipart body -- frames, metadata and audio -- which is what the subject
+     * is actually waiting on.
+     */
+    private val uploadProgressInterceptor = Interceptor { chain ->
+        val request = chain.request()
+        val body = request.body
+        if (body == null || !request.url.encodedPath.endsWith("/signals")) {
+            chain.proceed(request)
+        } else {
+            val wrapped = ProgressRequestBody(body) { sent, total ->
+                onUploadProgress?.invoke(sent, total)
+            }
+            chain.proceed(request.newBuilder().method(request.method, wrapped).build())
+        }
+    }
+
     private val okHttpClient: OkHttpClient = OkHttpClient.Builder()
         .addInterceptor(sessionInterceptor)
         .addInterceptor(idempotencyInterceptor)
         .addInterceptor(retryInterceptor)
+        .addInterceptor(uploadProgressInterceptor)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
+        // The signals upload is the only request carrying megabytes. A 30s
+        // write timeout leaves no headroom on a slow mobile uplink -- a
+        // measured production session managed 14.6 KB/s -- and a tripped
+        // timeout looks to the subject like a hang, not a retryable error.
+        .writeTimeout(UPLOAD_WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .build()
 
     private val service: UseSenseApiService = Retrofit.Builder()
@@ -206,11 +272,24 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
             )
         }
 
-        val metadataPart = MultipartBody.Part.createFormData(
-            "metadata",
-            "metadata.json",
-            metadataJson.toRequestBody("application/json".toMediaType()),
-        )
+        // gzip the metadata. It is a few hundred KB of JSON on every session and
+        // OkHttp does not compress request bodies on its own. The server sniffs
+        // the gzip magic bytes rather than the filename, so an older server (or
+        // a null here) still reads the plain JSON.
+        val gzippedMetadata = gzip(metadataJson)
+        val metadataPart = if (gzippedMetadata != null) {
+            MultipartBody.Part.createFormData(
+                "metadata",
+                "metadata.json.gz",
+                gzippedMetadata.toRequestBody("application/gzip".toMediaType()),
+            )
+        } else {
+            MultipartBody.Part.createFormData(
+                "metadata",
+                "metadata.json",
+                metadataJson.toRequestBody("application/json".toMediaType()),
+            )
+        }
 
         val audioPart = audioData?.let {
             MultipartBody.Part.createFormData(
@@ -376,3 +455,36 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
 }
 
 internal class ApiException(val useSenseError: UseSenseError) : Exception(useSenseError.message)
+
+/**
+ * RequestBody that reports how much of itself has been written.
+ *
+ * OkHttp gives no upload-progress hook, so the body counts its own bytes on
+ * the way to the socket.
+ */
+internal class ProgressRequestBody(
+    private val delegate: RequestBody,
+    private val listener: (bytesSent: Long, totalBytes: Long) -> Unit,
+) : RequestBody() {
+
+    override fun contentType(): MediaType? = delegate.contentType()
+
+    override fun contentLength(): Long = delegate.contentLength()
+
+    override fun writeTo(sink: BufferedSink) {
+        val total = contentLength()
+        // A retry re-enters writeTo, so progress restarts from zero -- which is
+        // the honest thing to show.
+        val counting = object : ForwardingSink(sink) {
+            private var written = 0L
+            override fun write(source: Buffer, byteCount: Long) {
+                super.write(source, byteCount)
+                written += byteCount
+                if (total > 0) listener(written, total)
+            }
+        }
+        val buffered = counting.buffer()
+        delegate.writeTo(buffered)
+        buffered.flush()
+    }
+}
