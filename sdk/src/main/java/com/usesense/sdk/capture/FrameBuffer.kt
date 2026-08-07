@@ -1,5 +1,6 @@
 package com.usesense.sdk.capture
 
+import android.graphics.BitmapFactory
 import android.os.SystemClock
 import java.security.MessageDigest
 
@@ -12,6 +13,11 @@ data class CapturedFrame(
     /** v4: capture phase tag. Lets the server's SfM perspective validator
      *  filter to the zoom-motion subset (PRD section 4). */
     val phase: String = "other",
+    /** Encoded pixel size of [jpegData]. The frames_manifest used to report a
+     *  hardcoded 640x480 regardless of what was captured, which is wrong for
+     *  the v4 path. The server scales its sharpness thresholds off these. */
+    val width: Int = 0,
+    val height: Int = 0,
 )
 
 /** Capture phase tags, matching the iOS FrameBuffer.CapturePhase enum. */
@@ -52,6 +58,11 @@ class FrameBuffer(private val maxFrames: Int) {
 
         val timestampMs = SystemClock.elapsedRealtime() - captureStartMs
         val hash = computeSha256(jpegData)
+        // Header-only decode: reads the JPEG's SOF dimensions without
+        // allocating any pixels, so it works whichever capture path produced
+        // these bytes and costs nothing per frame.
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(jpegData, 0, jpegData.size, bounds)
         val frame = CapturedFrame(
             index = nextIndex,
             jpegData = jpegData,
@@ -59,6 +70,8 @@ class FrameBuffer(private val maxFrames: Int) {
             hash = hash,
             luminance = luminance,
             phase = currentPhase.value,
+            width = bounds.outWidth.coerceAtLeast(0),
+            height = bounds.outHeight.coerceAtLeast(0),
         )
         frames.add(frame)
         nextIndex++

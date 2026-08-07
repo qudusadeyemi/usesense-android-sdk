@@ -4,6 +4,42 @@ All notable changes to the UseSense Android SDK will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **Frames are capped at 960px on the longest edge.** `FrameEncoder.bitmapToJpeg`
+  is the single choke point both capture paths use, so the cap lives there. The
+  legacy path already ran at 640x480 and is unaffected; this matters for the v4
+  path, which requests 1280x720. Uses a filtered rescale, since aliasing reads as
+  lost sharpness to the server's screen-replay detector.
+
+  960 matches the web and iOS SDKs and the server's sharpness calibration table.
+  Keep all four in step.
+
+- **`metadata.json` is gzipped** via `GZIPOutputStream`. The server detects
+  compression from the gzip magic bytes and still accepts plain JSON, so older
+  servers are unaffected — but deploy the server first.
+
+### Fixed
+
+- **`frames_manifest` reported a hardcoded 640x480** regardless of what was
+  captured, which is wrong for the v4 path's 1280x720 capture. Because the server
+  scales its screen-replay sharpness thresholds off these values, under-reporting
+  the resolution *lowered* those thresholds and made spoof detection more
+  permissive. Dimensions are now read from the encoded JPEG header.
+
+- **The signals write timeout was 30s**, with no headroom for a multi-megabyte
+  body on a slow uplink — a measured production session managed 14.6 KB/s. Raised
+  to 300s for that request.
+
+- **`EventType.UPLOAD_PROGRESS` was never emitted.** The event existed but
+  nothing fired it. An OkHttp interceptor now wraps the assembled multipart body
+  and reports `bytes_sent`, `bytes_total` and `percent`.
+
+- Removed reliance on `FrameEncoder.jpegToDownscaled`, which was dead code: it
+  was never called, so no downscale was happening despite appearances.
+
 ## [4.6.7] - 2026-08-05
 
 Patch release: the runner now tells the server how the document was supplied.

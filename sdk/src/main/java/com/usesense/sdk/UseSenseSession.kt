@@ -32,7 +32,24 @@ internal class UseSenseSession(
     private val config: UseSenseConfig,
     private val request: VerificationRequest,
 ) {
-    private val apiClient = UseSenseApiClient(config)
+    private val apiClient = UseSenseApiClient(config).apply {
+        // Surface real upload progress. The signals request is the only one
+        // carrying megabytes, and on a slow uplink it runs for minutes; without
+        // this the host cannot tell slow from stuck. EventType.UPLOAD_PROGRESS
+        // existed but nothing ever emitted it.
+        onUploadProgress = { sent, total ->
+            if (total > 0) {
+                UseSense.eventEmitter.emit(
+                    EventType.UPLOAD_PROGRESS,
+                    mapOf(
+                        "bytes_sent" to sent,
+                        "bytes_total" to total,
+                        "percent" to ((sent.toDouble() / total) * 100).toInt(),
+                    ),
+                )
+            }
+        }
+    }
     private val stateMachine = SessionStateMachine()
     private val signalCollector = DeviceSignalCollector(context, config.googleCloudProjectNumber)
     private val metadataBuilder = MetadataBuilder()
@@ -276,12 +293,15 @@ internal class UseSenseSession(
             maxFrames = upload?.maxFrames ?: 30,
         )
 
+        // Report the real encoded size. This was hardcoded to 640x480, which is
+        // wrong for the v4 path (1280x720 capture) and would have the server
+        // score those frames against the wrong sharpness ruler.
         val framesManifest = buffer.getFrames().map { frame ->
             FrameManifestEntry(
                 frameIndex = frame.index,
                 captureTimestampMs = (captureStartTime?.time ?: 0L) + frame.timestampMs,
-                resolutionW = 640,
-                resolutionH = 480,
+                resolutionW = frame.width,
+                resolutionH = frame.height,
             )
         }
 
