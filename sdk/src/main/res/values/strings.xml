@@ -120,6 +120,8 @@
     <!-- Buttons -->
     <string name="usesense_cancel">Cancel</string>
     <string name="usesense_retry">Try again</string>
+    <string name="usesense_restart">Restart verification</string>
+    <string name="usesense_exit">Exit</string>
     <string name="usesense_done">Continue</string>
     <string name="usesense_refresh">Refresh</string>
 

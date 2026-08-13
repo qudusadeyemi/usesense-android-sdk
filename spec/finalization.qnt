@@ -16,16 +16,23 @@ module finalization {
   action idleTick = all { phase == Uploading, idle < 3, elapsed < 5, phase' = Uploading, outcome' = None, error' = NoError, elapsed' = elapsed + 1, idle' = idle + 1, recoveryActions' = 0 }
   action uploaded = all { phase == Uploading, phase' = Completing, outcome' = None, error' = NoError, elapsed' = 0, idle' = 0, recoveryActions' = 0 }
   action completed = all { phase == Completing, phase' = Terminal, outcome' = Result, error' = NoError, elapsed' = elapsed, idle' = idle, recoveryActions' = 0 }
-  action operationError = all { phase != Terminal, phase != Recovery, phase' = Recovery, outcome' = None, error' = Failure, elapsed' = elapsed, idle' = idle, recoveryActions' = 7 }
+  action operationError = all {
+    phase != Terminal, phase != Recovery, phase' = Recovery, outcome' = None, error' = Failure,
+    elapsed' = elapsed, idle' = idle,
+    recoveryActions' = if (phase == Completing) 15 else if (phase == Uploading) 7 else 6
+  }
   action deadline = all {
     phase != Terminal, phase != Recovery,
     any { phase == Uploading and idle >= 3, phase == Uploading and elapsed >= 5, phase != Uploading },
-    phase' = Recovery, outcome' = None, error' = Deadline, elapsed' = elapsed, idle' = idle, recoveryActions' = 7
+    phase' = Recovery, outcome' = None, error' = Deadline, elapsed' = elapsed, idle' = idle,
+    recoveryActions' = if (phase == Completing) 15 else if (phase == Uploading) 7 else 6
   }
-  action retry = all { phase == Recovery, phase' = Uploading, outcome' = Retry, error' = NoError, elapsed' = 0, idle' = 0, recoveryActions' = 0 }
-  action restart = all { phase == Recovery, phase' = Terminal, outcome' = Restart, error' = error, elapsed' = elapsed, idle' = idle, recoveryActions' = 0 }
+  // Retry preserves the failed network phase; preparation failures do not offer it.
+  action retryUpload = all { phase == Recovery, recoveryActions == 7, phase' = Uploading, outcome' = Retry, error' = NoError, elapsed' = 0, idle' = 0, recoveryActions' = 0 }
+  action retryComplete = all { phase == Recovery, recoveryActions == 15, phase' = Completing, outcome' = Retry, error' = NoError, elapsed' = 0, idle' = 0, recoveryActions' = 0 }
+  action restart = all { phase == Recovery, phase' = Preparing, outcome' = Restart, error' = NoError, elapsed' = 0, idle' = 0, recoveryActions' = 0 }
   action exit = all { phase == Recovery, phase' = Terminal, outcome' = Exit, error' = error, elapsed' = elapsed, idle' = idle, recoveryActions' = 0 }
-  action step = any { prepared, progress, idleTick, uploaded, completed, operationError, deadline, retry, restart, exit }
+  action step = any { prepared, progress, idleTick, uploaded, completed, operationError, deadline, retryUpload, retryComplete, restart, exit }
 
   val typeInv = elapsed >= 0 and idle >= 0
   val terminalHasOutcome = phase != Terminal or outcome != None

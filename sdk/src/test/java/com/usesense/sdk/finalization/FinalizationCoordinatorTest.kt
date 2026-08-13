@@ -83,6 +83,21 @@ class FinalizationCoordinatorTest {
         assertTrue(RecoveryAction.RETRY in recovery.actions)
     }
 
+    @Test
+    fun `completion retry resumes completion without re-uploading`() = runTest {
+        var uploads = 0
+        val updates = mutableListOf<FinalizationUpdate>()
+        val operations = object : FinalizationOperations by successfulOperations() {
+            override suspend fun upload(onProgress: (Long, Long) -> Unit) =
+                Result.success(Unit).also { uploads++ }
+        }
+
+        FinalizationCoordinator(operations).run(FinalizationPhase.COMPLETING, updates::add)
+
+        assertEquals(0, uploads)
+        assertEquals(result, updates.filterIsInstance<FinalizationUpdate.Result>().single().result)
+    }
+
     private suspend fun runWith(
         operations: FinalizationOperations,
         policy: FinalizationPolicy,

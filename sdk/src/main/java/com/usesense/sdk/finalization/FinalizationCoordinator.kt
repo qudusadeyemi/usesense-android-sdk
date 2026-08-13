@@ -7,6 +7,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.atomic.AtomicLong
 
 enum class FinalizationPhase { PREPARING, UPLOADING, COMPLETING }
 
@@ -44,15 +45,25 @@ class FinalizationCoordinator(
     private val nowMs: () -> Long = { android.os.SystemClock.elapsedRealtime() },
     private val pause: suspend (Long) -> Unit = { delay(it) },
 ) {
-    suspend fun run(onUpdate: (FinalizationUpdate) -> Unit) {
-        val prepared = bounded(FinalizationPhase.PREPARING, policy.preparationTimeoutMs, onUpdate) {
-            operations.prepare()
-        } ?: return
-        if (prepared.isFailure) return recover(FinalizationPhase.PREPARING, prepared.exceptionOrNull(), onUpdate)
+    suspend fun run(onUpdate: (FinalizationUpdate) -> Unit) =
+        run(FinalizationPhase.PREPARING, onUpdate)
 
-        onUpdate(FinalizationUpdate.Phase(FinalizationPhase.UPLOADING))
-        val uploadFailure = monitorUpload(onUpdate)
-        if (uploadFailure != null) return recover(FinalizationPhase.UPLOADING, uploadFailure, onUpdate)
+    suspend fun run(
+        startAt: FinalizationPhase,
+        onUpdate: (FinalizationUpdate) -> Unit,
+    ) {
+        if (startAt == FinalizationPhase.PREPARING) {
+            val prepared = bounded(FinalizationPhase.PREPARING, policy.preparationTimeoutMs, onUpdate) {
+                operations.prepare()
+            } ?: return
+            if (prepared.isFailure) return recover(FinalizationPhase.PREPARING, prepared.exceptionOrNull(), onUpdate)
+        }
+
+        if (startAt != FinalizationPhase.COMPLETING) {
+            onUpdate(FinalizationUpdate.Phase(FinalizationPhase.UPLOADING))
+            val uploadFailure = monitorUpload(onUpdate)
+            if (uploadFailure != null) return recover(FinalizationPhase.UPLOADING, uploadFailure, onUpdate)
+        }
 
         val completed = bounded(FinalizationPhase.COMPLETING, policy.completionTimeoutMs, onUpdate) {
             operations.complete()
@@ -76,15 +87,14 @@ class FinalizationCoordinator(
     }
 
     private suspend fun monitorUpload(onUpdate: (FinalizationUpdate) -> Unit): Throwable? = coroutineScope {
-        var lastProgressAt = nowMs()
-        var furthestByte = 0L
-        val startedAt = lastProgressAt
+        val startedAt = nowMs()
+        val lastProgressAt = AtomicLong(startedAt)
+        val furthestByte = AtomicLong(0L)
         val upload = async {
             runCatching {
                 operations.upload { sent, total ->
-                    if (sent > furthestByte) {
-                        furthestByte = sent
-                        lastProgressAt = nowMs()
+                    if (sent > furthestByte.getAndAccumulate(sent, ::maxOf)) {
+                        lastProgressAt.set(nowMs())
                     }
                     onUpdate(FinalizationUpdate.Progress(sent, total))
                 }
@@ -93,11 +103,12 @@ class FinalizationCoordinator(
         while (!upload.isCompleted) {
             pause(policy.progressCheckMs)
             val now = nowMs()
-            if (now - startedAt >= policy.uploadAllowanceMs || now - lastProgressAt >= policy.noProgressTimeoutMs) {
+            val idleFor = now - lastProgressAt.get()
+            if (now - startedAt >= policy.uploadAllowanceMs || idleFor >= policy.noProgressTimeoutMs) {
                 upload.cancel()
                 return@coroutineScope FinalizationTimeout(
                     FinalizationPhase.UPLOADING,
-                    now - lastProgressAt >= policy.noProgressTimeoutMs,
+                    idleFor >= policy.noProgressTimeoutMs,
                 )
             }
         }

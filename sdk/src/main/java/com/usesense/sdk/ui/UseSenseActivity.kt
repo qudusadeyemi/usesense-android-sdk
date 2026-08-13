@@ -100,9 +100,13 @@ class UseSenseActivity : AppCompatActivity() {
     // Failure screen views
     private lateinit var failureMessage: TextView
     private lateinit var failureRetryButton: MaterialButton
+    private lateinit var failureRestartButton: MaterialButton
+    private lateinit var failureExitButton: MaterialButton
     private lateinit var uploadingTitle: TextView
     private lateinit var uploadingSubtitle: TextView
     private var retryFinalization: (() -> Unit)? = null
+    private var recoveryError: UseSenseError? = null
+    private lateinit var callbackGate: FinalizationCallbackGate<UseSenseResult, UseSenseError>
 
     // Blocked screen views
     private lateinit var blockedRefreshButton: MaterialButton
@@ -143,6 +147,11 @@ class UseSenseActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_usesense)
         bindViews()
+        callbackGate = FinalizationCallbackGate(
+            { pendingCallback?.onSuccess(it) },
+            { pendingCallback?.onError(it) },
+            { pendingCallback?.onCancelled() },
+        )
 
         val config = pendingConfig ?: run {
             deliverError(UseSenseError.invalidConfig("SDK not initialized"))
@@ -222,6 +231,8 @@ class UseSenseActivity : AppCompatActivity() {
         // Failure screen
         failureMessage = findViewById(R.id.failureMessage)
         failureRetryButton = findViewById(R.id.failureRetryButton)
+        failureRestartButton = findViewById(R.id.failureRestartButton)
+        failureExitButton = findViewById(R.id.failureExitButton)
         uploadingTitle = findViewById(R.id.uploadingTitle)
         uploadingSubtitle = findViewById(R.id.uploadingSubtitle)
 
@@ -241,6 +252,11 @@ class UseSenseActivity : AppCompatActivity() {
         }
         failureRetryButton.setOnClickListener {
             retryFinalization?.invoke() ?: mainScope.launch { beginVerification() }
+        }
+        failureRestartButton.setOnClickListener { restartVerification() }
+        failureExitButton.setOnClickListener {
+            recoveryError?.let(callbackGate::exit)
+            finish()
         }
     }
 
@@ -763,8 +779,7 @@ class UseSenseActivity : AppCompatActivity() {
         startFinalization()
     }
 
-    private fun startFinalization() {
-        retryFinalization = { startFinalization() }
+    private fun startFinalization(startAt: FinalizationPhase = FinalizationPhase.PREPARING) {
         val operations = object : FinalizationOperations {
             override suspend fun prepare() = Result.success(Unit)
             override suspend fun upload(onProgress: (Long, Long) -> Unit): Result<Unit> {
@@ -778,10 +793,12 @@ class UseSenseActivity : AppCompatActivity() {
             }
         }
         mainScope.launch {
-            FinalizationCoordinator(operations).run { update ->
+            FinalizationCoordinator(operations).run(startAt) { update ->
                 when (update) {
                     is FinalizationUpdate.Phase -> showFinalizationPhase(update.phase)
-                    is FinalizationUpdate.Progress -> uploadingSubtitle.text = "${update.bytesSent * 100 / update.bytesTotal.coerceAtLeast(1)}% uploaded"
+                    is FinalizationUpdate.Progress -> uploadingSubtitle.post {
+                        uploadingSubtitle.text = "${update.bytesSent * 100 / update.bytesTotal.coerceAtLeast(1)}% uploaded"
+                    }
                     is FinalizationUpdate.Result -> {
                         retryFinalization = null
                         showOutcomeScreen(update.result)
@@ -789,11 +806,35 @@ class UseSenseActivity : AppCompatActivity() {
                     }
                     is FinalizationUpdate.Recovery -> {
                         eventEmitter.emit(EventType.ERROR, mapOf("phase" to update.phase.name.lowercase(), "error" to update.error.message))
-                        deliverError(update.error)
+                        showFinalizationRecovery(update)
                     }
                 }
             }
         }
+    }
+
+    private fun showFinalizationRecovery(recovery: FinalizationUpdate.Recovery) {
+        callbackGate.recovery()
+        recoveryError = recovery.error
+        retryFinalization = if (RecoveryAction.RETRY in recovery.actions) {
+            { startFinalization(recovery.phase) }
+        } else {
+            null
+        }
+        failureMessage.text = recovery.error.message
+        failureRetryButton.visibility = if (RecoveryAction.RETRY in recovery.actions) View.VISIBLE else View.GONE
+        failureRestartButton.visibility = if (RecoveryAction.RESTART in recovery.actions) View.VISIBLE else View.GONE
+        failureExitButton.visibility = if (RecoveryAction.EXIT in recovery.actions) View.VISIBLE else View.GONE
+        showScreen(failureScreen)
+    }
+
+    private fun restartVerification() {
+        retryFinalization = null
+        recoveryError = null
+        session.release()
+        session = UseSenseSession(this, pendingConfig!!, pendingRequest!!)
+        session.onStateChanged = { state -> onSessionStateChanged(state) }
+        mainScope.launch { beginVerification() }
     }
 
     private fun showFinalizationPhase(phase: FinalizationPhase) {
@@ -869,15 +910,18 @@ class UseSenseActivity : AppCompatActivity() {
     }
 
     private fun deliverSuccess(result: UseSenseResult) {
-        pendingCallback?.onSuccess(result)
+        callbackGate.success(result)
     }
 
     private fun deliverError(error: UseSenseError) {
-        pendingCallback?.onError(error)
+        callbackGate.exit(error)
         if (!isFinishing) {
             if (error.code == 429 || error.code == UseSenseError.QUOTA_EXCEEDED) {
                 showScreen(blockedScreen)
             } else {
+                failureRetryButton.visibility = View.VISIBLE
+                failureRestartButton.visibility = View.GONE
+                failureExitButton.visibility = View.GONE
                 failureMessage.text = error.message
                 showScreen(failureScreen)
             }
@@ -885,7 +929,7 @@ class UseSenseActivity : AppCompatActivity() {
     }
 
     private fun deliverCancelled() {
-        pendingCallback?.onCancelled()
+        callbackGate.cancel()
         finish()
     }
 

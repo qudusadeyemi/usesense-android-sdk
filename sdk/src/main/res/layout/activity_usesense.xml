@@ -665,6 +665,22 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="24dp"
                     android:text="@string/usesense_retry" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/failureRestartButton"
+                    style="@style/UseSense.Button.Primary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/usesense_restart" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/failureExitButton"
+                    style="@style/UseSense.Button.Primary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/usesense_exit" />
             </LinearLayout>
 
             <!-- ==========================================================
