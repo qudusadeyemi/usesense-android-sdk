@@ -23,6 +23,30 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The front camera preview was mirrored twice, so it ended up not mirrored at
+  all.** CameraX `PreviewView` already mirrors a front-facing preview;
+  `HostedPageActivity` then applied `scaleX = -1f` on top, cancelling it. The
+  subject turned their head right and watched their image go left. The other
+  capture screen, `UseSenseActivity`, never had the manual flip and has always
+  looked correct -- the two disagreeing was the tell. iOS is unaffected: it uses
+  `AVCaptureVideoPreviewLayer`, whose `automaticallyAdjustsVideoMirroring`
+  default mirrors the front camera correctly.
+
+  This is worth more than cosmetics. The head-turn challenge says "Turn your
+  head LEFT/RIGHT", and only in a mirrored preview does turning your own right
+  move your image to the right of the screen. Frames sent to the server were
+  never mirrored, so scoring was unaffected either way.
+
+- **The Flows runner did not pass its white-label down to the capture screens.**
+  `FlowsActivity` built the capture engine's `UseSenseConfig` with only an api
+  key and base URL, so `EffectiveBranding` fell back to the built-in default
+  colour. A subject saw the org's brand colour on the step primer and default
+  blue on the consent, loading and capture screens either side of it. The
+  resolved appearance, its primary colour and the merged copy are now handed
+  through. Both are set deliberately: the capture screens tint from the flat
+  `primaryColor`, while the Compose surfaces read the appearance, so passing
+  only one leaves half the screens unbranded.
+
 - **Every API call went to a doubled `/v1/v1/` path, so no Android integration
   had ever completed a production verification.** The version lived in two
   places at once: `UseSenseConfig.DEFAULT_BASE_URL` ended in `/v1`, the Flows

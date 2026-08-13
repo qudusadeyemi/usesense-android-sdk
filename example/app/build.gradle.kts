@@ -40,7 +40,7 @@ dependencies {
     // UseSense SDK — resolved from Maven Central (or mavenLocal for local
     // development builds). Keep this version in sync with the latest published
     // release; bump it when a new version lands on central.sonatype.com.
-    implementation("ai.usesense:sdk:4.3.0")
+    implementation("ai.usesense:sdk:4.7.0")
 
     // Compose
     val composeBom = platform("androidx.compose:compose-bom:2024.06.00")

@@ -29,6 +29,7 @@ import androidx.core.view.setPadding
 import androidx.lifecycle.lifecycleScope
 import com.usesense.sdk.SessionType
 import com.usesense.sdk.UseSenseCallback
+import com.usesense.sdk.BrandingConfig
 import com.usesense.sdk.UseSenseConfig
 import com.usesense.sdk.UseSenseError
 import com.usesense.sdk.UseSenseResult
@@ -610,7 +611,29 @@ internal class FlowsActivity : ComponentActivity() {
                 // Placeholder apiKey: every downstream call from the capture
                 // engine authenticates with the session token / nonce set by
                 // injectHostedSessionData; the api key is never read.
-                val config = UseSenseConfig(apiKey = "flow_runner", baseUrl = endpoint)
+                //
+                // Hand the resolved white-label down with it. The runner themes
+                // its own screens from mergedAppearance(), but the capture
+                // engine it launches is a separate Activity that resolves
+                // branding from its config -- and it was being handed none, so
+                // it fell back to the built-in default. A subject saw the org's
+                // colour on the step primer and default blue on the consent,
+                // loading and capture screens either side of it.
+                //
+                // primaryColor is set as well as appearance because the capture
+                // screens tint from the flat EffectiveBranding field, while the
+                // Compose surfaces read the appearance; passing only one leaves
+                // half the screens unbranded.
+                val appearance = mergedAppearance()
+                val config = UseSenseConfig(
+                    apiKey = "flow_runner",
+                    baseUrl = endpoint,
+                    branding = BrandingConfig(
+                        primaryColor = appearance?.colors?.primary,
+                        appearance = appearance,
+                        copy = mergedCopy(),
+                    ),
+                )
                 val bridge = object : UseSenseCallback {
                     override fun onSuccess(result: UseSenseResult) {
                         val inputs = JSONObject().put("sessionId", result.sessionId)
