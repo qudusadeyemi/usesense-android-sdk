@@ -20,6 +20,7 @@ data class UseSenseError(
         const val ENCODING_FAILED = 4002
         const val INVALID_CONFIG = 5001
         const val QUOTA_EXCEEDED = 6001
+        const val FINALIZATION_TIMEOUT = 7001
 
         fun cameraUnavailable() = UseSenseError(
             code = CAMERA_UNAVAILABLE,
@@ -57,6 +58,17 @@ data class UseSenseError(
             code = UPLOAD_FAILED,
             message = "Signal upload failed after retries",
             isRetryable = true,
+        )
+
+        fun finalizationTimeout(phase: String, noProgress: Boolean) = UseSenseError(
+            code = FINALIZATION_TIMEOUT,
+            message = if (noProgress) {
+                "Finalization paused because there was no upload progress. Please try again."
+            } else {
+                "Finalization timed out during $phase. Please try again."
+            },
+            isRetryable = phase != "preparing",
+            details = mapOf("phase" to phase, "no_progress" to noProgress),
         )
 
         fun captureFailed(cause: String? = null) = UseSenseError(

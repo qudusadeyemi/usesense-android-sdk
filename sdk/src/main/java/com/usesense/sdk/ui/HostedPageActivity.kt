@@ -36,6 +36,7 @@ import com.usesense.sdk.capture.ImageQualityAnalyzer
 import com.usesense.sdk.challenge.*
 import com.usesense.sdk.internal.CapturePhase
 import com.usesense.sdk.internal.SessionState
+import com.usesense.sdk.finalization.*
 import kotlinx.coroutines.*
 import java.util.concurrent.Executors
 
@@ -1018,71 +1019,90 @@ class HostedPageActivity : AppCompatActivity() {
             Log.e(TAG, "Error stopping capture", e)
         }
 
+        startFinalization(sess)
+    }
+
+    private fun startFinalization(sess: UseSenseSession) {
+        val operations = object : FinalizationOperations {
+            override suspend fun prepare() = Result.success(Unit)
+            override suspend fun upload(onProgress: (Long, Long) -> Unit): Result<Unit> {
+                sess.setCapturePhase(CapturePhase.UPLOADING)
+                sess.onUploadProgress = onProgress
+                return sess.uploadSignals().map { Unit }
+            }
+            override suspend fun complete(): Result<UseSenseResult> {
+                sess.setCapturePhase(CapturePhase.COMPLETING)
+                return sess.complete()
+            }
+        }
         mainScope.launch {
             try {
-                // Section 5.8/5.9: Show dark overlay on camera during upload/completing
                 uploadOverlayTitle.text = if (flowType == FlowType.ENROLLMENT) {
                     getString(R.string.usesense_processing_enrollment)
                 } else {
                     getString(R.string.usesense_processing_verification)
                 }
                 setStep(PageStep.FINALIZING)
-
-                sess.setCapturePhase(CapturePhase.UPLOADING)
-                eventEmitter.emit(EventType.UPLOAD_STARTED)
-
-                val uploadResult = sess.uploadSignals()
-                uploadResult.onFailure { e ->
-                    eventEmitter.emit(EventType.ERROR, mapOf("phase" to "upload", "error" to (e.message ?: "")))
-                    deliverError(
-                        (e as? com.usesense.sdk.api.ApiException)?.useSenseError
-                            ?: UseSenseError.uploadFailed()
-                    )
-                    return@launch
-                }
-                eventEmitter.emit(EventType.UPLOAD_COMPLETED)
-
-                sess.setCapturePhase(CapturePhase.COMPLETING)
-                eventEmitter.emit(EventType.COMPLETE_STARTED)
-                val verdictResult = sess.complete()
-                verdictResult.onSuccess { result ->
-                    eventEmitter.emit(EventType.DECISION_RECEIVED, mapOf(
-                        "decision" to result.decision,
-                        "session_id" to result.sessionId,
-                    ))
-
-                    // For remote mode, also call the hosted complete endpoint
-                    if (!isDirectMode) {
-                        try {
-                            when (flowType) {
-                                FlowType.ENROLLMENT -> apiClient.completeEnrollment(remoteId)
-                                FlowType.VERIFICATION -> apiClient.completeRemoteSession(remoteId)
-                            }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Hosted complete error (non-fatal)", e)
+                FinalizationCoordinator(operations).run { update ->
+                    when (update) {
+                        is FinalizationUpdate.Phase -> uploadOverlaySubtitle.text = when (update.phase) {
+                            FinalizationPhase.PREPARING -> "Preparing capture data"
+                            FinalizationPhase.UPLOADING -> "Uploading securely"
+                            FinalizationPhase.COMPLETING -> "Waiting for verification result"
                         }
+                        is FinalizationUpdate.Progress -> uploadOverlaySubtitle.text =
+                            "${update.bytesSent * 100 / update.bytesTotal.coerceAtLeast(1)}% uploaded"
+                        is FinalizationUpdate.Result -> finishHostedFinalization(update.result)
+                        is FinalizationUpdate.Recovery -> showTechnicalRecovery(sess, update)
                     }
-
-                    showResult(result.decision, result)
-                    pendingDirectCallback?.onSuccess(result)
-                }
-                verdictResult.onFailure { e ->
-                    eventEmitter.emit(EventType.ERROR, mapOf("phase" to "complete", "error" to (e.message ?: "")))
-                    val error = (e as? com.usesense.sdk.api.ApiException)?.useSenseError
-                        ?: UseSenseError.networkError(e.message)
-                    deliverError(error)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Unhandled error in upload/complete pipeline", e)
-                deliverError(UseSenseError.captureFailed("Unexpected error: ${e.message}"))
+                showTechnicalRecovery(
+                    sess,
+                    FinalizationUpdate.Recovery(
+                        FinalizationPhase.COMPLETING,
+                        UseSenseError.networkError(e.message),
+                        setOf(RecoveryAction.RETRY, RecoveryAction.RESTART, RecoveryAction.EXIT),
+                    ),
+                )
             }
         }
+    }
+
+    private fun finishHostedFinalization(result: UseSenseResult) {
+        if (!isDirectMode) {
+            mainScope.launch {
+                runCatching {
+                    when (flowType) {
+                        FlowType.ENROLLMENT -> apiClient.completeEnrollment(remoteId)
+                        FlowType.VERIFICATION -> apiClient.completeRemoteSession(remoteId)
+                    }
+                }.onFailure { Log.e(TAG, "Hosted complete error (non-fatal)", it) }
+            }
+        }
+        showResult(result.decision, result)
+        pendingDirectCallback?.onSuccess(result)
+    }
+
+    private fun showTechnicalRecovery(sess: UseSenseSession, recovery: FinalizationUpdate.Recovery) {
+        eventEmitter.emit(EventType.ERROR, mapOf("phase" to recovery.phase.name.lowercase(), "error" to recovery.error.message))
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("We could not finish your identity check")
+            .setMessage(recovery.error.message)
+            .setNegativeButton("Exit") { _, _ ->
+                pendingDirectCallback?.onError(recovery.error)
+                finish()
+            }
+        if (RecoveryAction.RETRY in recovery.actions) dialog.setPositiveButton("Retry") { _, _ -> startFinalization(sess) }
+        dialog.setNeutralButton("Restart") { _, _ -> mainScope.launch { initAndStartCapture() } }
+        dialog.setCancelable(false).show()
     }
 
     private fun deliverError(error: UseSenseError) {
         pendingDirectCallback?.onError(error)
         if (!isFinishing) {
-            showResult(UseSenseResult.DECISION_REJECT, null)
+            showError(error.message)
         }
     }
 

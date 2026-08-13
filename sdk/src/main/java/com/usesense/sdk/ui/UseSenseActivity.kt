@@ -31,6 +31,7 @@ import com.usesense.sdk.capture.ImageQualityAnalyzer
 import com.usesense.sdk.challenge.*
 import com.usesense.sdk.internal.CapturePhase
 import com.usesense.sdk.internal.SessionState
+import com.usesense.sdk.finalization.*
 import kotlinx.coroutines.*
 import java.util.concurrent.Executors
 import com.usesense.sdk.R
@@ -99,6 +100,9 @@ class UseSenseActivity : AppCompatActivity() {
     // Failure screen views
     private lateinit var failureMessage: TextView
     private lateinit var failureRetryButton: MaterialButton
+    private lateinit var uploadingTitle: TextView
+    private lateinit var uploadingSubtitle: TextView
+    private var retryFinalization: (() -> Unit)? = null
 
     // Blocked screen views
     private lateinit var blockedRefreshButton: MaterialButton
@@ -218,6 +222,8 @@ class UseSenseActivity : AppCompatActivity() {
         // Failure screen
         failureMessage = findViewById(R.id.failureMessage)
         failureRetryButton = findViewById(R.id.failureRetryButton)
+        uploadingTitle = findViewById(R.id.uploadingTitle)
+        uploadingSubtitle = findViewById(R.id.uploadingSubtitle)
 
         // Blocked screen
         blockedRefreshButton = findViewById(R.id.blockedRefreshButton)
@@ -234,7 +240,7 @@ class UseSenseActivity : AppCompatActivity() {
             mainScope.launch { beginVerification() }
         }
         failureRetryButton.setOnClickListener {
-            mainScope.launch { beginVerification() }
+            retryFinalization?.invoke() ?: mainScope.launch { beginVerification() }
         }
     }
 
@@ -754,50 +760,53 @@ class UseSenseActivity : AppCompatActivity() {
             android.util.Log.e(TAG, "Error stopping capture", e)
         }
 
-        mainScope.launch {
-            try {
-                // Upload phase
+        startFinalization()
+    }
+
+    private fun startFinalization() {
+        retryFinalization = { startFinalization() }
+        val operations = object : FinalizationOperations {
+            override suspend fun prepare() = Result.success(Unit)
+            override suspend fun upload(onProgress: (Long, Long) -> Unit): Result<Unit> {
                 session.setCapturePhase(CapturePhase.UPLOADING)
-                showScreen(uploadingScreen)
-                eventEmitter.emit(EventType.UPLOAD_STARTED)
-
-                val uploadResult = session.uploadSignals()
-                uploadResult.onFailure { e ->
-                    eventEmitter.emit(EventType.ERROR, mapOf("phase" to "upload", "error" to (e.message ?: "")))
-                    deliverError(
-                        (e as? com.usesense.sdk.api.ApiException)?.useSenseError
-                            ?: UseSenseError.uploadFailed()
-                    )
-                    return@launch
-                }
-                eventEmitter.emit(EventType.UPLOAD_COMPLETED)
-
-                // Complete phase
-                session.setCapturePhase(CapturePhase.COMPLETING)
-                eventEmitter.emit(EventType.COMPLETE_STARTED)
-                val verdictResult = session.complete()
-                verdictResult.onSuccess { result ->
-                    eventEmitter.emit(EventType.DECISION_RECEIVED, mapOf(
-                        "decision" to result.decision,
-                        "session_id" to result.sessionId,
-                    ))
-                    showOutcomeScreen(result)
-                    deliverSuccess(result)
-                }
-                verdictResult.onFailure { e ->
-                    eventEmitter.emit(EventType.ERROR, mapOf("phase" to "complete", "error" to (e.message ?: "")))
-                    deliverError(
-                        (e as? com.usesense.sdk.api.ApiException)?.useSenseError
-                            ?: UseSenseError.networkError(e.message)
-                    )
-                }
-            } catch (e: Exception) {
-                // Section 13.2: Safety net - STILL show result, never leave user stuck
-                android.util.Log.e(TAG, "Unhandled error in upload/complete pipeline", e)
-                deliverError(UseSenseError.captureFailed(
-                    "Unexpected error: ${e.message ?: "Unknown failure"}"
-                ))
+                session.onUploadProgress = onProgress
+                return session.uploadSignals().map { Unit }
             }
+            override suspend fun complete(): Result<UseSenseResult> {
+                session.setCapturePhase(CapturePhase.COMPLETING)
+                return session.complete()
+            }
+        }
+        mainScope.launch {
+            FinalizationCoordinator(operations).run { update ->
+                when (update) {
+                    is FinalizationUpdate.Phase -> showFinalizationPhase(update.phase)
+                    is FinalizationUpdate.Progress -> uploadingSubtitle.text = "${update.bytesSent * 100 / update.bytesTotal.coerceAtLeast(1)}% uploaded"
+                    is FinalizationUpdate.Result -> {
+                        retryFinalization = null
+                        showOutcomeScreen(update.result)
+                        deliverSuccess(update.result)
+                    }
+                    is FinalizationUpdate.Recovery -> {
+                        eventEmitter.emit(EventType.ERROR, mapOf("phase" to update.phase.name.lowercase(), "error" to update.error.message))
+                        deliverError(update.error)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun showFinalizationPhase(phase: FinalizationPhase) {
+        showScreen(uploadingScreen)
+        uploadingTitle.text = when (phase) {
+            FinalizationPhase.PREPARING -> "Preparing capture data"
+            FinalizationPhase.UPLOADING -> "Uploading securely"
+            FinalizationPhase.COMPLETING -> "Waiting for verification result"
+        }
+        uploadingSubtitle.text = when (phase) {
+            FinalizationPhase.PREPARING -> "Getting your capture ready"
+            FinalizationPhase.UPLOADING -> "Keep this screen open"
+            FinalizationPhase.COMPLETING -> "This should only take a moment"
         }
     }
 
