@@ -54,9 +54,17 @@ class UseSenseConfigTest {
     }
 
     @Test
-    fun `default base URL is api_usesense_ai_v1`() {
+    fun `default base URL carries no version segment`() {
+        // This test used to assert `https://api.usesense.ai/v1` and so pinned
+        // the bug in place: every path in UseSenseApiService already starts
+        // with `v1/`, so a version here resolved every call to `/v1/v1/...`.
+        // The server rejected that before reading the request body, and a
+        // megabyte signals upload turned the rejection into a silent hang --
+        // which is why no Android integration ever completed a production
+        // verification. Resolution is asserted end to end in
+        // api/BaseUrlResolutionTest.
         val config = UseSenseConfig(apiKey = "sk_sandbox_123")
-        assertEquals("https://api.usesense.ai/v1", config.baseUrl)
+        assertEquals("https://api.usesense.ai", config.baseUrl)
     }
 
     @Test

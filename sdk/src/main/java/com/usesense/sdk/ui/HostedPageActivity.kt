@@ -683,9 +683,19 @@ class HostedPageActivity : AppCompatActivity() {
                 .also { it.setSurfaceProvider(cameraPreview.surfaceProvider) }
 
             cameraPreview.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-            // Mirror front camera preview for natural appearance (spec Section 5.2)
-            // Frames sent to server are NOT mirrored — only the preview is.
-            cameraPreview.scaleX = -1f
+            // No manual flip here. CameraX PreviewView already mirrors a
+            // front-facing preview, so the `cameraPreview.scaleX = -1f` that
+            // used to sit on this line was a second flip that cancelled the
+            // first: the subject saw themselves un-mirrored, turned right, and
+            // watched their image go left. UseSenseActivity, the other capture
+            // screen, never had the manual flip and has always looked correct
+            // -- the two disagreeing was the tell.
+            //
+            // The mirror is worth having rather than merely harmless: the head
+            // turn challenge says "Turn your head LEFT/RIGHT", and only in a
+            // mirrored preview does turning your own right move your image to
+            // the right of the screen. Frames sent to the server are unmirrored
+            // either way; this is a display transform only.
 
             val imageAnalysis = ImageAnalysis.Builder()
                 .setTargetResolution(android.util.Size(640, 480))

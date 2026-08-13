@@ -4,7 +4,65 @@ All notable changes to the UseSense Android SDK will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [4.7.1] - 2026-08-13
+
+### Fixed
+
+- **The front camera preview was mirrored twice, so it ended up not mirrored at
+  all.** CameraX `PreviewView` already mirrors a front-facing preview;
+  `HostedPageActivity` then applied `scaleX = -1f` on top, cancelling it. The
+  subject turned their head right and watched their image go left. The other
+  capture screen, `UseSenseActivity`, never had the manual flip and has always
+  looked correct -- the two disagreeing was the tell. iOS is unaffected: it uses
+  `AVCaptureVideoPreviewLayer`, whose `automaticallyAdjustsVideoMirroring`
+  default mirrors the front camera correctly.
+
+  This is worth more than cosmetics. The head-turn challenge says "Turn your
+  head LEFT/RIGHT", and only in a mirrored preview does turning your own right
+  move your image to the right of the screen. Frames sent to the server were
+  never mirrored, so scoring was unaffected either way.
+
+- **The Flows runner did not pass its white-label down to the capture screens.**
+  `FlowsActivity` built the capture engine's `UseSenseConfig` with only an api
+  key and base URL, so `EffectiveBranding` fell back to the built-in default
+  colour. A subject saw the org's brand colour on the step primer and default
+  blue on the consent, loading and capture screens either side of it. The
+  resolved appearance, its primary colour and the merged copy are now handed
+  through. Both are set deliberately: the capture screens tint from the flat
+  `primaryColor`, while the Compose surfaces read the appearance, so passing
+  only one leaves half the screens unbranded.
+
+- **Every API call went to a doubled `/v1/v1/` path, so no Android integration
+  had ever completed a production verification.** The version lived in two
+  places at once: `UseSenseConfig.DEFAULT_BASE_URL` ended in `/v1`, the Flows
+  runner appended `/v1` again, and every path in `UseSenseApiService` already
+  begins with `v1/`. A signals upload therefore addressed
+  `/v1/v1/sessions/:id/signals`, which the server rejects before it reads the
+  request body.
+
+  That rejection did not surface as an error. The upload carries megabytes, and
+  a large body against an early rejection deadlocks under HTTP/2 flow control:
+  the client waits forever for response headers, and because the request never
+  completes server-side the request logger never fires either. The subject saw
+  "Finalizing Enrollment" spin indefinitely, the integrator saw nothing, and we
+  had no server-side trace. Verified in the field on 2026-08-13 by a thread dump
+  showing the upload thread parked in `Http2Stream.takeHeaders`.
+
+  The base URL now carries no version and each path keeps its own prefix, which
+  is also required by the un-versioned `remote-enrollment/...` and
+  `remote-session/...` routes that hang off the same base. A configured base
+  that still ends in `/v1` is normalised rather than rejected, so integrators
+  who followed the previous documentation are unaffected. Only a *trailing*
+  `/v1` is stripped, so the `/functions/v1/` in a self-hosted Supabase base
+  survives. `BaseUrlResolutionTest` asserts the fully resolved URLs, not just
+  the base, since the bug was only visible once the two halves were combined.
+
+  Servers running the corresponding fix also collapse a duplicate `/v1`, so
+  already-shipped builds keep working without an SDK bump.
+
+## [4.7.0] - 2026-08-13
+
+Released to Maven Central without a changelog entry at the time; recorded here.
 
 ### Changed
 
