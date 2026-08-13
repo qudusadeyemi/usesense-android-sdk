@@ -439,7 +439,6 @@ class LiveSenseV4Activity : ComponentActivity() {
                 val signer = V4ChainSigner(keyManager)
                 val sig = withContext(Dispatchers.Default) { signer.sign(terminal) }
 
-                V4Bridge.dispatchPhase(V4Phase.COMPLETING)
                 val verdict = withContext(Dispatchers.IO) {
                     V4UploadClient.upload(
                         request = request,
@@ -450,6 +449,7 @@ class LiveSenseV4Activity : ComponentActivity() {
                         publicKeySpkiB64 = sig.publicKeySpkiB64,
                         assuranceLevel = sig.assuranceLevel,
                         stats = motion.stats(),
+                        onSignalsUploaded = { V4Bridge.dispatchPhase(V4Phase.COMPLETING) },
                     )
                 }
                 V4Bridge.dispatchPhase(V4Phase.COMPLETED)

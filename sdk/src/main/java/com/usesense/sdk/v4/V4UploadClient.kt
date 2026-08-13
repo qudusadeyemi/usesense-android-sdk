@@ -1,14 +1,26 @@
 package com.usesense.sdk.v4
 
 import com.usesense.sdk.api.V4VerificationRequest
+import com.usesense.sdk.api.V4NetworkException
 import com.usesense.sdk.api.V4Verdict
 import com.usesense.sdk.capture.ZoomMotionStats
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
 import java.net.URL
 import java.util.UUID
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
+
+internal data class V4TransportTimeouts(
+    val connectMs: Int = 15_000,
+    val uploadMs: Int = 300_000,
+    val readMs: Int = 60_000,
+)
 
 /**
  * POSTs the captured MP4 plus chain metadata to /v1/sessions/:id/signals,
@@ -27,7 +39,10 @@ internal object V4UploadClient {
         signatureB64: String,
         publicKeySpkiB64: String,
         assuranceLevel: String,
-        stats: ZoomMotionStats
+        stats: ZoomMotionStats,
+        timeouts: V4TransportTimeouts = V4TransportTimeouts(),
+        connectionFactory: (URL) -> HttpURLConnection = { it.openConnection() as HttpURLConnection },
+        onSignalsUploaded: () -> Unit = {},
     ): V4Verdict {
         val boundary = "UseSenseV4Boundary${UUID.randomUUID()}"
         val metadata = JSONObject().apply {
@@ -55,9 +70,11 @@ internal object V4UploadClient {
         )
 
         val body = buildMultipart(boundary, mp4, metadata.toString().toByteArray(Charsets.UTF_8))
-        val uploadConn = (signalsUrl.openConnection() as HttpURLConnection).apply {
+        val uploadConn = connectionFactory(signalsUrl).apply {
             requestMethod = "POST"
             doOutput = true
+            connectTimeout = timeouts.connectMs
+            readTimeout = timeouts.readMs
             setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
             setRequestProperty("x-usesense-sdk-version", "v4")
             setRequestProperty("x-session-token", request.sessionToken)
@@ -65,33 +82,85 @@ internal object V4UploadClient {
             setRequestProperty("x-environment", request.environment)
             setRequestProperty("x-idempotency-key", UUID.randomUUID().toString())
         }
-        uploadConn.outputStream.use { it.write(body) }
-        if (uploadConn.responseCode !in 200..299) {
-            val errBody = try { uploadConn.errorStream?.bufferedReader()?.readText() ?: "" } catch (_: Exception) { "" }
-            throw IOException("v4 upload failed status=${uploadConn.responseCode} body=$errBody")
+        bounded(uploadConn, V4NetworkException.Phase.SIGNALS_CONNECT, timeouts.connectMs) {
+            uploadConn.connect()
         }
-        uploadConn.inputStream.close()
+        bounded(uploadConn, V4NetworkException.Phase.SIGNALS_UPLOAD, timeouts.uploadMs) {
+            uploadConn.outputStream.use { it.write(body) }
+        }
+        val uploadStatus = bounded(uploadConn, V4NetworkException.Phase.SIGNALS_RESPONSE, timeouts.readMs) {
+            uploadConn.responseCode
+        }
+        if (uploadStatus !in 200..299) {
+            val errBody = try { uploadConn.errorStream?.bufferedReader()?.readText() ?: "" } catch (_: Exception) { "" }
+            uploadConn.disconnect()
+            throw V4NetworkException(
+                V4NetworkException.Phase.SIGNALS_RESPONSE,
+                V4NetworkException.Kind.HTTP,
+                uploadStatus,
+                "v4 upload failed status=$uploadStatus body=$errBody",
+            )
+        }
+        bounded(uploadConn, V4NetworkException.Phase.SIGNALS_RESPONSE, timeouts.readMs) {
+            uploadConn.inputStream.close()
+        }
         uploadConn.disconnect()
+        onSignalsUploaded()
 
         val resultUrl = URL(
             "${request.apiBaseUrl.trimEnd('/')}/sessions/${request.sessionId}/result" +
             "?env=${request.environment}&nonce=${request.nonce}"
         )
-        val resultConn = (resultUrl.openConnection() as HttpURLConnection).apply {
+        val resultConn = connectionFactory(resultUrl).apply {
             requestMethod = "POST"
+            connectTimeout = timeouts.connectMs
+            readTimeout = timeouts.readMs
             setRequestProperty("x-usesense-sdk-version", "v4")
             setRequestProperty("x-session-token", request.sessionToken)
             setRequestProperty("x-nonce", request.nonce)
             setRequestProperty("x-environment", request.environment)
         }
-        if (resultConn.responseCode !in 200..299) {
+        bounded(resultConn, V4NetworkException.Phase.RESULT_CONNECT, timeouts.connectMs) {
+            resultConn.connect()
+        }
+        val resultStatus = bounded(resultConn, V4NetworkException.Phase.RESULT_RESPONSE, timeouts.readMs) {
+            resultConn.responseCode
+        }
+        if (resultStatus !in 200..299) {
             val errBody = try { resultConn.errorStream?.bufferedReader()?.readText() ?: "" } catch (_: Exception) { "" }
             resultConn.disconnect()
-            throw IOException("v4 result failed status=${resultConn.responseCode} body=$errBody")
+            throw V4NetworkException(
+                V4NetworkException.Phase.RESULT_RESPONSE,
+                V4NetworkException.Kind.HTTP,
+                resultStatus,
+                "v4 result failed status=$resultStatus body=$errBody",
+            )
         }
-        val text = resultConn.inputStream.bufferedReader().readText()
+        val text = bounded(resultConn, V4NetworkException.Phase.RESULT_RESPONSE, timeouts.readMs) {
+            resultConn.inputStream.bufferedReader().readText()
+        }
         resultConn.disconnect()
         return V4Verdict.fromWire(JSONObject(text))
+    }
+
+    private fun <T> bounded(
+        connection: HttpURLConnection,
+        phase: V4NetworkException.Phase,
+        timeoutMs: Int,
+        operation: () -> T,
+    ): T {
+        val future = executor.submit(Callable { operation() })
+        try {
+            return future.get(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+        } catch (error: TimeoutException) {
+            connection.disconnect()
+            future.cancel(true)
+            throw V4NetworkException(phase, V4NetworkException.Kind.TIMEOUT, message = "v4 $phase timed out after ${timeoutMs}ms", cause = error)
+        } catch (error: java.util.concurrent.ExecutionException) {
+            val cause = error.cause ?: error
+            val kind = if (cause is SocketTimeoutException) V4NetworkException.Kind.TIMEOUT else V4NetworkException.Kind.NETWORK
+            throw V4NetworkException(phase, kind, message = "v4 $phase failed: ${cause.message}", cause = cause)
+        }
     }
 
     private fun buildMultipart(boundary: String, mp4: ByteArray, metadataJson: ByteArray): ByteArray {
@@ -110,5 +179,9 @@ internal object V4UploadClient {
         writeString("\r\n--$boundary--\r\n")
 
         return out.toByteArray()
+    }
+
+    private val executor = Executors.newCachedThreadPool { runnable ->
+        Thread(runnable, "usesense-v4-http").apply { isDaemon = true }
     }
 }
