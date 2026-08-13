@@ -88,7 +88,8 @@ class V4UploadClientTest {
     private fun uploadWithConnectionsExpectingFailure(connection: HttpURLConnection): V4NetworkException {
         try {
             V4UploadClient.upload(
-                request, ByteArray(16), emptyList(), "hash", "signature", "key", "hardware", stats,
+                request.copy(apiBaseUrl = "http://unused"),
+                ByteArray(16), emptyList(), "hash", "signature", "key", "hardware", stats,
                 V4TransportTimeouts(100, 100, 100), { connection },
             )
         } catch (error: V4NetworkException) {
