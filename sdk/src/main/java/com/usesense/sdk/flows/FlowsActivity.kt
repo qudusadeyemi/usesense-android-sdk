@@ -601,7 +601,12 @@ internal class FlowsActivity : ComponentActivity() {
         lifecycleScope.launch {
             try {
                 val response = withContext(Dispatchers.IO) { client.initSession(toolId) }
-                val endpoint = options.apiBaseUrl.trimEnd('/') + "/v1"
+                // No version segment here: every path in UseSenseApiService
+                // carries its own. Appending "/v1" produced `/v1/v1/...`,
+                // which the server rejected before reading the request body --
+                // and a megabyte signals upload turned that rejection into a
+                // silent hang on "Finalizing Enrollment".
+                val endpoint = options.apiBaseUrl.trimEnd('/')
                 // Placeholder apiKey: every downstream call from the capture
                 // engine authenticates with the session token / nonce set by
                 // injectHostedSessionData; the api key is never read.

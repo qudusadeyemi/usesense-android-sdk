@@ -29,7 +29,15 @@ data class UseSenseConfig(
     val liveSenseV4Enabled: Boolean = false,
 ) {
     companion object {
-        const val DEFAULT_BASE_URL = "https://api.usesense.ai/v1"
+        /**
+         * API root, WITHOUT a version segment. Each path in UseSenseApiService
+         * carries its own prefix (`v1/sessions/...`, and un-versioned
+         * `remote-session/...`), so a version here produced `/v1/v1/...`.
+         * A base that still ends in `/v1` is normalised by
+         * `UseSenseApiClient.normalizeBaseUrl`, so existing configuration that
+         * followed the old documentation keeps working.
+         */
+        const val DEFAULT_BASE_URL = "https://api.usesense.ai"
         const val DEFAULT_GOOGLE_CLOUD_PROJECT_NUMBER = 338813814736L
     }
 }

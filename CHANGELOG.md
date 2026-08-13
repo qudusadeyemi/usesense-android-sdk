@@ -23,6 +23,34 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Every API call went to a doubled `/v1/v1/` path, so no Android integration
+  had ever completed a production verification.** The version lived in two
+  places at once: `UseSenseConfig.DEFAULT_BASE_URL` ended in `/v1`, the Flows
+  runner appended `/v1` again, and every path in `UseSenseApiService` already
+  begins with `v1/`. A signals upload therefore addressed
+  `/v1/v1/sessions/:id/signals`, which the server rejects before it reads the
+  request body.
+
+  That rejection did not surface as an error. The upload carries megabytes, and
+  a large body against an early rejection deadlocks under HTTP/2 flow control:
+  the client waits forever for response headers, and because the request never
+  completes server-side the request logger never fires either. The subject saw
+  "Finalizing Enrollment" spin indefinitely, the integrator saw nothing, and we
+  had no server-side trace. Verified in the field on 2026-08-13 by a thread dump
+  showing the upload thread parked in `Http2Stream.takeHeaders`.
+
+  The base URL now carries no version and each path keeps its own prefix, which
+  is also required by the un-versioned `remote-enrollment/...` and
+  `remote-session/...` routes that hang off the same base. A configured base
+  that still ends in `/v1` is normalised rather than rejected, so integrators
+  who followed the previous documentation are unaffected. Only a *trailing*
+  `/v1` is stripped, so the `/functions/v1/` in a self-hosted Supabase base
+  survives. `BaseUrlResolutionTest` asserts the fully resolved URLs, not just
+  the base, since the bug was only visible once the two halves were combined.
+
+  Servers running the corresponding fix also collapse a duplicate `/v1`, so
+  already-shipped builds keep working without an SDK bump.
+
 - **`frames_manifest` reported a hardcoded 640x480** regardless of what was
   captured, which is wrong for the v4 path's 1280x720 capture. Because the server
   scales its screen-replay sharpness thresholds off these values, under-reporting

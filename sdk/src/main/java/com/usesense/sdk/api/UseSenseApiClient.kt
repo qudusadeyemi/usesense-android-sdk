@@ -33,6 +33,37 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
         const val UPLOAD_WRITE_TIMEOUT_SECONDS = 300L
 
         /**
+         * Resolve a configured base URL to the Retrofit base.
+         *
+         * Every versioned path in [UseSenseApiService] already carries its own
+         * `v1/` prefix, so the base must NOT contain one. It used to: the
+         * default was `https://api.usesense.ai/v1` and the Flows runner
+         * appended `/v1` again, so every call resolved to `/v1/v1/...` and was
+         * rejected before the request body was read. Because the signals upload
+         * carries megabytes, that rejection deadlocked rather than erroring,
+         * which is why no Android integration ever completed a production
+         * verification and why it left no trace on either side.
+         *
+         * A trailing `/v1` is stripped rather than merely removed from the
+         * default, because `baseUrl` is public configuration: integrators
+         * followed the old documentation and pass `https://api.usesense.ai/v1`
+         * explicitly. Fixing only the default would leave them broken in a way
+         * they could not diagnose. Both forms now resolve identically.
+         *
+         * Un-versioned routes (`remote-enrollment/...`, `remote-session/...`)
+         * hang off the same base, which is the other reason the version cannot
+         * live there.
+         */
+        @JvmStatic
+        internal fun normalizeBaseUrl(baseUrl: String): String {
+            val trimmed = baseUrl.trimEnd('/')
+            val withoutVersion = if (trimmed.endsWith("/v1")) trimmed.dropLast(3) else trimmed
+            // Retrofit requires a trailing slash on the base, or it discards
+            // the last path segment when resolving a relative path.
+            return withoutVersion.trimEnd('/') + "/"
+        }
+
+        /**
          * gzip a payload, or null if that would not help.
          *
          * The server detects compression from the gzip magic bytes, and
@@ -227,7 +258,7 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
         .build()
 
     private val service: UseSenseApiService = Retrofit.Builder()
-        .baseUrl(config.baseUrl.trimEnd('/') + "/")
+        .baseUrl(normalizeBaseUrl(config.baseUrl))
         .client(okHttpClient)
         .addConverterFactory(MoshiConverterFactory.create(moshi))
         .build()
