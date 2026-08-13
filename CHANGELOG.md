@@ -4,22 +4,7 @@ All notable changes to the UseSense Android SDK will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
-
-### Changed
-
-- **Frames are capped at 960px on the longest edge.** `FrameEncoder.bitmapToJpeg`
-  is the single choke point both capture paths use, so the cap lives there. The
-  legacy path already ran at 640x480 and is unaffected; this matters for the v4
-  path, which requests 1280x720. Uses a filtered rescale, since aliasing reads as
-  lost sharpness to the server's screen-replay detector.
-
-  960 matches the web and iOS SDKs and the server's sharpness calibration table.
-  Keep all four in step.
-
-- **`metadata.json` is gzipped** via `GZIPOutputStream`. The server detects
-  compression from the gzip magic bytes and still accepts plain JSON, so older
-  servers are unaffected — but deploy the server first.
+## [4.7.1] - 2026-08-13
 
 ### Fixed
 
@@ -74,6 +59,27 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
   Servers running the corresponding fix also collapse a duplicate `/v1`, so
   already-shipped builds keep working without an SDK bump.
+
+## [4.7.0] - 2026-08-13
+
+Released to Maven Central without a changelog entry at the time; recorded here.
+
+### Changed
+
+- **Frames are capped at 960px on the longest edge.** `FrameEncoder.bitmapToJpeg`
+  is the single choke point both capture paths use, so the cap lives there. The
+  legacy path already ran at 640x480 and is unaffected; this matters for the v4
+  path, which requests 1280x720. Uses a filtered rescale, since aliasing reads as
+  lost sharpness to the server's screen-replay detector.
+
+  960 matches the web and iOS SDKs and the server's sharpness calibration table.
+  Keep all four in step.
+
+- **`metadata.json` is gzipped** via `GZIPOutputStream`. The server detects
+  compression from the gzip magic bytes and still accepts plain JSON, so older
+  servers are unaffected — but deploy the server first.
+
+### Fixed
 
 - **`frames_manifest` reported a hardcoded 640x480** regardless of what was
   captured, which is wrong for the v4 path's 1280x720 capture. Because the server
