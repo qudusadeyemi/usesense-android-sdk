@@ -17,6 +17,7 @@ import android.view.View
 import android.view.animation.OvershootInterpolator
 import android.view.animation.PathInterpolator
 import android.widget.*
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.*
@@ -31,6 +32,7 @@ import com.usesense.sdk.capture.ImageQualityAnalyzer
 import com.usesense.sdk.challenge.*
 import com.usesense.sdk.internal.CapturePhase
 import com.usesense.sdk.internal.SessionState
+import com.usesense.sdk.finalization.*
 import kotlinx.coroutines.*
 import java.util.concurrent.Executors
 import com.usesense.sdk.R
@@ -99,6 +101,14 @@ class UseSenseActivity : AppCompatActivity() {
     // Failure screen views
     private lateinit var failureMessage: TextView
     private lateinit var failureRetryButton: MaterialButton
+    private lateinit var failureRestartButton: MaterialButton
+    private lateinit var failureExitButton: MaterialButton
+    private lateinit var uploadingTitle: TextView
+    private lateinit var uploadingSubtitle: TextView
+    private var retryFinalization: (() -> Unit)? = null
+    private var recoveryError: UseSenseError? = null
+    private lateinit var callbackGate: FinalizationCallbackGate<UseSenseResult, UseSenseError>
+    private lateinit var recoveryBackCallback: OnBackPressedCallback
 
     // Blocked screen views
     private lateinit var blockedRefreshButton: MaterialButton
@@ -139,6 +149,19 @@ class UseSenseActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_usesense)
         bindViews()
+        callbackGate = FinalizationCallbackGate(
+            { pendingCallback?.onSuccess(it) },
+            { pendingCallback?.onError(it) },
+            { pendingCallback?.onCancelled() },
+        )
+        recoveryBackCallback = object : OnBackPressedCallback(false) {
+            override fun handleOnBackPressed() {
+                callbackGate.cancel()
+                isEnabled = false
+                finish()
+            }
+        }
+        onBackPressedDispatcher.addCallback(this, recoveryBackCallback)
 
         val config = pendingConfig ?: run {
             deliverError(UseSenseError.invalidConfig("SDK not initialized"))
@@ -218,6 +241,10 @@ class UseSenseActivity : AppCompatActivity() {
         // Failure screen
         failureMessage = findViewById(R.id.failureMessage)
         failureRetryButton = findViewById(R.id.failureRetryButton)
+        failureRestartButton = findViewById(R.id.failureRestartButton)
+        failureExitButton = findViewById(R.id.failureExitButton)
+        uploadingTitle = findViewById(R.id.uploadingTitle)
+        uploadingSubtitle = findViewById(R.id.uploadingSubtitle)
 
         // Blocked screen
         blockedRefreshButton = findViewById(R.id.blockedRefreshButton)
@@ -234,7 +261,15 @@ class UseSenseActivity : AppCompatActivity() {
             mainScope.launch { beginVerification() }
         }
         failureRetryButton.setOnClickListener {
-            mainScope.launch { beginVerification() }
+            val retry = retryFinalization
+            clearFinalizationRecovery()
+            retry?.invoke() ?: mainScope.launch { beginVerification() }
+        }
+        failureRestartButton.setOnClickListener { restartVerification() }
+        failureExitButton.setOnClickListener {
+            recoveryError?.let(callbackGate::exit)
+            clearFinalizationRecovery()
+            finish()
         }
     }
 
@@ -754,54 +789,89 @@ class UseSenseActivity : AppCompatActivity() {
             android.util.Log.e(TAG, "Error stopping capture", e)
         }
 
-        mainScope.launch {
-            try {
-                // Upload phase
+        startFinalization()
+    }
+
+    private fun startFinalization(startAt: FinalizationPhase = FinalizationPhase.PREPARING) {
+        val operations = object : FinalizationOperations {
+            override suspend fun prepare() = Result.success(Unit)
+            override suspend fun upload(onProgress: (Long, Long) -> Unit): Result<Unit> {
                 session.setCapturePhase(CapturePhase.UPLOADING)
-                showScreen(uploadingScreen)
-                eventEmitter.emit(EventType.UPLOAD_STARTED)
-
-                val uploadResult = session.uploadSignals()
-                uploadResult.onFailure { e ->
-                    eventEmitter.emit(EventType.ERROR, mapOf("phase" to "upload", "error" to (e.message ?: "")))
-                    deliverError(
-                        (e as? com.usesense.sdk.api.ApiException)?.useSenseError
-                            ?: UseSenseError.uploadFailed()
-                    )
-                    return@launch
-                }
-                eventEmitter.emit(EventType.UPLOAD_COMPLETED)
-
-                // Complete phase
+                session.onUploadProgress = onProgress
+                return session.uploadSignals().map { Unit }
+            }
+            override suspend fun complete(): Result<UseSenseResult> {
                 session.setCapturePhase(CapturePhase.COMPLETING)
-                eventEmitter.emit(EventType.COMPLETE_STARTED)
-                val verdictResult = session.complete()
-                verdictResult.onSuccess { result ->
-                    eventEmitter.emit(EventType.DECISION_RECEIVED, mapOf(
-                        "decision" to result.decision,
-                        "session_id" to result.sessionId,
-                    ))
-                    showOutcomeScreen(result)
-                    deliverSuccess(result)
+                return session.complete()
+            }
+        }
+        mainScope.launch {
+            FinalizationCoordinator(operations).run(startAt) { update ->
+                when (update) {
+                    is FinalizationUpdate.Phase -> showFinalizationPhase(update.phase)
+                    is FinalizationUpdate.Progress -> uploadingSubtitle.post {
+                        uploadingSubtitle.text = "${update.bytesSent * 100 / update.bytesTotal.coerceAtLeast(1)}% uploaded"
+                    }
+                    is FinalizationUpdate.Result -> {
+                        retryFinalization = null
+                        showOutcomeScreen(update.result)
+                        deliverSuccess(update.result)
+                    }
+                    is FinalizationUpdate.Recovery -> {
+                        eventEmitter.emit(EventType.ERROR, mapOf("phase" to update.phase.name.lowercase(), "error" to update.error.message))
+                        showFinalizationRecovery(update)
+                    }
                 }
-                verdictResult.onFailure { e ->
-                    eventEmitter.emit(EventType.ERROR, mapOf("phase" to "complete", "error" to (e.message ?: "")))
-                    deliverError(
-                        (e as? com.usesense.sdk.api.ApiException)?.useSenseError
-                            ?: UseSenseError.networkError(e.message)
-                    )
-                }
-            } catch (e: Exception) {
-                // Section 13.2: Safety net - STILL show result, never leave user stuck
-                android.util.Log.e(TAG, "Unhandled error in upload/complete pipeline", e)
-                deliverError(UseSenseError.captureFailed(
-                    "Unexpected error: ${e.message ?: "Unknown failure"}"
-                ))
             }
         }
     }
 
+    private fun showFinalizationRecovery(recovery: FinalizationUpdate.Recovery) {
+        callbackGate.recovery()
+        recoveryError = recovery.error
+        recoveryBackCallback.isEnabled = true
+        retryFinalization = if (RecoveryAction.RETRY in recovery.actions) {
+            { startFinalization(recovery.phase) }
+        } else {
+            null
+        }
+        failureMessage.text = recovery.error.message
+        failureRetryButton.visibility = if (RecoveryAction.RETRY in recovery.actions) View.VISIBLE else View.GONE
+        failureRestartButton.visibility = if (RecoveryAction.RESTART in recovery.actions) View.VISIBLE else View.GONE
+        failureExitButton.visibility = if (RecoveryAction.EXIT in recovery.actions) View.VISIBLE else View.GONE
+        showScreen(failureScreen)
+    }
+
+    private fun restartVerification() {
+        clearFinalizationRecovery()
+        session.release()
+        session = UseSenseSession(this, pendingConfig!!, pendingRequest!!)
+        session.onStateChanged = { state -> onSessionStateChanged(state) }
+        mainScope.launch { beginVerification() }
+    }
+
+    private fun clearFinalizationRecovery() {
+        retryFinalization = null
+        recoveryError = null
+        recoveryBackCallback.isEnabled = false
+    }
+
+    private fun showFinalizationPhase(phase: FinalizationPhase) {
+        showScreen(uploadingScreen)
+        uploadingTitle.text = when (phase) {
+            FinalizationPhase.PREPARING -> "Preparing capture data"
+            FinalizationPhase.UPLOADING -> "Uploading securely"
+            FinalizationPhase.COMPLETING -> "Waiting for verification result"
+        }
+        uploadingSubtitle.text = when (phase) {
+            FinalizationPhase.PREPARING -> "Getting your capture ready"
+            FinalizationPhase.UPLOADING -> "Keep this screen open"
+            FinalizationPhase.COMPLETING -> "This should only take a moment"
+        }
+    }
+
     private fun showOutcomeScreen(result: UseSenseResult) {
+        clearFinalizationRecovery()
         when (result.decision) {
             UseSenseResult.DECISION_APPROVE -> {
                 successIcon.setImageResource(R.drawable.usesense_icon_success)
@@ -860,15 +930,18 @@ class UseSenseActivity : AppCompatActivity() {
     }
 
     private fun deliverSuccess(result: UseSenseResult) {
-        pendingCallback?.onSuccess(result)
+        callbackGate.success(result)
     }
 
     private fun deliverError(error: UseSenseError) {
-        pendingCallback?.onError(error)
+        callbackGate.exit(error)
         if (!isFinishing) {
             if (error.code == 429 || error.code == UseSenseError.QUOTA_EXCEEDED) {
                 showScreen(blockedScreen)
             } else {
+                failureRetryButton.visibility = View.VISIBLE
+                failureRestartButton.visibility = View.GONE
+                failureExitButton.visibility = View.GONE
                 failureMessage.text = error.message
                 showScreen(failureScreen)
             }
@@ -876,11 +949,14 @@ class UseSenseActivity : AppCompatActivity() {
     }
 
     private fun deliverCancelled() {
-        pendingCallback?.onCancelled()
+        callbackGate.cancel()
         finish()
     }
 
     override fun onDestroy() {
+        if (!isChangingConfigurations && ::callbackGate.isInitialized && recoveryError != null) {
+            callbackGate.cancel()
+        }
         super.onDestroy()
         mainScope.cancel()
         handler.removeCallbacksAndMessages(null)

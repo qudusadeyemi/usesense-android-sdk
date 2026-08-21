@@ -48,6 +48,9 @@ class SessionStateMachine {
         SessionState.CAPTURING to setOf(SessionState.UPLOADING, SessionState.ERROR),
         SessionState.UPLOADING to setOf(SessionState.COMPLETING, SessionState.ERROR),
         SessionState.COMPLETING to setOf(SessionState.DONE, SessionState.ERROR),
+        // A recoverable finalization keeps the same session payload and may
+        // explicitly resume the failed network phase.
+        SessionState.ERROR to setOf(SessionState.UPLOADING, SessionState.COMPLETING),
     )
 
     private val listeners = mutableListOf<(SessionState, SessionState) -> Unit>()

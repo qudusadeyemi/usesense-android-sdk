@@ -78,4 +78,26 @@ class SessionStateMachineTest {
         assertFalse(sm.transition(SessionState.CREATED))
         assertEquals(SessionState.DONE, sm.currentState)
     }
+
+    @Test
+    fun `upload failure can retry uploading`() {
+        sm.transition(SessionState.CREATED)
+        sm.transition(SessionState.CAPTURING)
+        sm.transition(SessionState.UPLOADING)
+        sm.transition(SessionState.ERROR)
+
+        assertTrue(sm.transition(SessionState.UPLOADING))
+    }
+
+    @Test
+    fun `completion failure can retry completing without uploading`() {
+        sm.transition(SessionState.CREATED)
+        sm.transition(SessionState.CAPTURING)
+        sm.transition(SessionState.UPLOADING)
+        sm.transition(SessionState.COMPLETING)
+        sm.transition(SessionState.ERROR)
+
+        assertTrue(sm.transition(SessionState.COMPLETING))
+        assertEquals(SessionState.COMPLETING, sm.currentState)
+    }
 }

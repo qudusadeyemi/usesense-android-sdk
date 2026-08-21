@@ -32,12 +32,15 @@ internal class UseSenseSession(
     private val config: UseSenseConfig,
     private val request: VerificationRequest,
 ) {
+    var onUploadProgress: ((Long, Long) -> Unit)? = null
+
     private val apiClient = UseSenseApiClient(config).apply {
         // Surface real upload progress. The signals request is the only one
         // carrying megabytes, and on a slow uplink it runs for minutes; without
         // this the host cannot tell slow from stuck. EventType.UPLOAD_PROGRESS
         // existed but nothing ever emitted it.
         onUploadProgress = { sent, total ->
+            this@UseSenseSession.onUploadProgress?.invoke(sent, total)
             if (total > 0) {
                 UseSense.eventEmitter.emit(
                     EventType.UPLOAD_PROGRESS,
