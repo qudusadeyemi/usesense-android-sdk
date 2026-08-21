@@ -28,33 +28,31 @@ import java.util.concurrent.atomic.AtomicReference
 internal object V4Bridge {
     private val callback: AtomicReference<V4VerificationCallback?> = AtomicReference(null)
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val finished: AtomicReference<Boolean> = AtomicReference(false)
+    private val terminal = AtomicReference<V4TerminalDispatcher?>(null)
 
     fun install(cb: V4VerificationCallback) {
-        finished.set(false)
         callback.set(cb)
+        terminal.set(V4TerminalDispatcher(cb) { mainHandler.post(it) })
     }
 
     fun clear() {
         callback.set(null)
-        finished.set(true)
+        terminal.set(null)
     }
 
     fun dispatchSuccess(verdict: V4Verdict) {
-        if (finished.getAndSet(true)) return
-        val cb = callback.getAndSet(null) ?: return
-        mainHandler.post { runCatching { cb.onComplete(verdict) } }
+        terminal.getAndSet(null)?.success(verdict)
+        callback.set(null)
     }
 
     fun dispatchFailure(error: Throwable) {
-        if (finished.getAndSet(true)) return
-        val cb = callback.getAndSet(null) ?: return
-        mainHandler.post { runCatching { cb.onFailure(error) } }
+        terminal.getAndSet(null)?.failure(error)
+        callback.set(null)
     }
 
     fun dispatchPhase(phase: V4Phase) {
         val cb = callback.get() ?: return
-        if (finished.get()) return
+        if (terminal.get() == null) return
         mainHandler.post { runCatching { cb.onPhaseChange(phase) } }
     }
 }

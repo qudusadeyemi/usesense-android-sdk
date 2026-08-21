@@ -15,6 +15,18 @@ data class V4VerificationRequest(
 
 enum class V4Phase { FRAMING, ZOOM, UPLOADING, COMPLETING, COMPLETED }
 
+/** A structured failure from the v4 signals/result transport. */
+class V4NetworkException(
+    val phase: Phase,
+    val kind: Kind,
+    val httpStatus: Int? = null,
+    message: String,
+    cause: Throwable? = null,
+) : java.io.IOException(message, cause) {
+    enum class Phase { SIGNALS_CONNECT, SIGNALS_UPLOAD, SIGNALS_RESPONSE, RESULT_CONNECT, RESULT_RESPONSE }
+    enum class Kind { TIMEOUT, NETWORK, HTTP }
+}
+
 interface V4VerificationCallback {
     fun onComplete(verdict: V4Verdict)
     fun onFailure(error: Throwable)

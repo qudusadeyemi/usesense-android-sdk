@@ -287,6 +287,7 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     testImplementation("io.mockk:mockk:1.13.12")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     // org.json is shipped as Android stubs in android.jar (every method
     // returns null / 0), so unit tests that exercise JSON parsing need the
     // real implementation on the test classpath. Used by FlowsClientTest.
