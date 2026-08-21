@@ -17,7 +17,7 @@ data class FinalizationPolicy(
     val preparationTimeoutMs: Long = 30_000,
     val uploadAllowanceMs: Long = 300_000,
     val noProgressTimeoutMs: Long = 30_000,
-    val completionTimeoutMs: Long = 30_000,
+    val completionTimeoutMs: Long = 60_000,
     val progressCheckMs: Long = 250,
 )
 

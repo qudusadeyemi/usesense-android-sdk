@@ -26,4 +26,18 @@ class FinalizationCallbackGateTest {
 
         assertEquals(listOf("error:network"), callbacks)
     }
+
+    @Test
+    fun `abandoning recovery emits exactly one cancellation callback`() {
+        val callbacks = mutableListOf<String>()
+        val gate = FinalizationCallbackGate<String, String>(callbacks::add, { callbacks += "error:$it" }, { callbacks += "cancel" })
+
+        gate.recovery()
+        gate.cancel()
+        gate.cancel()
+        gate.success("late-success")
+        gate.exit("late-error")
+
+        assertEquals(listOf("cancel"), callbacks)
+    }
 }

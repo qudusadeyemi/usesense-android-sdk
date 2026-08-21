@@ -17,6 +17,7 @@ import android.view.View
 import android.view.animation.OvershootInterpolator
 import android.view.animation.PathInterpolator
 import android.widget.*
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.*
@@ -107,6 +108,7 @@ class UseSenseActivity : AppCompatActivity() {
     private var retryFinalization: (() -> Unit)? = null
     private var recoveryError: UseSenseError? = null
     private lateinit var callbackGate: FinalizationCallbackGate<UseSenseResult, UseSenseError>
+    private lateinit var recoveryBackCallback: OnBackPressedCallback
 
     // Blocked screen views
     private lateinit var blockedRefreshButton: MaterialButton
@@ -152,6 +154,14 @@ class UseSenseActivity : AppCompatActivity() {
             { pendingCallback?.onError(it) },
             { pendingCallback?.onCancelled() },
         )
+        recoveryBackCallback = object : OnBackPressedCallback(false) {
+            override fun handleOnBackPressed() {
+                callbackGate.cancel()
+                isEnabled = false
+                finish()
+            }
+        }
+        onBackPressedDispatcher.addCallback(this, recoveryBackCallback)
 
         val config = pendingConfig ?: run {
             deliverError(UseSenseError.invalidConfig("SDK not initialized"))
@@ -251,11 +261,14 @@ class UseSenseActivity : AppCompatActivity() {
             mainScope.launch { beginVerification() }
         }
         failureRetryButton.setOnClickListener {
-            retryFinalization?.invoke() ?: mainScope.launch { beginVerification() }
+            val retry = retryFinalization
+            clearFinalizationRecovery()
+            retry?.invoke() ?: mainScope.launch { beginVerification() }
         }
         failureRestartButton.setOnClickListener { restartVerification() }
         failureExitButton.setOnClickListener {
             recoveryError?.let(callbackGate::exit)
+            clearFinalizationRecovery()
             finish()
         }
     }
@@ -816,6 +829,7 @@ class UseSenseActivity : AppCompatActivity() {
     private fun showFinalizationRecovery(recovery: FinalizationUpdate.Recovery) {
         callbackGate.recovery()
         recoveryError = recovery.error
+        recoveryBackCallback.isEnabled = true
         retryFinalization = if (RecoveryAction.RETRY in recovery.actions) {
             { startFinalization(recovery.phase) }
         } else {
@@ -829,12 +843,17 @@ class UseSenseActivity : AppCompatActivity() {
     }
 
     private fun restartVerification() {
-        retryFinalization = null
-        recoveryError = null
+        clearFinalizationRecovery()
         session.release()
         session = UseSenseSession(this, pendingConfig!!, pendingRequest!!)
         session.onStateChanged = { state -> onSessionStateChanged(state) }
         mainScope.launch { beginVerification() }
+    }
+
+    private fun clearFinalizationRecovery() {
+        retryFinalization = null
+        recoveryError = null
+        recoveryBackCallback.isEnabled = false
     }
 
     private fun showFinalizationPhase(phase: FinalizationPhase) {
@@ -852,6 +871,7 @@ class UseSenseActivity : AppCompatActivity() {
     }
 
     private fun showOutcomeScreen(result: UseSenseResult) {
+        clearFinalizationRecovery()
         when (result.decision) {
             UseSenseResult.DECISION_APPROVE -> {
                 successIcon.setImageResource(R.drawable.usesense_icon_success)
@@ -934,6 +954,9 @@ class UseSenseActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        if (!isChangingConfigurations && ::callbackGate.isInitialized && recoveryError != null) {
+            callbackGate.cancel()
+        }
         super.onDestroy()
         mainScope.cancel()
         handler.removeCallbacksAndMessages(null)

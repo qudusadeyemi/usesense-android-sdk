@@ -1,6 +1,6 @@
 module finalization {
   type Phase = Preparing | Uploading | Completing | Recovery | Terminal
-  type Outcome = None | Result | Retry | Restart | Exit
+  type Outcome = None | Result | Retry | Restart | Exit | Abandon
   type Error = NoError | Deadline | Failure
 
   var phase: Phase
@@ -32,12 +32,16 @@ module finalization {
   action retryComplete = all { phase == Recovery, recoveryActions == 15, phase' = Completing, outcome' = Retry, error' = NoError, elapsed' = 0, idle' = 0, recoveryActions' = 0 }
   action restart = all { phase == Recovery, phase' = Preparing, outcome' = Restart, error' = NoError, elapsed' = 0, idle' = 0, recoveryActions' = 0 }
   action exit = all { phase == Recovery, phase' = Terminal, outcome' = Exit, error' = error, elapsed' = elapsed, idle' = idle, recoveryActions' = 0 }
-  action step = any { prepared, progress, idleTick, uploaded, completed, operationError, deadline, retryUpload, retryComplete, restart, exit }
+  // Back navigation or activity destruction while recovery is visible must
+  // terminate through the host cancellation callback rather than disappear.
+  action abandon = all { phase == Recovery, phase' = Terminal, outcome' = Abandon, error' = error, elapsed' = elapsed, idle' = idle, recoveryActions' = 0 }
+  action step = any { prepared, progress, idleTick, uploaded, completed, operationError, deadline, retryUpload, retryComplete, restart, exit, abandon }
 
   val typeInv = elapsed >= 0 and idle >= 0
   val terminalHasOutcome = phase != Terminal or outcome != None
   val recoveryHasAction = phase != Recovery or recoveryActions > 0
   val deadlineExposesRecovery = error != Deadline or phase == Recovery or phase == Terminal
+  val abandonmentIsTerminal = outcome != Abandon or phase == Terminal
 
   // Liveness assumes operations eventually return, time advances while work is pending,
   // and a user eventually chooses an offered recovery action. Those fairness assumptions
