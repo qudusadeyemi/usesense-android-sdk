@@ -245,6 +245,7 @@ internal class FlowsActivity : ComponentActivity() {
             is PendingAction.CaptureFace -> launchFaceCapture(action.toolId)
             is PendingAction.CaptureDocument -> presentDocumentCapture(action)
             is PendingAction.CaptureForm -> installFormSurface(action.fields)
+            is PendingAction.CaptureLocation -> installLocationSurface(action.spec)
             is PendingAction.CaptureIdNumber -> presentIdNumber(action.idTypes)
             is PendingAction.Info -> installInfoSurface(action.info)
             is PendingAction.RedirectToConsent -> launchConsent(action.consentUrl)
@@ -257,6 +258,219 @@ internal class FlowsActivity : ComponentActivity() {
      *  invalid_input response can flip the matching error visible without
      *  rebuilding the form. */
     private data class FieldBinding(val read: () -> Any, val errorLabel: TextView)
+
+    // ── Location surface (address ladder rung 0) ─────────────────────────────
+
+    private var locationSpec: LocationCaptureSpec? = null
+    private var locationFix: LocationFix? = null
+    private var locationFixer: LocationFixer? = null
+    /** The uploaded frontage photo, if the subject provided one. */
+    private var frontageDocumentId: String? = null
+
+    /**
+     * Picks a frontage photo and uploads it WITHOUT advancing the run.
+     *
+     * Separate from pickDocument, which cancels the run when the subject backs
+     * out and advances as soon as an upload lands. Neither is right here: the
+     * photo is one input among several on the same form, and declining to take
+     * it is a normal outcome rather than a cancellation.
+     */
+    private val pickFrontagePhoto = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val uri = if (result.resultCode == Activity.RESULT_OK) result.data?.data else null
+        if (uri != null) uploadFrontagePhoto(uri)
+        // Backing out leaves the form exactly as it was. The subject continues.
+    }
+
+    /**
+     * Asks for location permission. Registered up front, as Android requires.
+     *
+     * The result is never treated as fatal: a refusal simply moves the surface
+     * into the denied state, which still submits and still advances.
+     */
+    private val requestLocationPermission = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        val granted = grants.values.any { it }
+        if (granted) startLocationAcquisition() else showLocationState(null, LocationCaptureState.DENIED)
+    }
+
+    /**
+     * Installs the descriptor form and acquires a position alongside it.
+     *
+     * The two run concurrently on purpose. Making the subject watch a spinner
+     * while the platform settles wastes the time they could spend typing, and
+     * the position is not required to continue: this surface never terminates
+     * the step in failure. A denied permission, location switched off at the
+     * system level, or a fix that never arrives all still submit the
+     * descriptors and advance, at a lower rung, because a low-confidence
+     * record that can be upgraded is worth more than an abandoned onboarding.
+     */
+    private fun installLocationSurface(spec: LocationCaptureSpec) {
+        val existing = formState
+        if (existing != null) {
+            existing.errors.clear()
+            existing.errors.putAll(fieldErrors)
+            existing.isBusy = false
+            return
+        }
+        locationSpec = spec
+        locationFix = null
+
+        val state = FormState(spec.descriptorFields, fieldErrors)
+        state.statusLine = LocationCapture.statusText(LocationCaptureState.ACQUIRING)
+        // Offered, never required. The continue button is not held by it.
+        if (spec.requireFrontagePhoto) {
+            state.secondaryAction = FormState.SecondaryAction(
+                title = "Add a photo of the building",
+                hint = "Optional. Helps us recognise the place later.",
+            ) { launchFrontagePicker() }
+        }
+        formState = state
+        frontageDocumentId = null
+        val c = mergedCopy()
+        val view = ComposeView(this).apply {
+            themedContent {
+                FormScreen(
+                    state = state,
+                    onContinue = { submitLocation() },
+                    title = text(c?.form?.title, "Where do you live?"),
+                    continueText = text(c?.buttons?.continueLabel, "Continue"),
+                )
+            }
+        }
+        formChromeView = view
+        root.addView(
+            view,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            ),
+        )
+
+        val fixer = LocationFixer(this)
+        locationFixer = fixer
+        if (fixer.hasPermission()) {
+            startLocationAcquisition()
+        } else {
+            requestLocationPermission.launch(
+                arrayOf(
+                    android.Manifest.permission.ACCESS_FINE_LOCATION,
+                    android.Manifest.permission.ACCESS_COARSE_LOCATION,
+                )
+            )
+        }
+    }
+
+    private fun startLocationAcquisition() {
+        val spec = locationSpec ?: return
+        locationFixer?.start(spec.maxWaitMs) { fix, state ->
+            locationFix = fix
+            showLocationState(fix, state)
+        }
+    }
+
+    private fun showLocationState(fix: LocationFix?, state: LocationCaptureState) {
+        formState?.statusLine = LocationCapture.statusText(state, fix?.accuracyM)
+        formState?.statusIsGood = state == LocationCaptureState.READY
+    }
+
+    /** Camera first, since the subject is photographing the dwelling. */
+    private fun launchFrontagePicker() {
+        val intent = Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE)
+        val fallback = Intent(Intent.ACTION_GET_CONTENT).apply {
+            type = "image/*"
+            addCategory(Intent.CATEGORY_OPENABLE)
+        }
+        val chooser = if (intent.resolveActivity(packageManager) != null) intent else fallback
+        runCatching { pickFrontagePhoto.launch(chooser) }
+            .onFailure { formState?.statusLine = "No camera or gallery available. You can continue without a photo." }
+    }
+
+    /**
+     * Uploads a frontage photo and records its id for the pending submit.
+     *
+     * Every failure path leaves the subject able to continue. A photo that
+     * will not upload is one piece of evidence lighter, never a failed step:
+     * failing here would throw away a completed position capture to protect a
+     * supporting artefact.
+     */
+    private fun uploadFrontagePhoto(uri: android.net.Uri) {
+        formState?.statusLine = "Adding your photo…"
+        formState?.statusIsGood = false
+        lifecycleScope.launch {
+            try {
+                val base64 = withContext(Dispatchers.IO) {
+                    contentResolver.openInputStream(uri).use { input ->
+                        requireNotNull(input) { "Failed to open photo" }
+                        Base64.encodeToString(input.readBytes(), Base64.NO_WRAP)
+                    }
+                }
+                val mime = contentResolver.getType(uri) ?: "image/jpeg"
+                val response = withContext(Dispatchers.IO) {
+                    client.uploadDocument(
+                        data = base64, mimeType = mime, side = "single",
+                        documentType = "frontage", captureMethod = "camera",
+                    )
+                }
+                if (response.status == "failed") {
+                    formState?.statusLine = "That photo did not upload. You can continue without it."
+                    formState?.statusIsGood = false
+                } else {
+                    frontageDocumentId = response.documentId
+                    formState?.statusLine = "Photo added."
+                    formState?.statusIsGood = true
+                }
+            } catch (_: Throwable) {
+                formState?.statusLine = "That photo did not upload. You can continue without it."
+                formState?.statusIsGood = false
+            }
+        }
+    }
+
+    private fun submitLocation() {
+        val state = formState ?: return
+        val spec = locationSpec ?: return
+        val clientErrors = LinkedHashMap<String, String>()
+        val descriptors = LinkedHashMap<String, Any>()
+        for (field in state.fields) {
+            val raw = state.raw(field)
+            val err = validate(field, raw)
+            if (err != null) clientErrors[field.key] = err else descriptors[field.key] = coerce(field, raw)
+        }
+        if (clientErrors.isNotEmpty()) {
+            state.errors.clear()
+            state.errors.putAll(clientErrors)
+            return
+        }
+        state.errors.clear()
+        state.isBusy = true
+
+        // Whatever the position state is at this moment is what we send. We do
+        // not wait for a pending fix: the subject has decided they are ready,
+        // and holding them for the location provider is the blocking behaviour
+        // this surface exists to avoid. A fix that arrives later simply misses
+        // this submit, and the record can be upgraded afterwards.
+        val inputs = JSONObject()
+        for ((k, v) in LocationCapture.buildInputs(locationFix, descriptors, spec.rung, frontageDocumentId)) {
+            inputs.put(k, v)
+        }
+
+        lifecycleScope.launch {
+            advance(inputs)
+            if (view?.pendingAction is PendingAction.CaptureLocation) {
+                state.isBusy = false
+            } else {
+                locationFixer?.cancel()
+                locationFixer = null
+                locationSpec = null
+                locationFix = null
+                frontageDocumentId = null
+                removeFormChrome()
+            }
+        }
+    }
 
     private fun installFormSurface(fields: List<FormField>) {
         // Re-render after a server invalid_input: refresh the existing form's

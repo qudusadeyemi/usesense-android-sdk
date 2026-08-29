@@ -218,6 +218,53 @@ data class IdTypeSpec(
     }
 }
 
+/**
+ * Everything a location capture step asks for.
+ *
+ * Every field is optional and decoding never throws: a client that meets an
+ * unknown field must ignore it and render sensible defaults, because the
+ * alternative on a frozen contract is a crash mid-verification.
+ */
+data class LocationCaptureSpec(
+    val toolId: String? = null,
+    /**
+     * Which rung to attempt. We may achieve a lower one and report it; we must
+     * never report a higher one than we performed.
+     */
+    val rung: CaptureRung? = null,
+    /**
+     * Advisory, never a gate. We take the best fix inside the wait budget and
+     * report the accuracy actually achieved. Treating it as a requirement
+     * would hang in exactly the markets this exists for, where positioning
+     * error from wireless and cell sources runs 20 to 50 m.
+     */
+    val accuracyTargetM: Double? = null,
+    val maxWaitMs: Int = 20_000,
+    val requireFrontagePhoto: Boolean = false,
+    val requireAttestation: Boolean = false,
+    /** Descriptors collected alongside the position. Same shape as a form's fields. */
+    val descriptorFields: List<FormField> = emptyList(),
+) {
+    companion object {
+        fun decode(raw: JSONObject): LocationCaptureSpec {
+            val arr = raw.optJSONArray("descriptorFields")
+            val fields = ArrayList<FormField>(arr?.length() ?: 0)
+            if (arr != null) {
+                for (i in 0 until arr.length()) fields.add(FormField.decode(arr.opt(i)))
+            }
+            return LocationCaptureSpec(
+                toolId = raw.opt("toolId") as? String,
+                rung = CaptureRung.fromWire(raw.opt("locationRung") as? String),
+                accuracyTargetM = (raw.opt("locationAccuracyTargetM") as? Number)?.toDouble(),
+                maxWaitMs = (raw.opt("locationMaxWaitMs") as? Number)?.toInt() ?: 20_000,
+                requireFrontagePhoto = raw.optBoolean("requireFrontagePhoto", false),
+                requireAttestation = raw.optBoolean("requireAttestation", false),
+                descriptorFields = fields,
+            )
+        }
+    }
+}
+
 sealed class PendingAction {
     data class CaptureFace(val toolId: String?) : PendingAction()
     data class CaptureDocument(
@@ -230,6 +277,12 @@ sealed class PendingAction {
         val captureMethods: List<String>,
     ) : PendingAction()
     data class CaptureForm(val fields: List<FormField>) : PendingAction()
+    /**
+     * Address capture. Only ever received by a build the server has recorded
+     * as location-capable; every other build is served an ordinary `form`
+     * capture instead, which is why the `else ->` below can stay a throw.
+     */
+    data class CaptureLocation(val spec: LocationCaptureSpec) : PendingAction()
     data class CaptureIdNumber(val idTypes: List<IdTypeSpec>) : PendingAction()
     data class Info(val info: InfoAction) : PendingAction()
     data class RedirectToConsent(val consentUrl: String) : PendingAction()
@@ -261,6 +314,7 @@ sealed class PendingAction {
                         }
                         CaptureForm(fields = fields)
                     }
+                    "location" -> CaptureLocation(spec = LocationCaptureSpec.decode(raw))
                     "id_number" -> {
                         val arr = raw.optJSONArray("idTypes")
                         val types = ArrayList<IdTypeSpec>(arr?.length() ?: 0)
