@@ -76,6 +76,13 @@ class FormState(val fields: List<FormField>, serverErrors: Map<String, String> =
     /** True when the status reports success rather than a recoverable problem. */
     var statusIsGood by mutableStateOf(false)
 
+    /**
+     * An optional extra action offered below the fields, used by location
+     * capture to offer a frontage photo. Never gates the continue button.
+     */
+    class SecondaryAction(val title: String, val hint: String? = null, val perform: () -> Unit)
+    var secondaryAction by mutableStateOf<SecondaryAction?>(null)
+
     /** Raw value the runner validates/coerces: Boolean for checkbox, String otherwise. */
     fun raw(field: FormField): Any =
         if (field.type == FormFieldType.CHECKBOX) booleans[field.key] ?: false else values[field.key] ?: ""
@@ -131,6 +138,22 @@ fun FormScreen(
                     }
                 }
                 Spacer(Modifier.height(18.dp))
+                state.secondaryAction?.let { secondary ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, colors.border, RoundedCornerShape(12.dp))
+                            .clickable { secondary.perform() }
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                    ) {
+                        Text(secondary.title, style = USType.body.copy(fontSize = 15.sp), color = brand)
+                        secondary.hint?.let {
+                            Spacer(Modifier.height(4.dp))
+                            Text(it, style = USType.body.copy(fontSize = 12.sp), color = colors.mutedForeground)
+                        }
+                    }
+                    Spacer(Modifier.height(18.dp))
+                }
                 state.fields.forEachIndexed { i, field ->
                     if (i > 0) Spacer(Modifier.height(18.dp))
                     when (field.type) {

@@ -264,6 +264,24 @@ internal class FlowsActivity : ComponentActivity() {
     private var locationSpec: LocationCaptureSpec? = null
     private var locationFix: LocationFix? = null
     private var locationFixer: LocationFixer? = null
+    /** The uploaded frontage photo, if the subject provided one. */
+    private var frontageDocumentId: String? = null
+
+    /**
+     * Picks a frontage photo and uploads it WITHOUT advancing the run.
+     *
+     * Separate from pickDocument, which cancels the run when the subject backs
+     * out and advances as soon as an upload lands. Neither is right here: the
+     * photo is one input among several on the same form, and declining to take
+     * it is a normal outcome rather than a cancellation.
+     */
+    private val pickFrontagePhoto = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val uri = if (result.resultCode == Activity.RESULT_OK) result.data?.data else null
+        if (uri != null) uploadFrontagePhoto(uri)
+        // Backing out leaves the form exactly as it was. The subject continues.
+    }
 
     /**
      * Asks for location permission. Registered up front, as Android requires.
@@ -302,7 +320,15 @@ internal class FlowsActivity : ComponentActivity() {
 
         val state = FormState(spec.descriptorFields, fieldErrors)
         state.statusLine = LocationCapture.statusText(LocationCaptureState.ACQUIRING)
+        // Offered, never required. The continue button is not held by it.
+        if (spec.requireFrontagePhoto) {
+            state.secondaryAction = FormState.SecondaryAction(
+                title = "Add a photo of the building",
+                hint = "Optional. Helps us recognise the place later.",
+            ) { launchFrontagePicker() }
+        }
         formState = state
+        frontageDocumentId = null
         val c = mergedCopy()
         val view = ComposeView(this).apply {
             themedContent {
@@ -350,6 +376,59 @@ internal class FlowsActivity : ComponentActivity() {
         formState?.statusIsGood = state == LocationCaptureState.READY
     }
 
+    /** Camera first, since the subject is photographing the dwelling. */
+    private fun launchFrontagePicker() {
+        val intent = Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE)
+        val fallback = Intent(Intent.ACTION_GET_CONTENT).apply {
+            type = "image/*"
+            addCategory(Intent.CATEGORY_OPENABLE)
+        }
+        val chooser = if (intent.resolveActivity(packageManager) != null) intent else fallback
+        runCatching { pickFrontagePhoto.launch(chooser) }
+            .onFailure { formState?.statusLine = "No camera or gallery available. You can continue without a photo." }
+    }
+
+    /**
+     * Uploads a frontage photo and records its id for the pending submit.
+     *
+     * Every failure path leaves the subject able to continue. A photo that
+     * will not upload is one piece of evidence lighter, never a failed step:
+     * failing here would throw away a completed position capture to protect a
+     * supporting artefact.
+     */
+    private fun uploadFrontagePhoto(uri: android.net.Uri) {
+        formState?.statusLine = "Adding your photo…"
+        formState?.statusIsGood = false
+        lifecycleScope.launch {
+            try {
+                val base64 = withContext(Dispatchers.IO) {
+                    contentResolver.openInputStream(uri).use { input ->
+                        requireNotNull(input) { "Failed to open photo" }
+                        Base64.encodeToString(input.readBytes(), Base64.NO_WRAP)
+                    }
+                }
+                val mime = contentResolver.getType(uri) ?: "image/jpeg"
+                val response = withContext(Dispatchers.IO) {
+                    client.uploadDocument(
+                        data = base64, mimeType = mime, side = "single",
+                        documentType = "frontage", captureMethod = "camera",
+                    )
+                }
+                if (response.status == "failed") {
+                    formState?.statusLine = "That photo did not upload. You can continue without it."
+                    formState?.statusIsGood = false
+                } else {
+                    frontageDocumentId = response.documentId
+                    formState?.statusLine = "Photo added."
+                    formState?.statusIsGood = true
+                }
+            } catch (_: Throwable) {
+                formState?.statusLine = "That photo did not upload. You can continue without it."
+                formState?.statusIsGood = false
+            }
+        }
+    }
+
     private fun submitLocation() {
         val state = formState ?: return
         val spec = locationSpec ?: return
@@ -374,7 +453,7 @@ internal class FlowsActivity : ComponentActivity() {
         // this surface exists to avoid. A fix that arrives later simply misses
         // this submit, and the record can be upgraded afterwards.
         val inputs = JSONObject()
-        for ((k, v) in LocationCapture.buildInputs(locationFix, descriptors, spec.rung)) {
+        for ((k, v) in LocationCapture.buildInputs(locationFix, descriptors, spec.rung, frontageDocumentId)) {
             inputs.put(k, v)
         }
 
@@ -387,6 +466,7 @@ internal class FlowsActivity : ComponentActivity() {
                 locationFixer = null
                 locationSpec = null
                 locationFix = null
+                frontageDocumentId = null
                 removeFormChrome()
             }
         }

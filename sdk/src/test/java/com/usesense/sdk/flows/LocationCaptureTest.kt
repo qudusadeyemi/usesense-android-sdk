@@ -191,4 +191,30 @@ class LocationCaptureTest {
         // it does not know.
         PendingAction.decode(JSONObject("""{"kind":"capture","capture":"retina_scan"}"""))
     }
+
+    // ── Frontage photo ───────────────────────────────────────────────────────
+
+    @Test
+    fun `a frontage photo travels with the position`() {
+        val out = LocationCapture.buildInputs(lagos, descriptors, CaptureRung.AT_THE_DOOR, "doc_1")
+        assertEquals("doc_1", out["frontage_document_id"])
+        assertEquals(6.4281, out["latitude"])
+    }
+
+    @Test
+    fun `no frontage photo means the key is absent, not empty`() {
+        val out = LocationCapture.buildInputs(lagos, descriptors, CaptureRung.AT_THE_DOOR, null)
+        assertNull(out["frontage_document_id"])
+        assertNull(LocationCapture.buildInputs(lagos, descriptors, CaptureRung.AT_THE_DOOR, "")["frontage_document_id"])
+    }
+
+    @Test
+    fun `the photo does not change the rung either way`() {
+        // Supporting evidence about the dwelling, not about how the position
+        // was established. A subject who could not take it completes at the
+        // same rung, one piece of evidence lighter.
+        val withPhoto = LocationCapture.buildInputs(lagos, emptyMap(), CaptureRung.AT_THE_DOOR, "doc_1")
+        val without = LocationCapture.buildInputs(lagos, emptyMap(), CaptureRung.AT_THE_DOOR, null)
+        assertEquals(without["rung"], withPhoto["rung"])
+    }
 }
