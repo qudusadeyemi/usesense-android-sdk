@@ -68,6 +68,13 @@ class FormState(val fields: List<FormField>, serverErrors: Map<String, String> =
     val booleans = mutableStateMapOf<String, Boolean>()
     val errors = mutableStateMapOf<String, String>().apply { putAll(serverErrors) }
     var isBusy by mutableStateOf(false)
+    /**
+     * Optional status line rendered above the fields. Used by location capture
+     * to report position acquisition without blocking the form.
+     */
+    var statusLine by mutableStateOf<String?>(null)
+    /** True when the status reports success rather than a recoverable problem. */
+    var statusIsGood by mutableStateOf(false)
 
     /** Raw value the runner validates/coerces: Boolean for checkbox, String otherwise. */
     fun raw(field: FormField): Any =
@@ -105,6 +112,24 @@ fun FormScreen(
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
                 Spacer(Modifier.height(4.dp))
                 Text(title, style = USType.h2.copy(fontSize = 24.sp), color = colors.foreground)
+                state.statusLine?.let { status ->
+                    Spacer(Modifier.height(14.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, colors.border, RoundedCornerShape(12.dp))
+                            .background(colors.card, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                    ) {
+                        Text(
+                            if (state.statusIsGood) "\u2713" else "\u2022",
+                            color = if (state.statusIsGood) brand else colors.mutedForeground,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(status, style = USType.body.copy(fontSize = 13.5.sp), color = colors.mutedForeground)
+                    }
+                }
                 Spacer(Modifier.height(18.dp))
                 state.fields.forEachIndexed { i, field ->
                     if (i > 0) Spacer(Modifier.height(18.dp))

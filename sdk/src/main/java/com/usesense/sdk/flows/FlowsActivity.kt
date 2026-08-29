@@ -245,6 +245,7 @@ internal class FlowsActivity : ComponentActivity() {
             is PendingAction.CaptureFace -> launchFaceCapture(action.toolId)
             is PendingAction.CaptureDocument -> presentDocumentCapture(action)
             is PendingAction.CaptureForm -> installFormSurface(action.fields)
+            is PendingAction.CaptureLocation -> installLocationSurface(action.spec)
             is PendingAction.CaptureIdNumber -> presentIdNumber(action.idTypes)
             is PendingAction.Info -> installInfoSurface(action.info)
             is PendingAction.RedirectToConsent -> launchConsent(action.consentUrl)
@@ -257,6 +258,139 @@ internal class FlowsActivity : ComponentActivity() {
      *  invalid_input response can flip the matching error visible without
      *  rebuilding the form. */
     private data class FieldBinding(val read: () -> Any, val errorLabel: TextView)
+
+    // ── Location surface (address ladder rung 0) ─────────────────────────────
+
+    private var locationSpec: LocationCaptureSpec? = null
+    private var locationFix: LocationFix? = null
+    private var locationFixer: LocationFixer? = null
+
+    /**
+     * Asks for location permission. Registered up front, as Android requires.
+     *
+     * The result is never treated as fatal: a refusal simply moves the surface
+     * into the denied state, which still submits and still advances.
+     */
+    private val requestLocationPermission = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        val granted = grants.values.any { it }
+        if (granted) startLocationAcquisition() else showLocationState(null, LocationCaptureState.DENIED)
+    }
+
+    /**
+     * Installs the descriptor form and acquires a position alongside it.
+     *
+     * The two run concurrently on purpose. Making the subject watch a spinner
+     * while the platform settles wastes the time they could spend typing, and
+     * the position is not required to continue: this surface never terminates
+     * the step in failure. A denied permission, location switched off at the
+     * system level, or a fix that never arrives all still submit the
+     * descriptors and advance, at a lower rung, because a low-confidence
+     * record that can be upgraded is worth more than an abandoned onboarding.
+     */
+    private fun installLocationSurface(spec: LocationCaptureSpec) {
+        val existing = formState
+        if (existing != null) {
+            existing.errors.clear()
+            existing.errors.putAll(fieldErrors)
+            existing.isBusy = false
+            return
+        }
+        locationSpec = spec
+        locationFix = null
+
+        val state = FormState(spec.descriptorFields, fieldErrors)
+        state.statusLine = LocationCapture.statusText(LocationCaptureState.ACQUIRING)
+        formState = state
+        val c = mergedCopy()
+        val view = ComposeView(this).apply {
+            themedContent {
+                FormScreen(
+                    state = state,
+                    onContinue = { submitLocation() },
+                    title = text(c?.form?.title, "Where do you live?"),
+                    continueText = text(c?.buttons?.continueLabel, "Continue"),
+                )
+            }
+        }
+        formChromeView = view
+        root.addView(
+            view,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            ),
+        )
+
+        val fixer = LocationFixer(this)
+        locationFixer = fixer
+        if (fixer.hasPermission()) {
+            startLocationAcquisition()
+        } else {
+            requestLocationPermission.launch(
+                arrayOf(
+                    android.Manifest.permission.ACCESS_FINE_LOCATION,
+                    android.Manifest.permission.ACCESS_COARSE_LOCATION,
+                )
+            )
+        }
+    }
+
+    private fun startLocationAcquisition() {
+        val spec = locationSpec ?: return
+        locationFixer?.start(spec.maxWaitMs) { fix, state ->
+            locationFix = fix
+            showLocationState(fix, state)
+        }
+    }
+
+    private fun showLocationState(fix: LocationFix?, state: LocationCaptureState) {
+        formState?.statusLine = LocationCapture.statusText(state, fix?.accuracyM)
+        formState?.statusIsGood = state == LocationCaptureState.READY
+    }
+
+    private fun submitLocation() {
+        val state = formState ?: return
+        val spec = locationSpec ?: return
+        val clientErrors = LinkedHashMap<String, String>()
+        val descriptors = LinkedHashMap<String, Any>()
+        for (field in state.fields) {
+            val raw = state.raw(field)
+            val err = validate(field, raw)
+            if (err != null) clientErrors[field.key] = err else descriptors[field.key] = coerce(field, raw)
+        }
+        if (clientErrors.isNotEmpty()) {
+            state.errors.clear()
+            state.errors.putAll(clientErrors)
+            return
+        }
+        state.errors.clear()
+        state.isBusy = true
+
+        // Whatever the position state is at this moment is what we send. We do
+        // not wait for a pending fix: the subject has decided they are ready,
+        // and holding them for the location provider is the blocking behaviour
+        // this surface exists to avoid. A fix that arrives later simply misses
+        // this submit, and the record can be upgraded afterwards.
+        val inputs = JSONObject()
+        for ((k, v) in LocationCapture.buildInputs(locationFix, descriptors, spec.rung)) {
+            inputs.put(k, v)
+        }
+
+        lifecycleScope.launch {
+            advance(inputs)
+            if (view?.pendingAction is PendingAction.CaptureLocation) {
+                state.isBusy = false
+            } else {
+                locationFixer?.cancel()
+                locationFixer = null
+                locationSpec = null
+                locationFix = null
+                removeFormChrome()
+            }
+        }
+    }
 
     private fun installFormSurface(fields: List<FormField>) {
         // Re-render after a server invalid_input: refresh the existing form's
