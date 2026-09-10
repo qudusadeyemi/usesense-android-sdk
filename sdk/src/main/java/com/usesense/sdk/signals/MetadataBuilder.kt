@@ -40,6 +40,9 @@ class MetadataBuilder {
         deepClassifierOnDevice: JSONObject? = null,
         framePhases: List<String>? = null,
         zoomMotion: JSONObject? = null,
+        verificationPackageSkipReason: String? = null,
+        faceMeshInitResult: String? = null,
+        faceMeshInitError: String? = null,
     ): ByteArray {
         val metadata = JSONObject()
 
@@ -118,6 +121,15 @@ class MetadataBuilder {
         verificationPackage?.let {
             metadata.put("verification_package", it)
         }
+
+        // Why verification_package is absent, and how the landmarker fared. The
+        // server stores these on session.mesh_integrity (skip_reason,
+        // face_mesh_init_result, face_mesh_init_error), as it does for web.
+        if (verificationPackage == null) {
+            verificationPackageSkipReason?.let { metadata.put("verification_package_skip_reason", it) }
+        }
+        faceMeshInitResult?.let { metadata.put("face_mesh_init_result", it) }
+        faceMeshInitError?.let { metadata.put("face_mesh_init_error", it) }
 
         // Suspicion data (always included, even if not triggered)
         if (suspicion != null) {
