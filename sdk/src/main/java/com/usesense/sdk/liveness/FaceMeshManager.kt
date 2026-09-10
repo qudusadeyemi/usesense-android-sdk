@@ -21,7 +21,12 @@ internal class FaceMeshManager(private val context: Context) {
 
     private var faceLandmarker: FaceLandmarker? = null
     private val _frameMeshData = mutableListOf<FrameMeshData>()
-    val frameMeshData: List<FrameMeshData> get() = _frameMeshData.toList()
+    val frameMeshData: List<FrameMeshData> get() = synchronized(_frameMeshData) { _frameMeshData.toList() }
+
+    /** "<ExceptionClass>: <message>" from the last failed initialize(), for metadata.face_mesh_init_error. */
+    @Volatile
+    var lastInitError: String? = null
+        private set
 
     /**
      * Initialize the FaceLandmarker using the bundled face_landmarker.task asset.
@@ -35,6 +40,7 @@ internal class FaceMeshManager(private val context: Context) {
      * degraded liveness scoring.
      */
     suspend fun initialize(): Boolean = withContext(Dispatchers.IO) {
+        if (faceLandmarker != null) return@withContext true
         try {
             val baseOptions = BaseOptions.builder()
                 .setModelAssetPath(MediaPipeModelInfo.ASSET_FILENAME)
@@ -49,8 +55,10 @@ internal class FaceMeshManager(private val context: Context) {
                 .build()
 
             faceLandmarker = FaceLandmarker.createFromOptions(context, options)
+            lastInitError = null
             true
         } catch (e: Exception) {
+            lastInitError = "${e.javaClass.simpleName}: ${e.message.orEmpty().take(160)}"
             false
         }
     }

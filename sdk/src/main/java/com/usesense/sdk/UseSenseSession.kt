@@ -8,6 +8,7 @@ import com.usesense.sdk.api.ApiException
 import com.usesense.sdk.api.UseSenseApiClient
 import com.usesense.sdk.api.models.*
 import com.usesense.sdk.capture.AudioCaptureManager
+import com.usesense.sdk.capture.CapturedFrame
 import com.usesense.sdk.capture.FrameBuffer
 import com.usesense.sdk.capture.FrameCaptureManager
 import com.usesense.sdk.challenge.*
@@ -22,10 +23,13 @@ import com.usesense.sdk.signals.FrameManifestEntry
 import com.usesense.sdk.signals.MetadataBuilder
 import com.usesense.sdk.signals.ScreenDetectionAnalyzer
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.*
+import java.util.concurrent.atomic.AtomicInteger
 
 internal class UseSenseSession(
     private val context: Context,
@@ -76,11 +80,40 @@ internal class UseSenseSession(
          * arrive.
          */
         const val INTEGRITY_JOIN_TIMEOUT_MS = 3_000L
+
+        /**
+         * Ceiling on waiting for queued face mesh work in uploadSignals(). Bounded
+         * for the same reason as the integrity join: a MediaPipe call that never
+         * settles must not strand the upload. Frames fitted by then are used.
+         */
+        const val MESH_DRAIN_TIMEOUT_MS = 5_000L
     }
 
     // v4.1: Liveness & PAD components
     internal val faceMeshManager = FaceMeshManager(context)
     internal val threeDMMFitter = OnDevice3DMMFitter()
+
+    // Face mesh pipeline. Each captured frame is run through MediaPipe off the
+    // capture thread and fitted, so buildVerificationPackage has per-frame fits
+    // whose frameIndex pairs with an uploaded JPEG's hash. Until this was wired
+    // the landmarker was never initialised or fed, so every Android upload
+    // omitted verification_package and the server scored mesh_absent.
+    private val meshScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val meshMutex = Mutex()
+    private val fitterLock = Any()
+    private var meshInitJob: Job? = null
+    private val meshJobs = Collections.synchronizedList(mutableListOf<Job>())
+
+    @Volatile private var meshInitResult = FaceMeshInitResult.NOT_ATTEMPTED
+
+    @Volatile private var meshClosed = false
+    private val meshFramesProcessed = AtomicInteger(0)
+    private val meshFramesDetected = AtomicInteger(0)
+    private val meshRequested: Boolean
+        get() = VerificationPackageSkipReason.meshRequested(
+            sessionResponse?.geometricCoherence?.dualPathEnabled,
+            sessionResponse?.geometricCoherence?.onDevice3dmmRequired,
+        )
     internal val suspicionEngine = SuspicionEngine()
     internal val screenDetectionAnalyzer = ScreenDetectionAnalyzer()
     internal var stepUpEvidence: JSONObject? = null
@@ -194,7 +227,54 @@ internal class UseSenseSession(
             audioCaptureManager = AudioCaptureManager(context, context.cacheDir)
         }
 
+        // Load the landmarker now so it is ready by the time frames arrive.
+        startFaceMesh()
+
         return frameCaptureManager!!
+    }
+
+    private fun startFaceMesh() {
+        if (!meshRequested || meshInitJob != null) return
+        meshInitResult = FaceMeshInitResult.PENDING
+        meshInitJob = meshScope.launch {
+            meshInitResult = if (faceMeshManager.initialize()) {
+                FaceMeshInitResult.SUCCESS
+            } else {
+                FaceMeshInitResult.FAILED
+            }
+        }
+    }
+
+    private fun enqueueFaceMesh(frame: CapturedFrame) {
+        if (meshClosed) return
+        meshJobs.add(
+            meshScope.launch {
+                meshInitJob?.join()
+                if (meshInitResult != FaceMeshInitResult.SUCCESS || meshClosed) return@launch
+                // One frame at a time: the landmarker is not safe to call concurrently.
+                meshMutex.withLock {
+                    if (meshClosed) return@withLock
+                    val options = BitmapFactory.Options().apply {
+                        // Landmarks are normalised, so a half-size decode of a
+                        // 1280x720 v4 frame loses no accuracy and halves the work.
+                        inSampleSize = if (frame.width >= 1280) 2 else 1
+                    }
+                    val bitmap = BitmapFactory.decodeByteArray(frame.jpegData, 0, frame.jpegData.size, options)
+                        ?: return@withLock
+                    try {
+                        meshFramesProcessed.incrementAndGet()
+                        val mesh = faceMeshManager.processFrame(bitmap, frame.index, frame.timestampMs)
+                            ?: return@withLock
+                        meshFramesDetected.incrementAndGet()
+                        synchronized(fitterLock) {
+                            if (!meshClosed) threeDMMFitter.fitFrame(mesh)
+                        }
+                    } finally {
+                        bitmap.recycle()
+                    }
+                }
+            },
+        )
     }
 
     fun createChallengePresenter(): ChallengePresenter? {
@@ -218,9 +298,11 @@ internal class UseSenseSession(
             com.usesense.sdk.capture.CapturePhase.BASELINE
         )
 
-        // Wire frame events to challenge presenter
+        // Wire frame events to the challenge presenter and the face mesh pipeline
+        startFaceMesh()
         frameCaptureManager?.onFrameCaptured = { frame ->
             challengePresenter?.onFrameCaptured(frame.index, frame.timestampMs)
+            if (meshRequested) enqueueFaceMesh(frame)
         }
     }
 
@@ -274,6 +356,14 @@ internal class UseSenseSession(
         // alone can strand the subject.
         withTimeoutOrNull(INTEGRITY_JOIN_TIMEOUT_MS) { integrityJob?.join() }
 
+        // Let queued face mesh work finish (bounded), then stop fitting so the
+        // package is built from a stable set of frames.
+        withTimeoutOrNull(MESH_DRAIN_TIMEOUT_MS) {
+            meshInitJob?.join()
+            synchronized(meshJobs) { meshJobs.toList() }.joinAll()
+        }
+        meshClosed = true
+
         val sid = sessionId ?: return Result.failure(
             ApiException(UseSenseError.invalidConfig("No session ID"))
         )
@@ -314,8 +404,8 @@ internal class UseSenseSession(
         // Extract play integrity token from already-collected signals (avoid double collection)
         val playIntegrityToken = channelIntegrity.optString("play_integrity_token", null)
 
-        // v4.1: Build verification package (if GC dual-path enabled)
-        val verificationPackage = buildVerificationPackage(buffer, playIntegrityToken)
+        // v4.1: Build verification package (when the server asks for mesh), or say why not
+        val (verificationPackage, verificationPackageSkipReason) = buildVerificationPackage(buffer, playIntegrityToken)
 
         // v4.1: Suspicion engine snapshot
         val suspicionSnapshot = suspicionEngine.getSnapshot()
@@ -350,6 +440,9 @@ internal class UseSenseSession(
             deepClassifierOnDevice = deepClassifierOnDevice,
             framePhases = if (config.liveSenseV4Enabled) buffer.framePhases else null,
             zoomMotion = if (config.liveSenseV4Enabled) buildZoomMotionStats(buffer.framePhases) else null,
+            verificationPackageSkipReason = verificationPackageSkipReason,
+            faceMeshInitResult = if (meshRequested) meshInitResult.value else null,
+            faceMeshInitError = faceMeshManager.lastInitError,
         )
 
         return uploader.upload(
@@ -480,24 +573,37 @@ internal class UseSenseSession(
         }
     }
 
-    private fun buildVerificationPackage(buffer: FrameBuffer, playIntegrityToken: String?): JSONObject? {
-        val gcConfig = geometricCoherenceConfig ?: return null
-        if (!gcConfig.dualPathEnabled) return null
-        if (threeDMMFitter.results.isEmpty()) return null
+    /** Returns the package, or null plus the verification_package_skip_reason. */
+    private fun buildVerificationPackage(
+        buffer: FrameBuffer,
+        playIntegrityToken: String?,
+    ): Pair<JSONObject?, String?> {
+        val gcConfig = geometricCoherenceConfig
+        synchronized(fitterLock) {
+            val skipReason = VerificationPackageSkipReason.resolve(
+                hasGeometricCoherenceConfig = gcConfig != null,
+                meshRequested = meshRequested,
+                initResult = meshInitResult,
+                framesProcessed = meshFramesProcessed.get(),
+                meshFrames = meshFramesDetected.get(),
+                fittedFrames = threeDMMFitter.results.size,
+            )
+            if (skipReason != null || gcConfig == null) return null to skipReason
 
-        val frameHashMap = mutableMapOf<Int, String>()
-        for (frame in buffer.getFrames()) {
-            frameHashMap[frame.index] = frame.hash
+            val frameHashMap = mutableMapOf<Int, String>()
+            for (frame in buffer.getFrames()) {
+                frameHashMap[frame.index] = frame.hash
+            }
+
+            val builder = VerificationPackageBuilder()
+            return builder.build(
+                fitter = threeDMMFitter,
+                frameHashes = frameHashMap,
+                meshBindingChallenge = gcConfig.meshBindingChallenge,
+                meshDataList = faceMeshManager.frameMeshData,
+                playIntegrityToken = playIntegrityToken,
+            ) to null
         }
-
-        val builder = VerificationPackageBuilder()
-        return builder.build(
-            fitter = threeDMMFitter,
-            frameHashes = frameHashMap,
-            meshBindingChallenge = gcConfig.meshBindingChallenge,
-            meshDataList = faceMeshManager.frameMeshData,
-            playIntegrityToken = playIntegrityToken,
-        )
     }
 
     suspend fun complete(): Result<UseSenseResult> {
@@ -542,8 +648,13 @@ internal class UseSenseSession(
         frameCaptureManager?.release()
         audioCaptureManager?.release()
         signalCollector.release()
-        faceMeshManager.release()
-        threeDMMFitter.reset()
+        meshClosed = true
+        meshScope.cancel()
+        // Close the landmarker only once an in-flight detect has returned.
+        CoroutineScope(Dispatchers.Default).launch {
+            meshMutex.withLock { faceMeshManager.release() }
+        }
+        synchronized(fitterLock) { threeDMMFitter.reset() }
         suspicionEngine.reset()
         screenDetectionAnalyzer.reset()
         apiClient.clearSession()
