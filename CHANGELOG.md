@@ -4,6 +4,40 @@ All notable changes to the UseSense Android SDK will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [4.8.0] - 2026-09-10
+
+### Fixed
+
+- **Android never ran its face mesh pipeline, so no Android session ever
+  uploaded a `verification_package`.** `FaceMeshManager.initialize()`,
+  `processFrame()` and `OnDevice3DMMFitter.fitFrame()` were declared but never
+  called, so the fitter was always empty and the package builder silently
+  returned null. Every Android session from every integration scored
+  `mesh_absent` on the server, while iOS (which feeds its frames) passed. The
+  capture session now starts the MediaPipe landmarker when the server requests
+  mesh (`geometric_coherence.dual_path_enabled`), runs each captured frame
+  through it off the capture thread one frame at a time, and fits it, with frame
+  indices matching the uploaded JPEG hashes. The upload waits at most 5s for
+  queued mesh work. A package with fewer than 3 fitted frames is withheld rather
+  than sent to fail validation.
+
+### Added
+
+- **`verification_package_skip_reason`** in the upload metadata whenever the
+  package is omitted (`no_gc_config`, `mesh_not_requested`,
+  `landmarker_not_started`, `landmarker_init_pending`,
+  `landmarker_init_failed`, `no_frames_processed`, `no_face_detected`,
+  `insufficient_mesh_frames`), plus `face_mesh_init_result` and, on failure,
+  `face_mesh_init_error`. The server stores these on `session.mesh_integrity`,
+  so a missing package is explained instead of silent.
+
+### Server compatibility
+
+- The UseSense backend applies mesh integrity to Android sessions only from this
+  version (`ANDROID_MESH_CAPABLE_FROM = 4.8.0`). Older Android SDKs are scored
+  with mesh excluded rather than penalised. From 4.8.0 the organisation's mesh
+  integrity policy (absence penalty, failure action) applies as configured.
+
 ## [4.7.1] - 2026-08-13
 
 ### Fixed
