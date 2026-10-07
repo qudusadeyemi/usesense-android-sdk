@@ -34,6 +34,7 @@ import com.usesense.sdk.UseSenseConfig
 import com.usesense.sdk.UseSenseError
 import com.usesense.sdk.UseSenseResult
 import com.usesense.sdk.flows.FlowError.Code
+import com.usesense.sdk.signals.DeviceSignalCollector
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.ComposeView
@@ -48,6 +49,7 @@ import com.usesense.sdk.ui.compose.screens.FormScreen
 import com.usesense.sdk.ui.compose.screens.FormState
 import com.usesense.sdk.ui.compose.screens.IdNumberScreen
 import com.usesense.sdk.ui.compose.screens.IdTypeOption
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -89,6 +91,9 @@ internal class FlowsActivity : ComponentActivity() {
     /** Has the info action's external URL been opened? Drives the primary CTA
      *  copy and the next tap's behaviour (advance vs. open). */
     private var infoOpenUrlPresented = false
+
+    /** Nonce of the Device Trust step already posted, so it is sent once. */
+    private var submittedDeviceNonce: String? = null
 
     private val pickDocument = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -243,6 +248,7 @@ internal class FlowsActivity : ComponentActivity() {
         }
         when (action) {
             is PendingAction.CaptureFace -> launchFaceCapture(action.toolId)
+            is PendingAction.CaptureDevice -> runDeviceCheck(action)
             is PendingAction.CaptureDocument -> presentDocumentCapture(action)
             is PendingAction.CaptureForm -> installFormSurface(action.fields)
             is PendingAction.CaptureIdNumber -> presentIdNumber(action.idTypes)
@@ -563,6 +569,64 @@ internal class FlowsActivity : ComponentActivity() {
      * Cancellation closes the capture and cancels the run (cancel webhook
      * fires server-side so the customer's backend sees a definite end).
      */
+    /**
+     * Device Trust with no camera: nothing to show the subject but a short
+     * "checking" state. Collect the device's signals and post them with the
+     * step's nonce. A stale nonce or an already-settled step re-reads the run.
+     * Keyed on the nonce so a re-render never posts the same step twice.
+     */
+    private fun runDeviceCheck(action: PendingAction.CaptureDevice) {
+        showSpinner("Checking your device")
+        val nonce = action.nonce
+        if (nonce == null) {
+            // The server always attaches a nonce for a client that declared
+            // device_signals_v1; without one there is nothing valid to post.
+            reportError(FlowError(Code.UNKNOWN, "Device Trust step is missing its nonce"))
+            return
+        }
+        if (submittedDeviceNonce == nonce) return
+        submittedDeviceNonce = nonce
+        lifecycleScope.launch {
+            try {
+                val next =
+                    withContext(Dispatchers.IO) {
+                        client.submitDeviceSignals(nonce, collectDeviceSignals(nonce))
+                    }
+                view = next
+                render()
+            } catch (e: FlowError) {
+                if (DeviceTrustSignals.needsReload(e.serverCode)) load() else reportError(e)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                reportError(FlowError(Code.UNKNOWN, e.message ?: "Device check failed"))
+            }
+        }
+    }
+
+    /**
+     * The same channel_integrity a face upload carries, minus the capture-only
+     * fields. The Play Integrity request is bounded by
+     * PlayIntegrityManager.TOKEN_TIMEOUT_MS and best-effort: no token just means
+     * the server scores without attestation, never a stuck step.
+     */
+    private suspend fun collectDeviceSignals(nonce: String): JSONObject {
+        val collector = DeviceSignalCollector(applicationContext, UseSenseConfig.DEFAULT_GOOGLE_CLOUD_PROJECT_NUMBER)
+        try {
+            try {
+                collector.requestPlayIntegrityToken(nonce)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Best-effort, as on the face path.
+            }
+            val telemetry = runCatching { collector.collectDeviceTelemetry() }.getOrNull()
+            return DeviceTrustSignals.build(collector.collectSignals(), telemetry)
+        } finally {
+            collector.release()
+        }
+    }
+
     private fun launchFaceCapture(toolId: String?) {
         // Hosted parity: show the face primer first ("Take a selfie" + the do's),
         // then mint the capture session on the CTA and hand off to the existing

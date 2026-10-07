@@ -178,5 +178,85 @@ class FlowsClientTest {
         assertEquals(FlowError.Code.UNKNOWN, FlowsClient.translate(418, null, "m").code)
         assertTrue("code is preserved on the wire", FlowsClient.translate(401, "x", "m").serverCode == "x")
     }
+
+    @Test
+    fun `get and advance declare device_signals_v1`() {
+        val seen = mutableListOf<Request>()
+        val http = mockClient(200, runView(), captured = { seen.add(it) })
+        val client = FlowsClient("fr_1", "t", "https://api.usesense.ai", http)
+
+        client.get()
+        client.advance(JSONObject())
+
+        assertEquals("device_signals_v1", seen[0].url.queryParameter("caps"))
+        assertEquals("/v1/sdk/flow-runs/fr_1", seen[0].url.encodedPath)
+        val sink = okio.Buffer().also { seen[1].body!!.writeTo(it) }
+        val client1 = JSONObject(sink.readUtf8()).getJSONObject("client")
+        assertEquals("android", client1.getString("sdk"))
+        assertEquals("device_signals_v1", client1.getJSONArray("capabilities").getString(0))
+    }
+
+    @Test
+    fun `submitDeviceSignals posts the nonce and channel_integrity`() {
+        var seen: Request? = null
+        val http = mockClient(200, runView(), captured = { seen = it })
+        val client = FlowsClient("fr_1", "t", "https://api.usesense.ai", http)
+
+        client.submitDeviceSignals("dn_1", JSONObject().put("is_emulator", false))
+
+        val req = seen!!
+        assertEquals("POST", req.method)
+        assertEquals("/v1/sdk/flow-runs/fr_1/device-signals", req.url.encodedPath)
+        val sink = okio.Buffer().also { req.body!!.writeTo(it) }
+        val parsed = JSONObject(sink.readUtf8())
+        assertEquals("dn_1", parsed.getString("nonce"))
+        assertFalse(parsed.getJSONObject("channel_integrity").getBoolean("is_emulator"))
+        assertEquals("device_signals_v1", parsed.getJSONObject("client").getJSONArray("capabilities").getString(0))
+    }
+
+    @Test
+    fun `a stale nonce keeps its server code so the runner re-reads`() {
+        val body = JSONObject().put("error", "Nonce does not match").put("code", "nonce_mismatch")
+        val client = FlowsClient("fr_1", "t", "https://api.usesense.ai", mockClient(400, body))
+        try {
+            client.submitDeviceSignals("dn_old", JSONObject()); throw AssertionError("expected throw")
+        } catch (e: FlowError) {
+            assertEquals("nonce_mismatch", e.serverCode)
+            assertTrue(DeviceTrustSignals.needsReload(e.serverCode))
+        }
+        assertTrue(DeviceTrustSignals.needsReload("device_step_not_pending"))
+        assertFalse(DeviceTrustSignals.needsReload("invalid_input"))
+    }
+
+    @Test
+    fun `a device capture action decodes with its nonce`() {
+        val action = PendingAction.decode(
+            JSONObject().put("kind", "capture").put("capture", "device")
+                .put("toolId", "device_trust_check").put("nonce", "dn_9"),
+        )
+        assertEquals(PendingAction.CaptureDevice(toolId = "device_trust_check", nonce = "dn_9"), action)
+        assertEquals(
+            PendingAction.CaptureDevice(toolId = null, nonce = null),
+            PendingAction.decode(JSONObject().put("kind", "capture").put("capture", "device")),
+        )
+    }
+
+    @Test
+    fun `device signals drop capture-only keys and carry telemetry`() {
+        val collected = JSONObject()
+            .put("platform", "android").put("is_rooted", false)
+            .put("camera_facing", "front").put("camera_resolution", "640x480")
+            .put("camera_permission_granted", false).put("microphone_permission_granted", false)
+            .put("accelerometer_data", org.json.JSONArray()).put("gyroscope_data", org.json.JSONArray())
+            .put("device_memory", 8.0)
+        val telemetry = JSONObject().put("cpu_abi", "arm64-v8a").put("device_memory", 1.0)
+
+        val out = DeviceTrustSignals.build(collected, telemetry)
+
+        for (k in DeviceTrustSignals.CAPTURE_ONLY_KEYS) assertFalse("$k must be dropped", out.has(k))
+        assertEquals("android", out.getString("platform"))
+        assertEquals("arm64-v8a", out.getString("cpu_abi"))
+        assertEquals(8.0, out.getDouble("device_memory"), 0.0)
+    }
 }
 
