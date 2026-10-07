@@ -1,5 +1,8 @@
 package com.usesense.sdk
 
+import com.usesense.sdk.finalization.StepUpCapability
+import com.usesense.sdk.finalization.StepUpInstruction
+import com.usesense.sdk.finalization.StepUpParser
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.graphics.Rect
@@ -117,6 +120,10 @@ internal class UseSenseSession(
     internal val suspicionEngine = SuspicionEngine()
     internal val screenDetectionAnalyzer = ScreenDetectionAnalyzer()
     internal var stepUpEvidence: JSONObject? = null
+
+    /** The step-up round 1's upload asked for, until the host takes it. */
+    @Volatile private var pendingStepUp: StepUpInstruction? = null
+    private var stepUpRoundStartTime: Date? = null
 
     val state: SessionState get() = stateMachine.currentState
     val sessionId: String? get() = sessionResponse?.sessionId
@@ -279,13 +286,70 @@ internal class UseSenseSession(
 
     fun createChallengePresenter(): ChallengePresenter? {
         val spec = challengeSpec ?: return null
-        challengePresenter = when (spec.type) {
+        challengePresenter = presenterFor(spec)
+        return challengePresenter
+    }
+
+    private fun presenterFor(spec: ChallengeSpec): ChallengePresenter? =
+        when (spec.type) {
             ChallengeSpec.TYPE_FOLLOW_DOT -> FollowDotChallenge(spec)
             ChallengeSpec.TYPE_HEAD_TURN -> HeadTurnChallenge(spec)
             ChallengeSpec.TYPE_SPEAK_PHRASE -> SpeakPhraseChallenge(spec)
             else -> null
         }
+
+    /** The step-up round 1's upload asked for, if any. Consumed once. */
+    fun takeStepUp(): StepUpInstruction? {
+        val instruction = pendingStepUp
+        pendingStepUp = null
+        return instruction
+    }
+
+    /**
+     * Start a server step-up round on the still-bound camera: a fresh frame
+     * buffer capped at the round's budget, and a presenter for the requested
+     * challenge. The frame callback set in [startCapture] already routes to
+     * whichever presenter is current.
+     */
+    fun beginStepUpRound(instruction: StepUpInstruction): ChallengePresenter? {
+        challengePresenter = presenterFor(instruction.challenge)
+        stepUpRoundStartTime = Date()
+        frameCaptureManager?.startStepUpCapture(instruction.maxFrames)
+        frameCaptureManager?.getFrameBuffer()?.setCapturePhase(com.usesense.sdk.capture.CapturePhase.CHALLENGE)
         return challengePresenter
+    }
+
+    /** Upload the step-up round (`?round=2`): its frames and challenge response only. */
+    suspend fun uploadStepUpRound(): Result<UploadSignalsResponse> {
+        frameCaptureManager?.stopCapture()
+        val sid = sessionId ?: return Result.failure(ApiException(UseSenseError.invalidConfig("No session ID")))
+        val buffer = frameCaptureManager?.getFrameBuffer()
+            ?: return Result.failure(ApiException(UseSenseError.captureFailed("No frames captured")))
+        val startMs = stepUpRoundStartTime?.time ?: 0L
+        val metadata = JSONObject().apply {
+            put("session_id", sid)
+            put("sdk_version", DeviceSignalCollector.SDK_VERSION)
+            put("platform", "android")
+            put("source", "sdk")
+            put("capture_channel", "android")
+            put("step_up_round", 2)
+            put("client_capabilities", org.json.JSONArray(StepUpCapability.ALL))
+            challengePresenter?.responseBuilder?.build()?.let { put("challenge_response", it) }
+            put("frame_hashes", org.json.JSONArray(buffer.frameHashes))
+            put("frames_manifest", org.json.JSONArray(buffer.getFrames().map { f ->
+                JSONObject()
+                    .put("frame_index", f.index)
+                    .put("capture_timestamp_ms", startMs + f.timestampMs)
+                    .put("resolution_w", f.width)
+                    .put("resolution_h", f.height)
+            }))
+        }
+        return uploader.upload(
+            sessionId = sid,
+            frames = buffer.getJpegDataList(),
+            metadataJson = metadata.toString().toByteArray(Charsets.UTF_8),
+            round = 2,
+        )
     }
 
     fun startCapture() {
@@ -450,7 +514,7 @@ internal class UseSenseSession(
             frames = buffer.getJpegDataList(),
             metadataJson = metadataJson,
             audioData = audioData,
-        )
+        ).onSuccess { response -> pendingStepUp = StepUpParser.parse(response.stepUp) }
     }
 
     /**

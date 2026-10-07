@@ -294,6 +294,7 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
         metadataJson: ByteArray,
         audioData: ByteArray? = null,
         idempotencyKey: String = UUID.randomUUID().toString(),
+        round: Int? = null,
     ): Result<UploadSignalsResponse> {
         val frameParts = frames.mapIndexed { index, bytes ->
             MultipartBody.Part.createFormData(
@@ -330,7 +331,7 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
             )
         }
 
-        return executeCall { service.uploadSignals(sessionId, frameParts, metadataPart, audioPart) }
+        return executeCall { service.uploadSignals(sessionId, frameParts, metadataPart, audioPart, round) }
     }
 
     suspend fun completeSession(sessionId: String): Result<VerdictResponse> {

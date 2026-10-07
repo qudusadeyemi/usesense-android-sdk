@@ -4,6 +4,24 @@ All notable changes to the UseSense Android SDK will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Server step-up (round 2).** When a server Step-up rule matches the uploaded
+  capture, the `/signals` response now carries a `step_up` instruction.
+  `FinalizationCoordinator` emits `FinalizationUpdate.StepUpRequired` after
+  the upload instead of completing; `UseSenseActivity` and
+  `HostedPageActivity` show "One more quick check", run the requested Head
+  Turn or Follow Dot on the still-bound camera with a fresh frame buffer
+  (capped at the server's `max_frames`), upload it with `?round=2`, and resume
+  at COMPLETING. An instruction this SDK can't render is ignored and the
+  session completes as before (the server then sends it to review). The field
+  is decoded as a loose map, so a shape change can never fail the upload.
+- The SDK declares `capabilities: ["step_up_v1"]` on create, exchange and
+  Flow `init-session`, and `client_capabilities` in the upload metadata (the
+  only place a backend-created or remote session can declare it).
+
 ## [4.8.0] - 2026-09-10
 
 ### Fixed

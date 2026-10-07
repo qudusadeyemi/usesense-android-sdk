@@ -11,6 +11,8 @@ import com.squareup.moshi.JsonClass
 @JsonClass(generateAdapter = true)
 data class ExchangeTokenRequest(
     @Json(name = "client_token") val clientToken: String,
+    /** What this SDK can do, e.g. run a server step-up round. */
+    @Json(name = "capabilities") val capabilities: List<String> = com.usesense.sdk.finalization.StepUpCapability.ALL,
 )
 
 /**

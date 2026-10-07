@@ -25,6 +25,12 @@ sealed interface FinalizationUpdate {
     data class Phase(val phase: FinalizationPhase) : FinalizationUpdate
     data class Progress(val bytesSent: Long, val bytesTotal: Long) : FinalizationUpdate
     data class Result(val result: UseSenseResult) : FinalizationUpdate
+    /**
+     * Round 1 uploaded and a server Step-up rule asked for one more challenge.
+     * The coordinator stops here; the host runs the challenge, has the session
+     * upload round 2, then resumes the coordinator at COMPLETING.
+     */
+    data class StepUpRequired(val instruction: StepUpInstruction) : FinalizationUpdate
     data class Recovery(
         val phase: FinalizationPhase,
         val error: UseSenseError,
@@ -36,6 +42,9 @@ interface FinalizationOperations {
     suspend fun prepare(): Result<Unit>
     suspend fun upload(onProgress: (Long, Long) -> Unit): Result<Unit>
     suspend fun complete(): Result<UseSenseResult>
+
+    /** The step-up round 1's upload asked for, if any. Consumed once. */
+    fun takeStepUp(): StepUpInstruction? = null
 }
 
 /** Owns the standard capture finalization pipeline. Payload ownership stays in the session. */
@@ -63,6 +72,10 @@ class FinalizationCoordinator(
             onUpdate(FinalizationUpdate.Phase(FinalizationPhase.UPLOADING))
             val uploadFailure = monitorUpload(onUpdate)
             if (uploadFailure != null) return recover(FinalizationPhase.UPLOADING, uploadFailure, onUpdate)
+            operations.takeStepUp()?.let {
+                onUpdate(FinalizationUpdate.StepUpRequired(it))
+                return
+            }
         }
 
         val completed = bounded(FinalizationPhase.COMPLETING, policy.completionTimeoutMs, onUpdate) {

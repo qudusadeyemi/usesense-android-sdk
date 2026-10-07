@@ -166,6 +166,9 @@ class HostedPageActivity : AppCompatActivity() {
 
     enum class FlowType { ENROLLMENT, VERIFICATION }
 
+    /** True while a server step-up round (round 2) is being captured. */
+    private var stepUpRoundActive = false
+
     enum class PageStep {
         LOADING, ERROR, INTRODUCTION, ACTION_REVIEW,
         PERMISSION, CAPTURE, FINALIZING, RESULT
@@ -1010,6 +1013,11 @@ class HostedPageActivity : AppCompatActivity() {
 
     private fun onCaptureComplete() {
         val sess = session ?: return
+        if (stepUpRoundActive) {
+            stepUpRoundActive = false
+            finishStepUpRound(sess)
+            return
+        }
         try {
             sess.setCapturePhase(CapturePhase.DONE)
             sess.stopCapture()
@@ -1022,7 +1030,7 @@ class HostedPageActivity : AppCompatActivity() {
         startFinalization(sess)
     }
 
-    private fun startFinalization(sess: UseSenseSession) {
+    private fun startFinalization(sess: UseSenseSession, startAt: FinalizationPhase = FinalizationPhase.PREPARING) {
         val operations = object : FinalizationOperations {
             override suspend fun prepare() = Result.success(Unit)
             override suspend fun upload(onProgress: (Long, Long) -> Unit): Result<Unit> {
@@ -1034,6 +1042,7 @@ class HostedPageActivity : AppCompatActivity() {
                 sess.setCapturePhase(CapturePhase.COMPLETING)
                 return sess.complete()
             }
+            override fun takeStepUp(): StepUpInstruction? = sess.takeStepUp()
         }
         mainScope.launch {
             try {
@@ -1043,7 +1052,7 @@ class HostedPageActivity : AppCompatActivity() {
                     getString(R.string.usesense_processing_verification)
                 }
                 setStep(PageStep.FINALIZING)
-                FinalizationCoordinator(operations).run { update ->
+                FinalizationCoordinator(operations).run(startAt) { update ->
                     when (update) {
                         is FinalizationUpdate.Phase -> uploadOverlaySubtitle.text = when (update.phase) {
                             FinalizationPhase.PREPARING -> "Preparing capture data"
@@ -1053,6 +1062,7 @@ class HostedPageActivity : AppCompatActivity() {
                         is FinalizationUpdate.Progress -> uploadOverlaySubtitle.text =
                             "${update.bytesSent * 100 / update.bytesTotal.coerceAtLeast(1)}% uploaded"
                         is FinalizationUpdate.Result -> finishHostedFinalization(update.result)
+                        is FinalizationUpdate.StepUpRequired -> runStepUpRound(sess, update.instruction)
                         is FinalizationUpdate.Recovery -> showTechnicalRecovery(sess, update)
                     }
                 }
@@ -1067,6 +1077,44 @@ class HostedPageActivity : AppCompatActivity() {
                     ),
                 )
             }
+        }
+    }
+
+    /**
+     * Round 1 uploaded and a server Step-up rule asked for one more challenge.
+     * The camera is still bound behind the upload overlay: drop the overlay,
+     * show "one more quick check", then run the requested challenge.
+     */
+    private fun runStepUpRound(sess: UseSenseSession, instruction: StepUpInstruction) {
+        stepUpRoundActive = true
+        setStep(PageStep.CAPTURE)
+        challengeOverlay.visibility = View.VISIBLE
+        captureTitle.text = "One more quick check"
+        captureSubtitle.text = "Get ready..."
+        handler.postDelayed({
+            challengePresenter = sess.beginStepUpRound(instruction)
+            startChallengePhase()
+        }, STEP_UP_BRIEF_MS)
+    }
+
+    /** Upload round 2, then resume finalization at COMPLETING. */
+    private fun finishStepUpRound(sess: UseSenseSession) {
+        mainScope.launch {
+            setStep(PageStep.FINALIZING)
+            uploadOverlaySubtitle.text = "Uploading securely"
+            sess.uploadStepUpRound().fold(
+                onSuccess = { startFinalization(sess, FinalizationPhase.COMPLETING) },
+                onFailure = { e ->
+                    val error = (e as? com.usesense.sdk.api.ApiException)?.useSenseError
+                        ?: UseSenseError.networkError(e.message)
+                    // Retry restarts finalization from round 1, which the server
+                    // answers with the same step-up, so the round runs again.
+                    showTechnicalRecovery(
+                        sess,
+                        FinalizationUpdate.Recovery(FinalizationPhase.UPLOADING, error, setOf(RecoveryAction.RESTART, RecoveryAction.EXIT)),
+                    )
+                },
+            )
         }
     }
 
@@ -1258,6 +1306,8 @@ class HostedPageActivity : AppCompatActivity() {
         private const val EXTRA_REMOTE_ID = "remote_id"
         private const val EXTRA_DIRECT_MODE = "direct_mode"
         private const val BASELINE_MS = 2000L
+        /** How long "One more quick check" shows before a server step-up challenge starts. */
+        private const val STEP_UP_BRIEF_MS = 1500L
         private const val COUNTDOWN_MS = 3000L
 
         internal var pendingConfig: UseSenseConfig? = null

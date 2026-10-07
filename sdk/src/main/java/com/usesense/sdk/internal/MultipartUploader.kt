@@ -11,6 +11,7 @@ internal class MultipartUploader(private val apiClient: UseSenseApiClient) {
         frames: List<ByteArray>,
         metadataJson: ByteArray,
         audioData: ByteArray? = null,
+        round: Int? = null,
     ): Result<UploadSignalsResponse> {
         val idempotencyKey = UUID.randomUUID().toString()
         return apiClient.uploadSignals(
@@ -19,6 +20,7 @@ internal class MultipartUploader(private val apiClient: UseSenseApiClient) {
             metadataJson = metadataJson,
             audioData = audioData,
             idempotencyKey = idempotencyKey,
+            round = round,
         )
     }
 }
