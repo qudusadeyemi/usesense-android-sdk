@@ -106,6 +106,8 @@ class UseSenseActivity : AppCompatActivity() {
     private lateinit var uploadingTitle: TextView
     private lateinit var uploadingSubtitle: TextView
     private var retryFinalization: (() -> Unit)? = null
+    /** True while a server step-up round (round 2) is being captured. */
+    private var stepUpRoundActive = false
     private var recoveryError: UseSenseError? = null
     private lateinit var callbackGate: FinalizationCallbackGate<UseSenseResult, UseSenseError>
     private lateinit var recoveryBackCallback: OnBackPressedCallback
@@ -780,6 +782,11 @@ class UseSenseActivity : AppCompatActivity() {
      * Even if complete fails, we STILL show a result screen (never leave user stuck).
      */
     private fun onCaptureComplete() {
+        if (stepUpRoundActive) {
+            stepUpRoundActive = false
+            finishStepUpRound()
+            return
+        }
         try {
             session.setCapturePhase(CapturePhase.DONE)
             session.stopCapture()
@@ -804,10 +811,12 @@ class UseSenseActivity : AppCompatActivity() {
                 session.setCapturePhase(CapturePhase.COMPLETING)
                 return session.complete()
             }
+            override fun takeStepUp(): StepUpInstruction? = session.takeStepUp()
         }
         mainScope.launch {
             FinalizationCoordinator(operations).run(startAt) { update ->
                 when (update) {
+                    is FinalizationUpdate.StepUpRequired -> runStepUpRound(update.instruction)
                     is FinalizationUpdate.Phase -> showFinalizationPhase(update.phase)
                     is FinalizationUpdate.Progress -> uploadingSubtitle.post {
                         uploadingSubtitle.text = "${update.bytesSent * 100 / update.bytesTotal.coerceAtLeast(1)}% uploaded"
@@ -823,6 +832,48 @@ class UseSenseActivity : AppCompatActivity() {
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Round 1 uploaded and a server Step-up rule asked for one more challenge.
+     * CameraX is still bound, so the capture screen comes straight back: a
+     * short "one more quick check", then the requested challenge on a fresh
+     * frame buffer. When it completes, [onCaptureComplete] hands off to
+     * [finishStepUpRound].
+     */
+    private fun runStepUpRound(instruction: StepUpInstruction) {
+        clearFinalizationRecovery()
+        stepUpRoundActive = true
+        showScreen(captureScreen)
+        challengeOverlay.visibility = View.VISIBLE
+        captureTitle.text = "One more quick check"
+        captureSubtitle.text = "Get ready..."
+        handler.postDelayed({
+            challengePresenter = session.beginStepUpRound(instruction)
+            startChallengePhase()
+        }, STEP_UP_BRIEF_MS)
+    }
+
+    /** Upload round 2, then resume finalization at COMPLETING. */
+    private fun finishStepUpRound() {
+        mainScope.launch {
+            showFinalizationPhase(FinalizationPhase.UPLOADING)
+            session.uploadStepUpRound().fold(
+                onSuccess = { startFinalization(FinalizationPhase.COMPLETING) },
+                onFailure = { e ->
+                    val error = (e as? com.usesense.sdk.api.ApiException)?.useSenseError
+                        ?: UseSenseError.networkError(e.message)
+                    showFinalizationRecovery(
+                        FinalizationUpdate.Recovery(
+                            FinalizationPhase.UPLOADING,
+                            error,
+                            setOf(RecoveryAction.RETRY, RecoveryAction.RESTART, RecoveryAction.EXIT),
+                        ),
+                    )
+                    retryFinalization = { finishStepUpRound() }
+                },
+            )
         }
     }
 
@@ -970,6 +1021,8 @@ class UseSenseActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "UseSenseCaptureEngine"
         private const val BASELINE_MS = 2000L
+        /** How long "One more quick check" shows before a server step-up challenge starts. */
+        private const val STEP_UP_BRIEF_MS = 1500L
         private const val COUNTDOWN_MS = 3000L
 
         internal var pendingCallback: UseSenseCallback? = null

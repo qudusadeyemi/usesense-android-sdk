@@ -51,6 +51,10 @@ class MetadataBuilder {
         metadata.put("sdk_version", DeviceSignalCollector.SDK_VERSION)
         metadata.put("platform", "android")
         metadata.put("source", source)
+        // Declared here as well as at session start: when the integrator's
+        // backend created the session, the upload is the only place the device
+        // can say it can run a server step-up round.
+        metadata.put("client_capabilities", org.json.JSONArray(com.usesense.sdk.finalization.StepUpCapability.ALL))
 
         // Capture config
         val captureConfigJson = JSONObject().apply {

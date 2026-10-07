@@ -108,7 +108,11 @@ class FlowsClient(
      * synthetic 15-minute expiry to satisfy the Moshi-generated adapter.
      */
     fun initSession(toolId: String?): CreateSessionResponse {
-        val body = JSONObject().apply { toolId?.let { put("toolId", it) } }
+        val body = JSONObject().apply {
+            toolId?.let { put("toolId", it) }
+            // What this SDK can do, e.g. run a server step-up round.
+            put("capabilities", org.json.JSONArray(com.usesense.sdk.finalization.StepUpCapability.ALL))
+        }
         val responseJson = send(request("POST", "/init-session", body))
         if (!responseJson.has("expires_at") || responseJson.isNull("expires_at")) {
             val fmt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {

@@ -35,6 +35,12 @@ class FrameCaptureManager(
         isCapturing.set(false)
     }
 
+    /** Start a server step-up round: a fresh buffer capped at [maxFrames]. */
+    fun startStepUpCapture(maxFrames: Int) {
+        frameBuffer.roundLimit = maxFrames
+        startCapture()
+    }
+
     fun getFrameBuffer(): FrameBuffer = frameBuffer
 
     fun createAnalyzer(): ImageAnalysis.Analyzer {

@@ -35,6 +35,8 @@ class FrameBuffer(private val maxFrames: Int) {
     private var captureStartMs: Long = 0L
     private var nextIndex = 0
     @Volatile private var currentPhase: CapturePhase = CapturePhase.OTHER
+    /** Lower frame cap for a server step-up round; null uses [maxFrames]. */
+    @Volatile var roundLimit: Int? = null
 
     val frameCount: Int get() = frames.size
     val timestamps: List<Long> get() = frames.map { it.timestampMs }
@@ -54,7 +56,7 @@ class FrameBuffer(private val maxFrames: Int) {
     }
 
     fun addFrame(jpegData: ByteArray, luminance: Double = 0.0): CapturedFrame? {
-        if (frames.size >= maxFrames) return null
+        if (frames.size >= (roundLimit?.coerceAtMost(maxFrames) ?: maxFrames)) return null
 
         val timestampMs = SystemClock.elapsedRealtime() - captureStartMs
         val hash = computeSha256(jpegData)

@@ -27,6 +27,8 @@ internal interface UseSenseApiService {
         @Part frames: List<MultipartBody.Part>,
         @Part metadata: MultipartBody.Part,
         @Part audio: MultipartBody.Part? = null,
+        /** 2 for a server step-up round; null (omitted) for round 1. */
+        @retrofit2.http.Query("round") round: Int? = null,
     ): Response<UploadSignalsResponse>
 
     @POST("v1/sessions/{sessionId}/complete")
