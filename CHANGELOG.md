@@ -6,6 +6,8 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [4.9.0] - 2026-10-08
+
 ### Added
 
 - **Camera-free Device Trust.** The Flows runner declares `device_signals_v1`
