@@ -90,12 +90,37 @@ class FlowsClient(
         }
     }
 
-    fun get(): FlowRunView = FlowRunView.decode(send(request("GET", "")))
+    // GET and advance declare device_signals_v1 so a Device Trust step is
+    // served as a device capture rather than settled from the network alone.
+    fun get(): FlowRunView = FlowRunView.decode(send(request("GET", "?caps=${DeviceTrustSignals.CAPABILITY}")))
 
     fun advance(inputs: JSONObject): FlowRunView {
-        val body = JSONObject().put("inputs", inputs)
+        val body = JSONObject().put("inputs", inputs).put("client", clientInfo())
         return FlowRunView.decode(send(request("POST", "/advance", body)))
     }
+
+    /**
+     * Settle a parked Device Trust step with the device's signals (no camera).
+     * The nonce is the parked action's; the server rejects a stale one with
+     * `nonce_mismatch` and a settled step with `device_step_not_pending`.
+     */
+    fun submitDeviceSignals(
+        nonce: String,
+        channelIntegrity: JSONObject,
+    ): FlowRunView {
+        val body =
+            JSONObject()
+                .put("nonce", nonce)
+                .put("channel_integrity", channelIntegrity)
+                .put("client", clientInfo())
+        return FlowRunView.decode(send(request("POST", "/device-signals", body)))
+    }
+
+    private fun clientInfo(): JSONObject =
+        JSONObject()
+            .put("sdk", "android")
+            .put("version", DeviceSignalCollector.SDK_VERSION)
+            .put("capabilities", org.json.JSONArray(DeviceTrustSignals.RUNNER_CAPABILITIES))
 
     fun cancel(): FlowRunView = FlowRunView.decode(send(request("POST", "/cancel")))
 

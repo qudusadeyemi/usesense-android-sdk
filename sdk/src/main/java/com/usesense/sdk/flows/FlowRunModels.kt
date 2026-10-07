@@ -231,6 +231,9 @@ sealed class PendingAction {
     ) : PendingAction()
     data class CaptureForm(val fields: List<FormField>) : PendingAction()
     data class CaptureIdNumber(val idTypes: List<IdTypeSpec>) : PendingAction()
+
+    /** Device Trust with no camera: post the device's signals with [nonce]. */
+    data class CaptureDevice(val toolId: String?, val nonce: String?) : PendingAction()
     data class Info(val info: InfoAction) : PendingAction()
     data class RedirectToConsent(val consentUrl: String) : PendingAction()
 
@@ -245,6 +248,10 @@ sealed class PendingAction {
             return when (kind) {
                 "capture" -> when (val capture = raw.optString("capture", "")) {
                     "face" -> CaptureFace(toolId = raw.opt("toolId") as? String)
+                    "device" -> CaptureDevice(
+                        toolId = raw.opt("toolId") as? String,
+                        nonce = raw.optStringOrNull("nonce"),
+                    )
                     "document" -> CaptureDocument(
                         category = raw.optString("documentCategory", "identity"),
                         documentTypes = raw.optJSONArray("documentTypes").toStringList(),

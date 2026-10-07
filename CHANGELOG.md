@@ -8,6 +8,15 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Camera-free Device Trust.** The Flows runner declares `device_signals_v1`
+  (`?caps=` on load, `client.capabilities` on advance). A Device Trust step
+  then arrives as a `device` capture (`PendingAction.CaptureDevice`): the
+  runner shows "Checking your device", collects the same device signals a face
+  upload carries minus the camera, microphone and sensor fields, requests a
+  Play Integrity token (bounded at 5s, best-effort) and posts them with the
+  step's nonce to `/v1/sdk/flow-runs/:id/device-signals`. A stale nonce or an
+  already-settled step re-reads the run. Older SDKs keep working: the server
+  settles the step from the network alone for them.
 - **Server step-up (round 2).** When a server Step-up rule matches the uploaded
   capture, the `/signals` response now carries a `step_up` instruction.
   `FinalizationCoordinator` emits `FinalizationUpdate.StepUpRequired` after
