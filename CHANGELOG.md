@@ -8,6 +8,19 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The capture screens take the org's brand colour.** Only the header, intro
+  icon and two buttons used the brand. These used `@color/usesense_primary`
+  and stayed DeepSense Blue inside a branded Flow:
+  - the loading and "Finishing up" spinners
+  - the camera-permission icon and button
+  - the face-guide "Ready" button
+  - the challenge instructions icon and "Got it" button
+  - the challenge progress bar
+  - the head-turn direction circle
+
+  They now take the brand colour, and text on brand-filled buttons uses the
+  appearance's `primaryForeground`. Unbranded sessions keep the built-in
+  palette. The dark backdrops over the camera stay dark.
 - **A Device Trust step without a nonce is re-read once before failing.** The
   server mints the nonce for a client that declares `device_signals_v1`, so a
   device step that arrives without one is re-read to pick it up. Only if it is
