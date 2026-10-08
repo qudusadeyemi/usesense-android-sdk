@@ -8,6 +8,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
@@ -26,6 +27,7 @@ import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.ColorUtils
 import com.google.android.material.button.MaterialButton
 import com.usesense.sdk.R
 import com.usesense.sdk.*
@@ -134,6 +136,8 @@ class HostedPageActivity : AppCompatActivity() {
     private lateinit var phraseText: TextView
     private lateinit var recordingIndicator: TextView
     private lateinit var challengeProgress: ProgressBar
+    private lateinit var loadingSpinner: ProgressBar
+    private lateinit var finalizingSpinner: ProgressBar
 
     // Upload/completing overlay (Section 5.8/5.9 — dark overlay on camera)
     private lateinit var uploadOverlay: FrameLayout
@@ -286,6 +290,8 @@ class HostedPageActivity : AppCompatActivity() {
         phraseText = findViewById(R.id.hostedPhraseText)
         recordingIndicator = findViewById(R.id.hostedRecordingIndicator)
         challengeProgress = findViewById(R.id.hostedChallengeProgress)
+        loadingSpinner = findViewById(R.id.hostedLoadingSpinner)
+        finalizingSpinner = findViewById(R.id.finalizingSpinner)
 
         // Upload overlay (Section 5.8/5.9)
         uploadOverlay = findViewById(R.id.hostedUploadOverlay)
@@ -358,6 +364,69 @@ class HostedPageActivity : AppCompatActivity() {
             introGetStartedButton.setBackgroundColor(primaryColor)
             actionReviewVerifyButton.setBackgroundColor(primaryColor)
         } catch (_: Exception) {}
+
+        applyBrandToCaptureScreens()
+    }
+
+    /** The brand colour, or null when it is unparseable. */
+    private fun brandColor(): Int? = runCatching { Color.parseColor(effectiveBranding.primaryColor) }.getOrNull()
+
+    /** True when the org or integrator set a colour (not the built-in DeepSense Blue). */
+    private val isBranded: Boolean
+        get() = !effectiveBranding.primaryColor.equals(BrandingConfig.DEFAULT_PRIMARY_COLOR, ignoreCase = true)
+
+    /** Text on a brand-filled surface: the appearance's primaryForeground, else white. */
+    private fun brandForeground(): Int =
+        pendingConfig?.branding?.appearance?.colors?.primaryForeground
+            ?.let { runCatching { Color.parseColor(it) }.getOrNull() }
+            ?: Color.WHITE
+
+    /**
+     * Theme the loading, permission, instructions, challenge and finalizing
+     * screens from the brand colour. These read `@color/usesense_primary` from
+     * XML, so inside a branded Flow they stayed DeepSense Blue while the
+     * header and intro took the org colour. Unbranded sessions keep the XML
+     * palette untouched.
+     */
+    private fun applyBrandToCaptureScreens() {
+        if (!isBranded) return
+        val primary = brandColor() ?: return
+        val tint = ColorStateList.valueOf(primary)
+        val density = resources.displayMetrics.density
+
+        loadingSpinner.indeterminateTintList = tint
+        finalizingSpinner.indeterminateTintList = tint
+        challengeProgress.progressTintList = tint
+        permissionIcon.imageTintList = tint
+        permissionButton.backgroundTintList = tint
+        permissionButton.setTextColor(brandForeground())
+        faceGuideReadyButton.backgroundTintList = tint
+        faceGuideReadyButton.setTextColor(brandForeground())
+
+        instructionsIcon.background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(Color.argb(31, Color.red(primary), Color.green(primary), Color.blue(primary)))
+        }
+        instructionsCta.background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 10 * density
+            setColor(primary)
+        }
+        instructionsCta.setTextColor(brandForeground())
+    }
+
+    /** Head-turn direction circle: the brand colour into a darker shade, else the built-in blue to purple. */
+    private fun directionCircleColors(isCenter: Boolean): IntArray {
+        val primary = brandColor()
+        if (!isBranded || primary == null) {
+            return if (isCenter) {
+                intArrayOf(Color.parseColor("#4F7CFF"), Color.parseColor("#7C5CFC"))
+            } else {
+                intArrayOf(Color.parseColor("#3D63DB"), Color.parseColor("#4F7CFF"))
+            }
+        }
+        val darker = ColorUtils.blendARGB(primary, Color.BLACK, 0.2f)
+        return if (isCenter) intArrayOf(primary, darker) else intArrayOf(darker, primary)
     }
 
     // ─── Remote Data Loading ─────────────────────────────────────────────
@@ -975,10 +1044,8 @@ class HostedPageActivity : AppCompatActivity() {
         }
 
         val isCenter = direction == "center"
-        val startColor = if (isCenter) Color.parseColor("#4F7CFF") else Color.parseColor("#3D63DB")
-        val endColor = if (isCenter) Color.parseColor("#7C5CFC") else Color.parseColor("#4F7CFF")
         directionCircle.background = GradientDrawable(
-            GradientDrawable.Orientation.TL_BR, intArrayOf(startColor, endColor)
+            GradientDrawable.Orientation.TL_BR, directionCircleColors(isCenter)
         ).apply { shape = GradientDrawable.OVAL }
         directionCircle.visibility = View.VISIBLE
 
