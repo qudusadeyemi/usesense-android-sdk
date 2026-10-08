@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A Device Trust step without a nonce is re-read once before failing.** The
+  server mints the nonce for a client that declares `device_signals_v1`, so a
+  device step that arrives without one is re-read to pick it up. Only if it is
+  still missing does the run end with `FlowError(UNKNOWN, "Device Trust step is
+  missing its nonce")`. Previously it failed straight away. Same rule as the
+  iOS SDK now follows.
+
 ## [4.9.0] - 2026-10-08
 
 ### Added

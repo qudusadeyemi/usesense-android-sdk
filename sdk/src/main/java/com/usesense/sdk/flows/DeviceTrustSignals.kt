@@ -55,4 +55,18 @@ object DeviceTrustSignals {
      * the nonce moved on, or the step was already settled (a retry).
      */
     fun needsReload(serverCode: String?): Boolean = serverCode == "nonce_mismatch" || serverCode == "device_step_not_pending"
+
+    /** What the runner does with a device step that arrived without a nonce. */
+    enum class MissingNonce { RELOAD, FAIL }
+
+    /**
+     * The server mints the nonce when the client declares the capability, so a
+     * device step without one is re-read once to pick it up. If it is still
+     * missing the run fails with a clear error rather than spinning forever.
+     * Same rule as the iOS SDK.
+     */
+    fun onMissingNonce(alreadyReloaded: Boolean): MissingNonce = if (alreadyReloaded) MissingNonce.FAIL else MissingNonce.RELOAD
+
+    /** Error message when a device step still has no nonce after one re-read. */
+    const val MISSING_NONCE_MESSAGE = "Device Trust step is missing its nonce"
 }

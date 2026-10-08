@@ -94,6 +94,7 @@ internal class FlowsActivity : ComponentActivity() {
 
     /** Nonce of the Device Trust step already posted, so it is sent once. */
     private var submittedDeviceNonce: String? = null
+    private var reloadedForDeviceNonce = false
 
     private val pickDocument = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -579,9 +580,16 @@ internal class FlowsActivity : ComponentActivity() {
         showSpinner("Checking your device")
         val nonce = action.nonce
         if (nonce == null) {
-            // The server always attaches a nonce for a client that declared
-            // device_signals_v1; without one there is nothing valid to post.
-            reportError(FlowError(Code.UNKNOWN, "Device Trust step is missing its nonce"))
+            // The server mints the nonce for a client that declared
+            // device_signals_v1: re-read once to pick it up, then fail clearly.
+            when (DeviceTrustSignals.onMissingNonce(reloadedForDeviceNonce)) {
+                DeviceTrustSignals.MissingNonce.RELOAD -> {
+                    reloadedForDeviceNonce = true
+                    lifecycleScope.launch { load() }
+                }
+                DeviceTrustSignals.MissingNonce.FAIL ->
+                    reportError(FlowError(Code.UNKNOWN, DeviceTrustSignals.MISSING_NONCE_MESSAGE))
+            }
             return
         }
         if (submittedDeviceNonce == nonce) return
