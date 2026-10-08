@@ -132,11 +132,17 @@ class FlowsClient(
      * omitted (the parent flow run owns the wall-clock), so we inject a
      * synthetic 15-minute expiry to satisfy the Moshi-generated adapter.
      */
-    fun initSession(toolId: String?): CreateSessionResponse {
+    /**
+     * Start a face capture. [deviceBinding] (see DeviceTrustSignals.deviceBinding)
+     * lets the server reuse a Device Trust check from earlier in the run only
+     * when it came from this device.
+     */
+    fun initSession(toolId: String?, deviceBinding: JSONObject? = null): CreateSessionResponse {
         val body = JSONObject().apply {
             toolId?.let { put("toolId", it) }
             // What this SDK can do, e.g. run a server step-up round.
             put("capabilities", org.json.JSONArray(com.usesense.sdk.finalization.StepUpCapability.ALL))
+            deviceBinding?.let { put("device_binding", it) }
         }
         val responseJson = send(request("POST", "/init-session", body))
         if (!responseJson.has("expires_at") || responseJson.isNull("expires_at")) {

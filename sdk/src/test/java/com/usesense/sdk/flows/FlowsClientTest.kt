@@ -133,6 +133,26 @@ class FlowsClientTest {
     }
 
     @Test
+    fun `initSession sends device_binding only when given`() {
+        val session = JSONObject(
+            """{ "session_id": "s", "session_token": "t", "nonce": "n",
+                 "policy": { "requires_audio": false, "requires_stepup": false, "challenge_type": "none" },
+                 "upload": { "max_frames": 24, "target_fps": 6, "capture_duration_ms": 4000 } }""",
+        )
+        val seen = mutableListOf<Request>()
+        val client = FlowsClient("fr_1", "t", "https://api.usesense.ai", mockClient(200, session) { seen.add(it) })
+
+        client.initSession("face_liveness_enrollment", JSONObject().put("components", JSONObject().put("platform", "android")))
+        client.initSession("face_liveness_enrollment")
+
+        fun bodyOf(r: Request) = JSONObject(okio.Buffer().also { r.body!!.writeTo(it) }.readUtf8())
+        val first = bodyOf(seen[0])
+        assertEquals("android", first.getJSONObject("device_binding").getJSONObject("components").getString("platform"))
+        assertEquals("face_liveness_enrollment", first.getString("toolId"))
+        assertFalse(bodyOf(seen[1]).has("device_binding"))
+    }
+
+    @Test
     fun `initSession decodes the wire response and injects a synthetic expires_at`() {
         val body = JSONObject(
             """
