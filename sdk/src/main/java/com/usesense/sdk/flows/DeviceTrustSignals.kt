@@ -51,6 +51,37 @@ object DeviceTrustSignals {
     }
 
     /**
+     * The stable signals the server hashes into the DeepSense device
+     * fingerprint. Sent with face init-session as `device_binding`, so a face
+     * step reuses a Device Trust check from earlier in the run only when it
+     * came from this device. Must match DEVICE_FINGERPRINT_KEYS in
+     * usesense-watchtower (docs/sdk/device-trust-protocol.md §5).
+     */
+    val FINGERPRINT_KEYS: List<String> =
+        listOf(
+            "canvas_hash", "webgl_renderer", "webgl_vendor", "webgl_extensions",
+            "screen_resolution", "hardware_concurrency", "device_memory", "max_touch_points",
+            "platform", "color_depth", "timezone", "audio_fingerprint",
+        )
+
+    /** Face init-session waits at most this long for the binding. */
+    const val BINDING_TIMEOUT_MS = 1_500L
+
+    /**
+     * The `device_binding` body for face init-session, picked from the same
+     * collector signals the Device Trust step sends (device telemetry carries
+     * none of the fingerprint keys). Null when there is nothing to send: the
+     * server then matches on platform and device model.
+     */
+    fun deviceBinding(collected: JSONObject): JSONObject? {
+        val components = JSONObject()
+        FINGERPRINT_KEYS.forEach { k ->
+            if (collected.has(k) && !collected.isNull(k)) components.put(k, collected.get(k))
+        }
+        return if (components.length() > 0) JSONObject().put("components", components) else null
+    }
+
+    /**
      * Server codes after which the run should be re-read instead of failing:
      * the nonce moved on, or the step was already settled (a retry).
      */

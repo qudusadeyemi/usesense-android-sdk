@@ -53,6 +53,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 
 /**
@@ -635,6 +636,26 @@ internal class FlowsActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * The face init-session device binding: the fingerprint signals from the
+     * same collector the Device Trust step uses, without the Play Integrity
+     * request. Capped at BINDING_TIMEOUT_MS; a slow or failing collection
+     * sends none.
+     */
+    private suspend fun collectDeviceBinding(): JSONObject? =
+        withTimeoutOrNull(DeviceTrustSignals.BINDING_TIMEOUT_MS) {
+            val collector = DeviceSignalCollector(applicationContext, UseSenseConfig.DEFAULT_GOOGLE_CLOUD_PROJECT_NUMBER)
+            try {
+                DeviceTrustSignals.deviceBinding(collector.collectSignals())
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            } finally {
+                collector.release()
+            }
+        }
+
     private fun launchFaceCapture(toolId: String?) {
         // Hosted parity: show the face primer first ("Take a selfie" + the do's),
         // then mint the capture session on the CTA and hand off to the existing
@@ -673,7 +694,9 @@ internal class FlowsActivity : ComponentActivity() {
     private fun beginFaceCapture(toolId: String?) {
         lifecycleScope.launch {
             try {
-                val response = withContext(Dispatchers.IO) { client.initSession(toolId) }
+                // Same-device proof for a Device Trust check earlier in the run (never blocks).
+                val binding = withContext(Dispatchers.IO) { collectDeviceBinding() }
+                val response = withContext(Dispatchers.IO) { client.initSession(toolId, binding) }
                 // No version segment here: every path in UseSenseApiService
                 // carries its own. Appending "/v1" produced `/v1/v1/...`,
                 // which the server rejected before reading the request body --
