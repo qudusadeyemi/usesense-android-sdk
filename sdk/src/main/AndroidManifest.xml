@@ -6,6 +6,16 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!--
+      Address capture (Flows location step). Foreground only: the SDK never
+      requests ACCESS_BACKGROUND_LOCATION. An address step that cannot get a
+      position still completes using the details the subject typed, so an app
+      that never uses address capture can remove these with tools:node="remove"
+      without breaking anything.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.front" android:required="true" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
