@@ -22,6 +22,17 @@ data class UseSenseError(
         const val QUOTA_EXCEEDED = 6001
         const val FINALIZATION_TIMEOUT = 7001
 
+        /** The capture (camera open through the last frame) did not finish in time. */
+        const val CAPTURE_TIMEOUT = 7002
+
+        /** Packaging, upload or result did not finish in time. */
+        const val UPLOAD_TIMEOUT = 7003
+
+        /** Stable string codes, carried in [serverCode] for the timeout errors. */
+        const val CODE_CAPTURE_TIMEOUT = "CAPTURE_TIMEOUT"
+        const val CODE_UPLOAD_TIMEOUT = "UPLOAD_TIMEOUT"
+        const val CODE_NO_FRAMES = "NO_FRAMES_CAPTURED"
+
         fun cameraUnavailable() = UseSenseError(
             code = CAMERA_UNAVAILABLE,
             message = "Front camera is not available on this device",
@@ -69,6 +80,35 @@ data class UseSenseError(
             },
             isRetryable = phase != "preparing",
             details = mapOf("phase" to phase, "no_progress" to noProgress),
+        )
+
+        /**
+         * The session watchdog fired while the camera was opening or frames were
+         * being captured. Retryable: "Try again" starts a clean attempt.
+         */
+        fun captureTimeout(phase: String, elapsedMs: Long) = UseSenseError(
+            code = CAPTURE_TIMEOUT,
+            serverCode = CODE_CAPTURE_TIMEOUT,
+            message = "The camera stopped responding. Please try again.",
+            isRetryable = true,
+            details = mapOf("phase" to phase, "elapsed_ms" to elapsedMs),
+        )
+
+        /** The session watchdog fired while the capture was being packaged, uploaded or scored. */
+        fun uploadTimeout(phase: String, elapsedMs: Long) = UseSenseError(
+            code = UPLOAD_TIMEOUT,
+            serverCode = CODE_UPLOAD_TIMEOUT,
+            message = "We could not finish sending your capture. Please try again.",
+            isRetryable = true,
+            details = mapOf("phase" to phase, "elapsed_ms" to elapsedMs),
+        )
+
+        /** The camera ran but produced no frames: a system failure, never a verdict. */
+        fun noFramesCaptured() = UseSenseError(
+            code = CAPTURE_FAILED,
+            serverCode = CODE_NO_FRAMES,
+            message = "The camera did not return any images. Please try again.",
+            isRetryable = true,
         )
 
         fun captureFailed(cause: String? = null) = UseSenseError(

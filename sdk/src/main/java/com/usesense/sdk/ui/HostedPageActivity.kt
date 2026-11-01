@@ -21,6 +21,7 @@ import android.view.View
 import android.view.animation.OvershootInterpolator
 import android.view.animation.PathInterpolator
 import android.widget.*
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.*
@@ -36,8 +37,12 @@ import com.usesense.sdk.api.models.*
 import com.usesense.sdk.capture.FrameCaptureManager
 import com.usesense.sdk.capture.ImageQualityAnalyzer
 import com.usesense.sdk.challenge.*
+import com.usesense.sdk.internal.Bounded
 import com.usesense.sdk.internal.CapturePhase
+import com.usesense.sdk.internal.CaptureWatchdog
 import com.usesense.sdk.internal.SessionState
+import com.usesense.sdk.internal.WatchdogPhase
+import com.usesense.sdk.internal.boundedCall
 import com.usesense.sdk.finalization.*
 import kotlinx.coroutines.*
 import java.util.concurrent.Executors
@@ -173,6 +178,26 @@ class HostedPageActivity : AppCompatActivity() {
     /** True while a server step-up round (round 2) is being captured. */
     private var stepUpRoundActive = false
 
+    /**
+     * Backstop for a capture that stops making progress: moves the screen to a
+     * terminal error with a stable code instead of an endless spinner.
+     */
+    private lateinit var watchdog: CaptureWatchdog
+
+    /** The finalization (upload + complete) coroutine of the current attempt. */
+    private var finalizationJob: Job? = null
+
+    /** Delivers exactly one host callback per activity. */
+    private val callbackGate = FinalizationCallbackGate<UseSenseResult, UseSenseError>(
+        { pendingDirectCallback?.onSuccess(it) },
+        { pendingDirectCallback?.onError(it) },
+        { pendingDirectCallback?.onCancelled() },
+    )
+
+    /** The error on screen right now, delivered if the subject leaves from it. */
+    private var pendingTerminalError: UseSenseError? = null
+    private var recoveryDialog: AlertDialog? = null
+
     enum class PageStep {
         LOADING, ERROR, INTRODUCTION, ACTION_REVIEW,
         PERMISSION, CAPTURE, FINALIZING, RESULT
@@ -195,6 +220,16 @@ class HostedPageActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_usesense_hosted)
         bindViews()
+
+        watchdog = CaptureWatchdog(mainScope) { _, error -> onWatchdogTimeout(error) }
+        // Leaving the capture must never end silently: abandon the attempt and
+        // let onDestroy deliver onCancelled (or the error on screen).
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                abortAttempt()
+                finish()
+            }
+        })
 
         val config = pendingConfig ?: run {
             showError("SDK not initialized")
@@ -617,9 +652,27 @@ class HostedPageActivity : AppCompatActivity() {
             // Flows launches the hosted page with pre-minted credentials from
             // /sdk/flow-runs/:id/init-session; skip createSession in that path.
             val prebuilt = pendingPrebuiltSession
+            val refresh = pendingSessionFactory
             if (prebuilt != null) {
                 sess.injectHostedSessionData(prebuilt)
                 pendingPrebuiltSession = null
+            } else if (refresh != null) {
+                // "Try again" in the Flows path: the first session was consumed,
+                // so mint a fresh one for this step (bounded; the factory makes a
+                // blocking network call that cancellation cannot interrupt).
+                val fresh = when (val r = boundedCall(mainScope, SESSION_REFRESH_TIMEOUT_MS) { runCatching { refresh() } }) {
+                    is Bounded.Done -> r.value
+                    is Bounded.TimedOut -> Result.failure(java.io.InterruptedIOException("init-session timed out"))
+                }
+                val response = fresh.getOrElse { e ->
+                    val error = when (e) {
+                        is java.io.InterruptedIOException -> UseSenseError.networkTimeout()
+                        else -> UseSenseError.networkError(e.message)
+                    }
+                    showTerminalFailure(error, WatchdogPhase.CAMERA.wire)
+                    return
+                }
+                sess.injectHostedSessionData(response)
             } else {
                 val createResult = sess.createSession()
                 createResult.onFailure { e ->
@@ -747,9 +800,19 @@ class HostedPageActivity : AppCompatActivity() {
 
     private fun startCamera() {
         val sess = session ?: return
+        // System-paced from here: the camera must bind and the capture must
+        // finish, upload and settle within the watchdog's budget.
+        watchdog.arm(WatchdogPhase.CAMERA)
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
-            val cameraProvider = cameraProviderFuture.get()
+            if (session !== sess || isFinishing) return@addListener
+            val cameraProvider = try {
+                cameraProviderFuture.get()
+            } catch (e: Exception) {
+                watchdog.disarm()
+                showCameraError(getString(R.string.usesense_camera_unavailable_message))
+                return@addListener
+            }
 
             val preview = Preview.Builder()
                 .build()
@@ -822,8 +885,11 @@ class HostedPageActivity : AppCompatActivity() {
                 val requiresStepup = sess.policy?.requiresStepup == true
 
                 if (requiresStepup) {
+                    // The face guide waits for the subject's tap: not supervised.
+                    watchdog.disarm()
                     showFaceGuide()
                 } else {
+                    watchdog.enter(WatchdogPhase.CAPTURE)
                     sess.startCapture()
                     eventEmitter.emit(EventType.CAPTURE_STARTED)
                     if (sess.requiresAudio) {
@@ -833,6 +899,7 @@ class HostedPageActivity : AppCompatActivity() {
                     startBaselinePhase()
                 }
             } catch (e: Exception) {
+                watchdog.disarm()
                 showCameraError(getString(R.string.usesense_camera_unavailable_message))
             }
         }, ContextCompat.getMainExecutor(this))
@@ -869,6 +936,7 @@ class HostedPageActivity : AppCompatActivity() {
 
         faceGuideReadyButton.setOnClickListener {
             faceGuideOverlay.visibility = View.GONE
+            watchdog.arm(WatchdogPhase.CAPTURE)
             sess.startCapture()
             eventEmitter.emit(EventType.CAPTURE_STARTED)
             if (sess.requiresAudio) {
@@ -1094,6 +1162,14 @@ class HostedPageActivity : AppCompatActivity() {
             Log.e(TAG, "Error stopping capture", e)
         }
 
+        // A camera that delivered nothing is a system failure. Uploading an
+        // empty capture would come back as a verdict against the subject.
+        if (sess.capturedFrameCount == 0) {
+            watchdog.disarm()
+            showTerminalFailure(UseSenseError.noFramesCaptured(), WatchdogPhase.CAPTURE.wire)
+            return
+        }
+
         startFinalization(sess)
     }
 
@@ -1111,7 +1187,9 @@ class HostedPageActivity : AppCompatActivity() {
             }
             override fun takeStepUp(): StepUpInstruction? = sess.takeStepUp()
         }
-        mainScope.launch {
+        watchdog.enter(if (startAt == FinalizationPhase.COMPLETING) WatchdogPhase.COMPLETING else WatchdogPhase.PREPARING)
+        finalizationJob?.cancel()
+        finalizationJob = mainScope.launch {
             try {
                 uploadOverlayTitle.text = if (flowType == FlowType.ENROLLMENT) {
                     getString(R.string.usesense_processing_enrollment)
@@ -1120,20 +1198,48 @@ class HostedPageActivity : AppCompatActivity() {
                 }
                 setStep(PageStep.FINALIZING)
                 FinalizationCoordinator(operations).run(startAt) { update ->
+                    if (watchdog.fired) return@run
                     when (update) {
-                        is FinalizationUpdate.Phase -> uploadOverlaySubtitle.text = when (update.phase) {
-                            FinalizationPhase.PREPARING -> "Preparing capture data"
-                            FinalizationPhase.UPLOADING -> "Uploading securely"
-                            FinalizationPhase.COMPLETING -> "Waiting for verification result"
+                        is FinalizationUpdate.Phase -> {
+                            watchdog.enter(
+                                when (update.phase) {
+                                    FinalizationPhase.PREPARING -> WatchdogPhase.PREPARING
+                                    FinalizationPhase.UPLOADING -> WatchdogPhase.UPLOADING
+                                    FinalizationPhase.COMPLETING -> WatchdogPhase.COMPLETING
+                                },
+                            )
+                            uploadOverlaySubtitle.text = when (update.phase) {
+                                FinalizationPhase.PREPARING -> "Preparing capture data"
+                                FinalizationPhase.UPLOADING -> "Uploading securely"
+                                FinalizationPhase.COMPLETING -> "Waiting for verification result"
+                            }
                         }
-                        is FinalizationUpdate.Progress -> uploadOverlaySubtitle.text =
-                            "${update.bytesSent * 100 / update.bytesTotal.coerceAtLeast(1)}% uploaded"
-                        is FinalizationUpdate.Result -> finishHostedFinalization(update.result)
-                        is FinalizationUpdate.StepUpRequired -> runStepUpRound(sess, update.instruction)
-                        is FinalizationUpdate.Recovery -> showTechnicalRecovery(sess, update)
+                        is FinalizationUpdate.Progress -> {
+                            watchdog.onProgress()
+                            // Progress fires on the OkHttp writer thread.
+                            uploadOverlaySubtitle.post {
+                                uploadOverlaySubtitle.text =
+                                    "${update.bytesSent * 100 / update.bytesTotal.coerceAtLeast(1)}% uploaded"
+                            }
+                        }
+                        is FinalizationUpdate.Result -> {
+                            watchdog.disarm()
+                            finishHostedFinalization(update.result)
+                        }
+                        is FinalizationUpdate.StepUpRequired -> {
+                            watchdog.enter(WatchdogPhase.CAPTURE)
+                            runStepUpRound(sess, update.instruction)
+                        }
+                        is FinalizationUpdate.Recovery -> {
+                            watchdog.disarm()
+                            showTechnicalRecovery(sess, update)
+                        }
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
+                watchdog.disarm()
                 Log.e(TAG, "Unhandled error in upload/complete pipeline", e)
                 showTechnicalRecovery(
                     sess,
@@ -1166,12 +1272,15 @@ class HostedPageActivity : AppCompatActivity() {
 
     /** Upload round 2, then resume finalization at COMPLETING. */
     private fun finishStepUpRound(sess: UseSenseSession) {
-        mainScope.launch {
+        watchdog.enter(WatchdogPhase.UPLOADING)
+        finalizationJob?.cancel()
+        finalizationJob = mainScope.launch {
             setStep(PageStep.FINALIZING)
             uploadOverlaySubtitle.text = "Uploading securely"
             sess.uploadStepUpRound().fold(
                 onSuccess = { startFinalization(sess, FinalizationPhase.COMPLETING) },
                 onFailure = { e ->
+                    watchdog.disarm()
                     val error = (e as? com.usesense.sdk.api.ApiException)?.useSenseError
                         ?: UseSenseError.networkError(e.message)
                     // Retry restarts finalization from round 1, which the server
@@ -1197,25 +1306,96 @@ class HostedPageActivity : AppCompatActivity() {
             }
         }
         showResult(result.decision, result)
-        pendingDirectCallback?.onSuccess(result)
+        pendingTerminalError = null
+        callbackGate.success(result)
     }
 
     private fun showTechnicalRecovery(sess: UseSenseSession, recovery: FinalizationUpdate.Recovery) {
-        eventEmitter.emit(EventType.ERROR, mapOf("phase" to recovery.phase.name.lowercase(), "error" to recovery.error.message))
+        eventEmitter.emit(EventType.ERROR, errorEvent(recovery.phase.name.lowercase(), recovery.error))
+        showRecoveryDialog(recovery.error, RecoveryAction.RETRY in recovery.actions) { startFinalization(sess) }
+    }
+
+    /**
+     * A terminal failure of this attempt (watchdog, no frames, session refresh):
+     * a clear error with its code, "Try again" for a clean attempt, or Exit.
+     */
+    private fun showTerminalFailure(error: UseSenseError, phase: String) {
+        eventEmitter.emit(EventType.ERROR, errorEvent(phase, error))
+        showRecoveryDialog(error, canRetryUpload = false, retry = null)
+    }
+
+    private fun showRecoveryDialog(error: UseSenseError, canRetryUpload: Boolean, retry: (() -> Unit)?) {
+        if (isFinishing || isDestroyed) return
+        pendingTerminalError = error
+        callbackGate.recovery()
+        recoveryDialog?.dismiss()
+        val codeLine = error.serverCode?.let { "\n\nError code: $it" } ?: "\n\nError code: ${error.code}"
         val dialog = AlertDialog.Builder(this)
             .setTitle("We could not finish your identity check")
-            .setMessage(recovery.error.message)
+            .setMessage(error.message + codeLine)
             .setNegativeButton("Exit") { _, _ ->
-                pendingDirectCallback?.onError(recovery.error)
+                callbackGate.exit(error)
                 finish()
             }
-        if (RecoveryAction.RETRY in recovery.actions) dialog.setPositiveButton("Retry") { _, _ -> startFinalization(sess) }
-        dialog.setNeutralButton("Restart") { _, _ -> mainScope.launch { initAndStartCapture() } }
-        dialog.setCancelable(false).show()
+        if (canRetryUpload && retry != null) dialog.setPositiveButton("Retry") { _, _ -> pendingTerminalError = null; retry() }
+        dialog.setNeutralButton("Try again") { _, _ -> restartCapture() }
+        recoveryDialog = dialog.setCancelable(false).show()
+    }
+
+    private fun errorEvent(phase: String, error: UseSenseError): Map<String, Any> = buildMap {
+        put("phase", phase)
+        put("error", error.message)
+        put("code", error.code)
+        error.serverCode?.let { put("error_code", it) }
+    }
+
+    /** The watchdog fired: abandon the stuck work without waiting on it. */
+    private fun onWatchdogTimeout(error: UseSenseError) {
+        if (isFinishing || isDestroyed) return
+        Log.w(TAG, "Capture watchdog fired: ${error.serverCode} ${error.details}")
+        abortAttempt()
+        showTerminalFailure(error, (error.details?.get("phase") as? String) ?: "unknown")
+    }
+
+    /**
+     * Stop everything the current attempt started: timers, the challenge, the
+     * finalization coroutine and frame capture. Cancels without joining, so a
+     * wedged native call cannot hold the UI.
+     */
+    private fun abortAttempt() {
+        watchdog.disarm()
+        finalizationJob?.cancel()
+        finalizationJob = null
+        handler.removeCallbacksAndMessages(null)
+        challengePresenter?.stop()
+        stepUpRoundActive = false
+        runCatching { session?.stopCapture() }
+    }
+
+    /**
+     * "Try again": a clean attempt. The old session is released (its mesh,
+     * integrity and sensor jobs cancelled) and a new one is created -- in the
+     * Flows path from a fresh init-session, never the consumed credentials.
+     */
+    private fun restartCapture() {
+        abortAttempt()
+        recoveryDialog?.dismiss()
+        recoveryDialog = null
+        pendingTerminalError = null
+        challengePresenter = null
+        frameCaptureManager = null
+        session?.release()
+        session = null
+        runCatching {
+            val future = ProcessCameraProvider.getInstance(this)
+            if (future.isDone) future.get().unbindAll()
+        }
+        mainScope.launch { initAndStartCapture() }
     }
 
     private fun deliverError(error: UseSenseError) {
-        pendingDirectCallback?.onError(error)
+        watchdog.disarm()
+        callbackGate.exit(error)
         if (!isFinishing) {
             showError(error.message)
         }
@@ -1290,6 +1470,10 @@ class HostedPageActivity : AppCompatActivity() {
     }
 
     private fun showError(message: String) {
+        if (::watchdog.isInitialized) watchdog.disarm()
+        if (pendingTerminalError == null) {
+            pendingTerminalError = UseSenseError.captureFailed(message)
+        }
         errorMessage.text = message
         setStep(PageStep.ERROR)
     }
@@ -1357,6 +1541,14 @@ class HostedPageActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        // Never end silently: the host hears an error (if one is on screen) or
+        // a cancellation. The gate makes this a no-op after a success/exit.
+        if (!isChangingConfigurations) {
+            pendingTerminalError?.let { callbackGate.exit(it) } ?: callbackGate.cancel()
+        }
+        recoveryDialog?.dismiss()
+        if (::watchdog.isInitialized) watchdog.disarm()
+        finalizationJob?.cancel()
         super.onDestroy()
         mainScope.cancel()
         handler.removeCallbacksAndMessages(null)
@@ -1365,6 +1557,7 @@ class HostedPageActivity : AppCompatActivity() {
         pendingConfig = null
         pendingRequest = null
         pendingDirectCallback = null
+        pendingSessionFactory = null
     }
 
     companion object {
@@ -1377,6 +1570,9 @@ class HostedPageActivity : AppCompatActivity() {
         private const val STEP_UP_BRIEF_MS = 1500L
         private const val COUNTDOWN_MS = 3000L
 
+        /** Ceiling on minting a fresh Flows session for "Try again". */
+        private const val SESSION_REFRESH_TIMEOUT_MS = 30_000L
+
         internal var pendingConfig: UseSenseConfig? = null
         internal var pendingRequest: VerificationRequest? = null
         internal var pendingDirectCallback: UseSenseCallback? = null
@@ -1385,6 +1581,9 @@ class HostedPageActivity : AppCompatActivity() {
         // /sdk/flow-runs/:id/init-session. When set, initAndStartCapture()
         // injects them instead of calling createSession (cleared after use).
         internal var pendingPrebuiltSession: com.usesense.sdk.api.models.CreateSessionResponse? = null
+
+        /** Flows path: mints a fresh session for "Try again" (the first one is consumed). */
+        internal var pendingSessionFactory: (suspend () -> com.usesense.sdk.api.models.CreateSessionResponse)? = null
 
         /**
          * Launch the hosted page UI for a direct SDK verification/enrollment flow.
@@ -1422,11 +1621,13 @@ class HostedPageActivity : AppCompatActivity() {
             response: com.usesense.sdk.api.models.CreateSessionResponse,
             sessionType: SessionType,
             callback: UseSenseCallback,
+            refreshSession: (suspend () -> com.usesense.sdk.api.models.CreateSessionResponse)? = null,
         ) {
             pendingConfig = config
             pendingRequest = VerificationRequest(sessionType = sessionType)
             pendingDirectCallback = callback
             pendingPrebuiltSession = response
+            pendingSessionFactory = refreshSession
             val flowType = if (sessionType == SessionType.ENROLLMENT) "enrollment" else "verification"
             val intent = Intent(context, HostedPageActivity::class.java).apply {
                 putExtra(EXTRA_FLOW_TYPE, flowType)

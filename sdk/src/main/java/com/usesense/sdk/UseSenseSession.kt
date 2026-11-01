@@ -15,10 +15,12 @@ import com.usesense.sdk.capture.CapturedFrame
 import com.usesense.sdk.capture.FrameBuffer
 import com.usesense.sdk.capture.FrameCaptureManager
 import com.usesense.sdk.challenge.*
+import com.usesense.sdk.internal.Bounded
 import com.usesense.sdk.internal.CapturePhase
 import com.usesense.sdk.internal.MultipartUploader
 import com.usesense.sdk.internal.SessionState
 import com.usesense.sdk.internal.SessionStateMachine
+import com.usesense.sdk.internal.boundedCall
 import com.usesense.sdk.liveness.*
 import com.usesense.sdk.signals.CaptureConfigInfo
 import com.usesense.sdk.signals.DeviceSignalCollector
@@ -90,6 +92,23 @@ internal class UseSenseSession(
          * settles must not strand the upload. Frames fitted by then are used.
          */
         const val MESH_DRAIN_TIMEOUT_MS = 5_000L
+
+        /**
+         * Ceiling on loading the MediaPipe landmarker. createFromOptions is a
+         * native call that cannot be interrupted; past this the session goes
+         * on without a mesh (the server tolerates a missing mesh package).
+         */
+        const val MESH_INIT_TIMEOUT_MS = 8_000L
+
+        /**
+         * Ceiling on one MediaPipe detect + fit. A frame that takes longer
+         * means the landmarker is wedged: stop feeding it and skip the mesh
+         * rather than let queued frames pile up behind it.
+         */
+        const val MESH_FRAME_TIMEOUT_MS = 2_000L
+
+        /** Ceiling on the optional on-device antispoof pass during packaging. */
+        const val CLASSIFIER_TIMEOUT_MS = 10_000L
     }
 
     // v4.1: Liveness & PAD components
@@ -110,6 +129,15 @@ internal class UseSenseSession(
     @Volatile private var meshInitResult = FaceMeshInitResult.NOT_ATTEMPTED
 
     @Volatile private var meshClosed = false
+
+    /** Set when init or a frame exceeded its ceiling; reported as face_mesh_init_error. */
+    @Volatile private var meshTimeoutError: String? = null
+
+    /**
+     * A detect that exceeded MESH_FRAME_TIMEOUT_MS and is still running in
+     * native code. release() must not close the landmarker under it.
+     */
+    @Volatile private var stuckMeshWork: Deferred<*>? = null
     private val meshFramesProcessed = AtomicInteger(0)
     private val meshFramesDetected = AtomicInteger(0)
     private val meshRequested: Boolean
@@ -136,6 +164,9 @@ internal class UseSenseSession(
     val inlineStepUpConfig get() = sessionResponse?.policy?.inlineStepUp
 
     val capturePhase: CapturePhase get() = stateMachine.capturePhase
+
+    /** Frames in the current buffer; 0 means the camera never delivered one. */
+    val capturedFrameCount: Int get() = frameCaptureManager?.capturedFrameCount ?: 0
 
     var onStateChanged: ((SessionState) -> Unit)? = null
 
@@ -244,10 +275,14 @@ internal class UseSenseSession(
         if (!meshRequested || meshInitJob != null) return
         meshInitResult = FaceMeshInitResult.PENDING
         meshInitJob = meshScope.launch {
-            meshInitResult = if (faceMeshManager.initialize()) {
-                FaceMeshInitResult.SUCCESS
-            } else {
-                FaceMeshInitResult.FAILED
+            meshInitResult = when (val init = boundedCall(meshScope, MESH_INIT_TIMEOUT_MS) { faceMeshManager.initialize() }) {
+                is Bounded.Done -> if (init.value) FaceMeshInitResult.SUCCESS else FaceMeshInitResult.FAILED
+                is Bounded.TimedOut -> {
+                    // Skip the mesh: the server scores without it.
+                    meshTimeoutError = "TimeoutException: face mesh init exceeded ${MESH_INIT_TIMEOUT_MS}ms"
+                    meshClosed = true
+                    FaceMeshInitResult.FAILED
+                }
             }
         }
     }
@@ -268,16 +303,28 @@ internal class UseSenseSession(
                     }
                     val bitmap = BitmapFactory.decodeByteArray(frame.jpegData, 0, frame.jpegData.size, options)
                         ?: return@withLock
-                    try {
-                        meshFramesProcessed.incrementAndGet()
-                        val mesh = faceMeshManager.processFrame(bitmap, frame.index, frame.timestampMs)
-                            ?: return@withLock
-                        meshFramesDetected.incrementAndGet()
-                        synchronized(fitterLock) {
-                            if (!meshClosed) threeDMMFitter.fitFrame(mesh)
+                    meshFramesProcessed.incrementAndGet()
+                    val detect = boundedCall(meshScope, MESH_FRAME_TIMEOUT_MS) {
+                        faceMeshManager.processFrame(bitmap, frame.index, frame.timestampMs)
+                    }
+                    when (detect) {
+                        is Bounded.TimedOut -> {
+                            // The landmarker is wedged. Stop feeding it (skip the
+                            // mesh rather than block the session) and only recycle
+                            // the bitmap once native code lets go of it.
+                            meshClosed = true
+                            meshTimeoutError = "TimeoutException: face mesh frame exceeded ${MESH_FRAME_TIMEOUT_MS}ms"
+                            stuckMeshWork = detect.work
+                            detect.work.invokeOnCompletion { bitmap.recycle() }
                         }
-                    } finally {
-                        bitmap.recycle()
+                        is Bounded.Done -> {
+                            bitmap.recycle()
+                            val mesh = detect.value ?: return@withLock
+                            meshFramesDetected.incrementAndGet()
+                            synchronized(fitterLock) {
+                                if (!meshClosed) threeDMMFitter.fitFrame(mesh)
+                            }
+                        }
                     }
                 }
             },
@@ -407,7 +454,17 @@ internal class UseSenseSession(
         audioData = audioCaptureManager?.stopRecording()
     }
 
-    suspend fun uploadSignals(): Result<UploadSignalsResponse> {
+    /**
+     * Package and upload round 1. Packaging (signal collection, mesh package,
+     * the optional classifier, JSON) is CPU work that callers launch from the
+     * main thread; it runs on Dispatchers.Default so it can neither ANR nor
+     * starve the coroutines (finalization monitor, watchdog) supervising it.
+     */
+    suspend fun uploadSignals(): Result<UploadSignalsResponse> = withContext(Dispatchers.Default) {
+        uploadSignalsInternal()
+    }
+
+    private suspend fun uploadSignalsInternal(): Result<UploadSignalsResponse> {
         stateMachine.transition(SessionState.UPLOADING)
 
         // Give the Play Integrity token a bounded chance to arrive before we
@@ -478,7 +535,16 @@ internal class UseSenseSession(
         val screenDetection = screenDetectionAnalyzer.toJson()
 
         // v4.2: On-device antispoof classifier (feature-flagged; server path is authoritative when off).
-        val deepClassifierOnDevice = buildDeepClassifierOnDevice(buffer)
+        val deepClassifierOnDevice = if (config.antispoofOnDeviceEnabled) {
+            // Bounded: TFLite invoke is native and uncancellable. A classifier
+            // that overruns is dropped; the server-side path is authoritative.
+            when (val scored = boundedCall(meshScope, CLASSIFIER_TIMEOUT_MS) { buildDeepClassifierOnDevice(buffer) }) {
+                is Bounded.Done -> scored.value
+                is Bounded.TimedOut -> null
+            }
+        } else {
+            null
+        }
 
         val metadataJson = metadataBuilder.build(
             sessionId = sid,
@@ -506,7 +572,7 @@ internal class UseSenseSession(
             zoomMotion = if (config.liveSenseV4Enabled) buildZoomMotionStats(buffer.framePhases) else null,
             verificationPackageSkipReason = verificationPackageSkipReason,
             faceMeshInitResult = if (meshRequested) meshInitResult.value else null,
-            faceMeshInitError = faceMeshManager.lastInitError,
+            faceMeshInitError = faceMeshManager.lastInitError ?: meshTimeoutError,
         )
 
         return uploader.upload(
@@ -714,9 +780,16 @@ internal class UseSenseSession(
         signalCollector.release()
         meshClosed = true
         meshScope.cancel()
-        // Close the landmarker only once an in-flight detect has returned.
-        CoroutineScope(Dispatchers.Default).launch {
-            meshMutex.withLock { faceMeshManager.release() }
+        val stuck = stuckMeshWork
+        if (stuck != null && !stuck.isCompleted) {
+            // A detect is still inside native code: close the landmarker only
+            // once it returns, never underneath it.
+            stuck.invokeOnCompletion { faceMeshManager.release() }
+        } else {
+            // Close the landmarker only once an in-flight detect has returned.
+            CoroutineScope(Dispatchers.Default).launch {
+                meshMutex.withLock { faceMeshManager.release() }
+            }
         }
         synchronized(fitterLock) { threeDMMFitter.reset() }
         suspicionEngine.reset()

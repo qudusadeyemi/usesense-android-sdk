@@ -23,7 +23,20 @@ class HeadTurnChallenge(
     private val sequence = spec.sequence ?: emptyList()
 
     override fun start() {
-        if (sequence.isEmpty()) return
+        if (sequence.isEmpty()) {
+            // A spec with no steps used to return here without ever calling
+            // onChallengeComplete, leaving the capture screen running forever
+            // and the signals never sent. Run for the spec's duration instead,
+            // then complete, so the capture always reaches finalization.
+            isActive = true
+            responseBuilder.markStarted()
+            handler.postDelayed({
+                isActive = false
+                responseBuilder.markCompleted()
+                onChallengeComplete?.invoke()
+            }, spec.totalDurationMs.toLong().coerceAtLeast(MIN_EMPTY_SPEC_MS))
+            return
+        }
         isActive = true
         currentStepIndex = 0
         responseBuilder.markStarted()
@@ -58,5 +71,9 @@ class HeadTurnChallenge(
         handler.postDelayed({
             showStep(index + 1)
         }, step.durationMs.toLong())
+    }
+
+    private companion object {
+        const val MIN_EMPTY_SPEC_MS = 1_000L
     }
 }

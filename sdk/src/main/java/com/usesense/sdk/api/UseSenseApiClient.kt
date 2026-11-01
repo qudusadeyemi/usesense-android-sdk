@@ -33,6 +33,24 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
         const val UPLOAD_WRITE_TIMEOUT_SECONDS = 300L
 
         /**
+         * Whole-call ceiling (all retries, backoff and Retry-After included) for
+         * the small JSON requests. connect/read/write timeouts bound a single
+         * socket operation; without a call timeout, four attempts plus backoff
+         * plus an unbounded Retry-After could hold one request for many minutes.
+         */
+        const val CALL_TIMEOUT_SECONDS = 75L
+
+        /**
+         * Whole-call ceiling for the signals upload. Matches
+         * FinalizationPolicy.uploadAllowanceMs: a slow but moving upload is
+         * allowed this long; a stalled one is cut by the no-progress monitor.
+         */
+        const val UPLOAD_CALL_TIMEOUT_SECONDS = 300L
+
+        /** A server Retry-After longer than this is clamped. */
+        const val MAX_RETRY_AFTER_SECONDS = 10L
+
+        /**
          * Resolve a configured base URL to the Retrofit base.
          *
          * Every versioned path in [UseSenseApiService] already carries its own
@@ -202,7 +220,8 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
                 when {
                     response.isSuccessful -> return@Interceptor response
                     response.code == 429 -> {
-                        val retryAfter = response.header("Retry-After")?.toLongOrNull() ?: 2L
+                        val retryAfter = (response.header("Retry-After")?.toLongOrNull() ?: 2L)
+                            .coerceIn(0L, MAX_RETRY_AFTER_SECONDS)
                         response.close()
                         Thread.sleep(retryAfter * 1000)
                         continue
@@ -255,11 +274,30 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
         // measured production session managed 14.6 KB/s -- and a tripped
         // timeout looks to the subject like a hang, not a retryable error.
         .writeTimeout(UPLOAD_WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .callTimeout(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .build()
+
+    /** Same interceptors and socket timeouts; a longer whole-call ceiling for megabyte uploads. */
+    private val uploadHttpClient: OkHttpClient = okHttpClient.newBuilder()
+        .callTimeout(UPLOAD_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .build()
+
+    /** Exposed for tests: the effective timeouts of the two clients. */
+    internal val callTimeoutMillis: Int get() = okHttpClient.callTimeoutMillis
+    internal val uploadCallTimeoutMillis: Int get() = uploadHttpClient.callTimeoutMillis
+    internal val readTimeoutMillis: Int get() = okHttpClient.readTimeoutMillis
+    internal val connectTimeoutMillis: Int get() = okHttpClient.connectTimeoutMillis
 
     private val service: UseSenseApiService = Retrofit.Builder()
         .baseUrl(normalizeBaseUrl(config.baseUrl))
         .client(okHttpClient)
+        .addConverterFactory(MoshiConverterFactory.create(moshi))
+        .build()
+        .create(UseSenseApiService::class.java)
+
+    private val uploadService: UseSenseApiService = Retrofit.Builder()
+        .baseUrl(normalizeBaseUrl(config.baseUrl))
+        .client(uploadHttpClient)
         .addConverterFactory(MoshiConverterFactory.create(moshi))
         .build()
         .create(UseSenseApiService::class.java)
@@ -331,7 +369,7 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
             )
         }
 
-        return executeCall { service.uploadSignals(sessionId, frameParts, metadataPart, audioPart, round) }
+        return executeCall { uploadService.uploadSignals(sessionId, frameParts, metadataPart, audioPart, round) }
     }
 
     suspend fun completeSession(sessionId: String): Result<VerdictResponse> {
@@ -413,8 +451,15 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
                         parsed?.error?.message ?: getUserMessage(response.code(), parsed?.error?.code))
                 ))
             }
+        } catch (e: java.io.InterruptedIOException) {
+            // OkHttp's callTimeout / socket timeouts.
+            Result.failure(ApiException(UseSenseError.networkTimeout()))
         } catch (e: IOException) {
             Result.failure(ApiException(UseSenseError.networkError(e.message)))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Never turn a cancellation (watchdog, Try again, timeout) into a
+            // "network error" result the caller then acts on.
+            throw e
         } catch (e: Exception) {
             Result.failure(ApiException(UseSenseError.networkError(e.message)))
         }
@@ -449,8 +494,15 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
                 )
                 Result.failure(ApiException(error))
             }
+        } catch (e: java.io.InterruptedIOException) {
+            // OkHttp's callTimeout / socket timeouts.
+            Result.failure(ApiException(UseSenseError.networkTimeout()))
         } catch (e: IOException) {
             Result.failure(ApiException(UseSenseError.networkError(e.message)))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Never turn a cancellation (watchdog, Try again, timeout) into a
+            // "network error" result the caller then acts on.
+            throw e
         } catch (e: Exception) {
             Result.failure(ApiException(UseSenseError.networkError(e.message)))
         }

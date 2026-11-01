@@ -27,6 +27,15 @@ class FlowError(
         CANCELLED("cancelled"),
         UNSUPPORTED_ACTION("unsupported_action"),
         INVALID_INPUT("invalid_input"),
+
+        /** Face capture did not finish in time (camera open / frame capture). */
+        CAPTURE_TIMEOUT("capture_timeout"),
+
+        /** Face capture packaging, upload or scoring did not finish in time. */
+        UPLOAD_TIMEOUT("upload_timeout"),
+
+        /** The run stayed in a non-actionable state past the runner's polling budget. */
+        RUN_TIMEOUT("run_timeout"),
         UNKNOWN("unknown");
     }
 

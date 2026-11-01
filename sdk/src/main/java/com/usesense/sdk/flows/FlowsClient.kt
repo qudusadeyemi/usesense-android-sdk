@@ -200,10 +200,20 @@ class FlowsClient(
     }
 
     companion object {
+        /**
+         * Every runner request is a blocking execute() on Dispatchers.IO, which
+         * coroutine cancellation cannot interrupt, so the client itself must be
+         * bounded end to end: a write timeout for the document upload body and a
+         * whole-call ceiling so no single request can outlive [CALL_TIMEOUT_SECONDS].
+         */
         fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .callTimeout(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .build()
+
+        const val CALL_TIMEOUT_SECONDS = 90L
 
         /**
          * Map server HTTP/JSON error envelope to the SDK's FlowError taxonomy.
