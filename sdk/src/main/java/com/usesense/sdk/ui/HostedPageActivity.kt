@@ -5,8 +5,8 @@ import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.app.Activity
-import android.app.AlertDialog
 import android.content.Context
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.content.pm.PackageManager
@@ -88,8 +88,15 @@ class HostedPageActivity : AppCompatActivity() {
     // Screen views
     private lateinit var loadingScreen: LinearLayout
     private lateinit var loadingText: TextView
-    private lateinit var errorScreen: LinearLayout
+    private lateinit var errorScreen: ScrollView
+    private lateinit var errorIconCircle: FrameLayout
+    private lateinit var errorIcon: ImageView
+    private lateinit var errorTitle: TextView
     private lateinit var errorMessage: TextView
+    private lateinit var errorCode: TextView
+    private lateinit var errorPrimaryButton: MaterialButton
+    private lateinit var errorSecondaryButton: MaterialButton
+    private lateinit var errorExitButton: MaterialButton
     private lateinit var introScreen: ScrollView
     private lateinit var introHeadline: TextView
     private lateinit var introDescription: TextView
@@ -196,7 +203,6 @@ class HostedPageActivity : AppCompatActivity() {
 
     /** The error on screen right now, delivered if the subject leaves from it. */
     private var pendingTerminalError: UseSenseError? = null
-    private var recoveryDialog: AlertDialog? = null
 
     enum class PageStep {
         LOADING, ERROR, INTRODUCTION, ACTION_REVIEW,
@@ -273,7 +279,14 @@ class HostedPageActivity : AppCompatActivity() {
         loadingScreen = findViewById(R.id.hostedLoadingScreen)
         loadingText = findViewById(R.id.hostedLoadingText)
         errorScreen = findViewById(R.id.hostedErrorScreen)
+        errorIconCircle = findViewById(R.id.errorIconCircle)
+        errorIcon = findViewById(R.id.errorIcon)
+        errorTitle = findViewById(R.id.hostedErrorTitle)
         errorMessage = findViewById(R.id.hostedErrorMessage)
+        errorCode = findViewById(R.id.hostedErrorCode)
+        errorPrimaryButton = findViewById(R.id.errorPrimaryButton)
+        errorSecondaryButton = findViewById(R.id.errorSecondaryButton)
+        errorExitButton = findViewById(R.id.errorExitButton)
         introScreen = findViewById(R.id.hostedIntroScreen)
         introHeadline = findViewById(R.id.introHeadline)
         introDescription = findViewById(R.id.introDescription)
@@ -1312,7 +1325,11 @@ class HostedPageActivity : AppCompatActivity() {
 
     private fun showTechnicalRecovery(sess: UseSenseSession, recovery: FinalizationUpdate.Recovery) {
         eventEmitter.emit(EventType.ERROR, errorEvent(recovery.phase.name.lowercase(), recovery.error))
-        showRecoveryDialog(recovery.error, RecoveryAction.RETRY in recovery.actions) { startFinalization(sess) }
+        showRecoveryDialog(recovery.error, RecoveryAction.RETRY in recovery.actions) {
+            // Resume where it failed. If only /complete failed, the signals are already
+            // on the server, and uploading them again resets a finished session.
+            startFinalization(sess, recovery.phase)
+        }
     }
 
     /**
@@ -1324,22 +1341,72 @@ class HostedPageActivity : AppCompatActivity() {
         showRecoveryDialog(error, canRetryUpload = false, retry = null)
     }
 
+    /**
+     * A failure the subject can recover from: the error screen with
+     * "Try again" (a clean attempt), "Retry upload" when the captured frames
+     * can be re-sent, and "Exit". Replaces the stock AlertDialog, which showed
+     * raw server text to end users.
+     */
     private fun showRecoveryDialog(error: UseSenseError, canRetryUpload: Boolean, retry: (() -> Unit)?) {
         if (isFinishing || isDestroyed) return
         pendingTerminalError = error
         callbackGate.recovery()
-        recoveryDialog?.dismiss()
-        val codeLine = error.serverCode?.let { "\n\nError code: $it" } ?: "\n\nError code: ${error.code}"
-        val dialog = AlertDialog.Builder(this)
-            .setTitle("We could not finish your identity check")
-            .setMessage(error.message + codeLine)
-            .setNegativeButton("Exit") { _, _ ->
-                callbackGate.exit(error)
-                finish()
-            }
-        if (canRetryUpload && retry != null) dialog.setPositiveButton("Retry") { _, _ -> pendingTerminalError = null; retry() }
-        dialog.setNeutralButton("Try again") { _, _ -> restartCapture() }
-        recoveryDialog = dialog.setCancelable(false).show()
+        bindErrorScreen(error)
+
+        val uploadRetry = retry.takeIf { canRetryUpload }
+        if (uploadRetry != null) {
+            // The frames are already captured: re-sending them is the cheaper fix.
+            errorPrimaryButton.text = getString(R.string.usesense_retry_finalize)
+            errorPrimaryButton.setOnClickListener { pendingTerminalError = null; uploadRetry() }
+            errorSecondaryButton.text = getString(R.string.usesense_start_over)
+            errorSecondaryButton.setOnClickListener { restartCapture() }
+            errorSecondaryButton.visibility = View.VISIBLE
+        } else {
+            errorPrimaryButton.text = getString(R.string.usesense_retry)
+            errorPrimaryButton.setOnClickListener { restartCapture() }
+            errorSecondaryButton.visibility = View.GONE
+        }
+        errorExitButton.text = getString(R.string.usesense_exit)
+        errorExitButton.setOnClickListener {
+            callbackGate.exit(error)
+            finish()
+        }
+        errorExitButton.visibility = View.VISIBLE
+        setStep(PageStep.ERROR)
+    }
+
+    /** Icon, plain-language title and message, and the code as a caption. */
+    private fun bindErrorScreen(error: UseSenseError?) {
+        errorIcon.setImageResource(R.drawable.usesense_icon_error)
+        errorIcon.setColorFilter(Color.parseColor("#DB4E33")) // error-6
+        errorIconCircle.background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL; setColor(Color.parseColor("#FFF0EC")) // error-0
+        }
+        val (title, body) = errorCopy(error)
+        errorTitle.text = getString(title)
+        errorMessage.text = getString(body)
+        val code = error?.serverCode?.takeIf { it.isNotBlank() } ?: error?.code?.toString()
+        if (code != null) {
+            errorCode.text = getString(R.string.usesense_error_code, code)
+            errorCode.visibility = View.VISIBLE
+        } else {
+            errorCode.visibility = View.GONE
+        }
+    }
+
+    private fun errorCopy(error: UseSenseError?): Pair<Int, Int> = when {
+        error == null -> R.string.usesense_error_default_title to R.string.usesense_error_default_body
+        error.code == UseSenseError.NETWORK_ERROR || error.code == UseSenseError.NETWORK_TIMEOUT ||
+            error.code == UseSenseError.UPLOAD_FAILED || error.code == UseSenseError.UPLOAD_TIMEOUT ->
+            R.string.usesense_error_connection_title to R.string.usesense_error_connection_body
+        error.code == UseSenseError.CAPTURE_TIMEOUT || error.code == UseSenseError.CAPTURE_FAILED ||
+            error.code == UseSenseError.ENCODING_FAILED || error.serverCode == UseSenseError.CODE_NO_FRAMES ->
+            R.string.usesense_error_capture_title to R.string.usesense_error_capture_body
+        error.code == UseSenseError.SESSION_EXPIRED ->
+            R.string.usesense_error_expired_title to R.string.usesense_error_expired_body
+        error.code == UseSenseError.QUOTA_EXCEEDED || error.code == UseSenseError.INVALID_CONFIG ->
+            R.string.usesense_error_unavailable_title to R.string.usesense_error_unavailable_body
+        else -> R.string.usesense_error_default_title to R.string.usesense_error_default_body
     }
 
     private fun errorEvent(phase: String, error: UseSenseError): Map<String, Any> = buildMap {
@@ -1379,8 +1446,6 @@ class HostedPageActivity : AppCompatActivity() {
      */
     private fun restartCapture() {
         abortAttempt()
-        recoveryDialog?.dismiss()
-        recoveryDialog = null
         pendingTerminalError = null
         challengePresenter = null
         frameCaptureManager = null
@@ -1469,12 +1534,21 @@ class HostedPageActivity : AppCompatActivity() {
         setStep(PageStep.RESULT)
     }
 
+    /**
+     * A terminal error: nothing on this screen can fix it, so it offers Close.
+     * The raw message goes to the host through the callback, not to the subject.
+     */
     private fun showError(message: String) {
         if (::watchdog.isInitialized) watchdog.disarm()
         if (pendingTerminalError == null) {
             pendingTerminalError = UseSenseError.captureFailed(message)
         }
-        errorMessage.text = message
+        Log.w(TAG, "Terminal error shown: $message")
+        bindErrorScreen(pendingTerminalError)
+        errorPrimaryButton.text = getString(R.string.usesense_close)
+        errorPrimaryButton.setOnClickListener { finish() }
+        errorSecondaryButton.visibility = View.GONE
+        errorExitButton.visibility = View.GONE
         setStep(PageStep.ERROR)
     }
 
@@ -1491,6 +1565,11 @@ class HostedPageActivity : AppCompatActivity() {
 
         if (step != PageStep.FINALIZING) {
             allScreens.forEach { it.visibility = View.GONE }
+        } else {
+            // Finalizing overlays the capture screen; a retry from the error
+            // screen must not leave the error showing on top of it.
+            errorScreen.visibility = View.GONE
+            resultScreen.visibility = View.GONE
         }
 
         when (step) {
@@ -1546,7 +1625,6 @@ class HostedPageActivity : AppCompatActivity() {
         if (!isChangingConfigurations) {
             pendingTerminalError?.let { callbackGate.exit(it) } ?: callbackGate.cancel()
         }
-        recoveryDialog?.dismiss()
         if (::watchdog.isInitialized) watchdog.disarm()
         finalizationJob?.cancel()
         super.onDestroy()

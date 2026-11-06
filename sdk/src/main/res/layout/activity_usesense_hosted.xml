@@ -76,49 +76,100 @@
                     android:textColor="#475569" />
             </LinearLayout>
 
-            <!-- ============= ERROR SCREEN (Section 11.4) ============= -->
-            <LinearLayout
+            <!-- ============= ERROR SCREEN (Section 11.4) =============
+                 One centred, branded screen for every failure: terminal errors
+                 and the recoverable ones (Try again / Retry upload / Exit).
+                 Plain-language title and message; the code is a muted caption
+                 for support, never the raw server text. -->
+            <ScrollView
                 android:id="@+id/hostedErrorScreen"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:gravity="center"
-                android:orientation="vertical"
-                android:padding="24dp"
+                android:fillViewport="true"
                 android:visibility="gone">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:background="@drawable/usesense_error_container_bg"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:padding="24dp">
+                    android:paddingHorizontal="32dp"
+                    android:paddingVertical="24dp">
 
-                    <ImageView
-                        android:layout_width="48dp"
-                        android:layout_height="48dp"
-                        android:src="@drawable/usesense_icon_error"
-                        android:tint="@color/usesense_error" />
+                    <FrameLayout
+                        android:id="@+id/errorIconCircle"
+                        android:layout_width="80dp"
+                        android:layout_height="80dp">
+
+                        <ImageView
+                            android:id="@+id/errorIcon"
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:layout_gravity="center"
+                            android:importantForAccessibility="no" />
+                    </FrameLayout>
 
                     <TextView
-                        android:layout_width="wrap_content"
+                        android:id="@+id/hostedErrorTitle"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="16dp"
-                        android:text="@string/usesense_session_not_available"
+                        android:layout_marginTop="24dp"
+                        android:gravity="center_horizontal"
+                        android:textAlignment="center"
                         android:textSize="20sp"
                         android:textStyle="bold"
-                        android:textColor="@color/usesense_error_dark" />
+                        android:textColor="#0F172A" />
 
                     <TextView
                         android:id="@+id/hostedErrorMessage"
-                        android:layout_width="wrap_content"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
-                        android:textSize="14sp"
-                        android:textColor="#B91C1C"
-                        android:textAlignment="center" />
+                        android:gravity="center_horizontal"
+                        android:textAlignment="center"
+                        android:lineSpacingMultiplier="1.3"
+                        android:textSize="15sp"
+                        android:textColor="#475569" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/errorPrimaryButton"
+                        style="@style/UseSense.Button.Primary"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="32dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/errorSecondaryButton"
+                        style="@style/UseSense.Button.Secondary"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:visibility="gone" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/errorExitButton"
+                        style="@style/Widget.MaterialComponents.Button.TextButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:textAllCaps="false"
+                        android:textColor="#475569"
+                        android:visibility="gone" />
+
+                    <TextView
+                        android:id="@+id/hostedErrorCode"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:gravity="center_horizontal"
+                        android:textAlignment="center"
+                        android:textIsSelectable="true"
+                        android:fontFamily="monospace"
+                        android:textSize="12sp"
+                        android:textColor="#94A3B8"
+                        android:visibility="gone" />
                 </LinearLayout>
-            </LinearLayout>
+            </ScrollView>
 
             <!-- ============= INTRODUCTION SCREEN (Section 11.5) ============= -->
             <ScrollView
@@ -141,6 +192,7 @@
                         android:layout_height="wrap_content"
                         android:textSize="18sp"
                         android:textColor="#0F172A"
+                        android:gravity="center_horizontal"
                         android:textAlignment="center"
                         android:layout_marginTop="16dp" />
 
@@ -150,6 +202,7 @@
                         android:layout_height="wrap_content"
                         android:textSize="14sp"
                         android:textColor="#475569"
+                        android:gravity="center_horizontal"
                         android:textAlignment="center"
                         android:layout_marginTop="8dp" />
 
@@ -216,6 +269,7 @@
                         android:textSize="12sp"
                         android:textColor="#475569"
                         android:layout_marginTop="16dp"
+                        android:gravity="center_horizontal"
                         android:textAlignment="center" />
 
                     <com.google.android.material.button.MaterialButton
@@ -249,6 +303,7 @@
                         android:layout_height="wrap_content"
                         android:textSize="18sp"
                         android:textColor="#0F172A"
+                        android:gravity="center_horizontal"
                         android:textAlignment="center"
                         android:layout_marginTop="16dp" />
 
@@ -258,6 +313,7 @@
                         android:layout_height="wrap_content"
                         android:textSize="14sp"
                         android:textColor="#475569"
+                        android:gravity="center_horizontal"
                         android:textAlignment="center"
                         android:layout_marginTop="8dp" />
 
@@ -279,6 +335,7 @@
                             android:textSize="16sp"
                             android:textColor="#0F172A"
                             android:textStyle="bold"
+                            android:gravity="center_horizontal"
                             android:textAlignment="center" />
                     </LinearLayout>
 
@@ -318,6 +375,7 @@
                         android:textSize="12sp"
                         android:textColor="#475569"
                         android:layout_marginTop="16dp"
+                        android:gravity="center_horizontal"
                         android:textAlignment="center" />
 
                     <com.google.android.material.button.MaterialButton
@@ -368,6 +426,7 @@
                     android:textSize="18sp"
                     android:textStyle="bold"
                     android:textColor="#0F172A"
+                    android:gravity="center_horizontal"
                     android:textAlignment="center"
                     android:text="@string/usesense_camera_permission_title" />
 
@@ -378,6 +437,7 @@
                     android:layout_marginTop="8dp"
                     android:textSize="14sp"
                     android:textColor="#475569"
+                    android:gravity="center_horizontal"
                     android:textAlignment="center"
                     android:text="@string/usesense_camera_permission_message" />
 
@@ -690,6 +750,7 @@
                     android:textColor="#FFFFFFFF"
                     android:fontFamily="sans-serif-medium"
                     android:textStyle="bold"
+                    android:gravity="center_horizontal"
                     android:textAlignment="center" />
 
                 <TextView
@@ -743,6 +804,7 @@
                         android:textColor="#FFFFFFFF"
                         android:fontFamily="sans-serif-medium"
                         android:textStyle="bold"
+                        android:gravity="center_horizontal"
                         android:textAlignment="center" />
 
                     <TextView
@@ -825,15 +887,15 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="24dp"
-                    android:gravity="center_horizontal">
+                    android:paddingHorizontal="32dp"
+                    android:paddingVertical="24dp"
+                    android:gravity="center">
 
                     <!-- Result icon (80dp circle with colored background) -->
                     <FrameLayout
                         android:id="@+id/resultIconCircle"
                         android:layout_width="80dp"
-                        android:layout_height="80dp"
-                        android:layout_marginTop="32dp">
+                        android:layout_height="80dp">
 
                         <ImageView
                             android:id="@+id/resultIcon"
@@ -847,10 +909,10 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="24dp"
-                        android:paddingHorizontal="24dp"
                         android:textSize="20sp"
                         android:textStyle="bold"
                         android:textColor="#0F172A"
+                        android:gravity="center_horizontal"
                         android:textAlignment="center" />
 
                     <TextView
@@ -858,8 +920,10 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
-                        android:textSize="14sp"
+                        android:lineSpacingMultiplier="1.3"
+                        android:textSize="15sp"
                         android:textColor="#475569"
+                        android:gravity="center_horizontal"
                         android:textAlignment="center" />
 
                     <!-- Action confirmation box (for action auth success) -->
@@ -895,7 +959,7 @@
                         style="@style/UseSense.Button.Secondary"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="24dp" />
+                        android:layout_marginTop="32dp" />
                 </LinearLayout>
             </ScrollView>
         </FrameLayout>
