@@ -32,6 +32,7 @@ import androidx.core.graphics.ColorUtils
 import com.google.android.material.button.MaterialButton
 import com.usesense.sdk.R
 import com.usesense.sdk.*
+import com.usesense.sdk.api.ApiException
 import com.usesense.sdk.api.UseSenseApiClient
 import com.usesense.sdk.api.models.*
 import com.usesense.sdk.capture.FrameCaptureManager
@@ -493,13 +494,13 @@ class HostedPageActivity : AppCompatActivity() {
                 FlowType.VERIFICATION -> loadVerificationData()
             }
         } catch (e: Exception) {
-            showError(e.message ?: "Failed to load session data")
+            showError(e, "Failed to load session data")
         }
     }
 
     private suspend fun loadEnrollmentData() {
         val result = apiClient.getRemoteEnrollmentData(remoteId)
-        result.onFailure { showError(it.message ?: "Failed to load enrollment"); return }
+        result.onFailure { showError(it, "Failed to load enrollment"); return }
 
         val data = result.getOrNull() ?: run { showError("Empty response"); return }
         orgBranding = data.branding ?: data.enrollment?.branding
@@ -513,7 +514,7 @@ class HostedPageActivity : AppCompatActivity() {
 
     private suspend fun loadVerificationData() {
         val result = apiClient.getRemoteSessionData(remoteId)
-        result.onFailure { showError(it.message ?: "Failed to load session"); return }
+        result.onFailure { showError(it, "Failed to load session"); return }
 
         val data = result.getOrNull() ?: run { showError("Empty response"); return }
         orgBranding = data.branding ?: data.session?.branding
@@ -646,7 +647,7 @@ class HostedPageActivity : AppCompatActivity() {
                     FlowType.VERIFICATION -> apiClient.initVerificationSession(remoteId)
                 }
                 initResult.onFailure {
-                    showError(it.message ?: "Failed to initialize session")
+                    showError(it, "Failed to initialize session")
                     return
                 }
                 sessionData = initResult.getOrNull()
@@ -1402,9 +1403,13 @@ class HostedPageActivity : AppCompatActivity() {
         error.code == UseSenseError.CAPTURE_TIMEOUT || error.code == UseSenseError.CAPTURE_FAILED ||
             error.code == UseSenseError.ENCODING_FAILED || error.serverCode == UseSenseError.CODE_NO_FRAMES ->
             R.string.usesense_error_capture_title to R.string.usesense_error_capture_body
-        error.code == UseSenseError.SESSION_EXPIRED ->
+        error.code == UseSenseError.SESSION_EXPIRED || error.serverCode == "session_expired" ->
             R.string.usesense_error_expired_title to R.string.usesense_error_expired_body
-        error.code == UseSenseError.QUOTA_EXCEEDED || error.code == UseSenseError.INVALID_CONFIG ->
+        // Integration problems (bad key, quota, config) and server overload: the
+        // subject can't fix these, so no capture advice.
+        error.code == UseSenseError.QUOTA_EXCEEDED || error.code == UseSenseError.INVALID_CONFIG ||
+            error.code == 401 || error.code == 402 || error.code == 403 ||
+            error.code == 429 || error.code == 503 ->
             R.string.usesense_error_unavailable_title to R.string.usesense_error_unavailable_body
         else -> R.string.usesense_error_default_title to R.string.usesense_error_default_body
     }
@@ -1462,6 +1467,7 @@ class HostedPageActivity : AppCompatActivity() {
         watchdog.disarm()
         callbackGate.exit(error)
         if (!isFinishing) {
+            pendingTerminalError = error
             showError(error.message)
         }
     }
@@ -1534,17 +1540,29 @@ class HostedPageActivity : AppCompatActivity() {
         setStep(PageStep.RESULT)
     }
 
+    /** A terminal failure with a cause: an API error keeps its own code and copy. */
+    private fun showError(cause: Throwable, fallback: String) {
+        if (cause is ApiException && pendingTerminalError == null) {
+            pendingTerminalError = cause.useSenseError
+        }
+        showError(cause.message ?: fallback)
+    }
+
     /**
      * A terminal error: nothing on this screen can fix it, so it offers Close.
      * The raw message goes to the host through the callback, not to the subject.
      */
     private fun showError(message: String) {
         if (::watchdog.isInitialized) watchdog.disarm()
-        if (pendingTerminalError == null) {
+        // A bare message has no type: show the generic copy and no code, rather
+        // than dressing it up as a capture failure (an API-key error used to say
+        // "We couldn't see your face clearly").
+        val typed = pendingTerminalError
+        if (typed == null) {
             pendingTerminalError = UseSenseError.captureFailed(message)
         }
         Log.w(TAG, "Terminal error shown: $message")
-        bindErrorScreen(pendingTerminalError)
+        bindErrorScreen(typed)
         errorPrimaryButton.text = getString(R.string.usesense_close)
         errorPrimaryButton.setOnClickListener { finish() }
         errorSecondaryButton.visibility = View.GONE
