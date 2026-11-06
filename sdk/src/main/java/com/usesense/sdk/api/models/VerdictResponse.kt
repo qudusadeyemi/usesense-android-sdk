@@ -28,11 +28,26 @@ data class VerdictResponse(
     @Json(name = "debug") val debug: DebugInfo? = null,
 )
 
+/**
+ * Per-pillar verdicts, in the shape the server sends:
+ * `{ "deepsense": {"score": 82, "verdict": "PASS"}, "livesense": {...}, "dedupe": {...} }`.
+ *
+ * This used to declare `channel_trust` / `liveness` / `dedupe` as strings.
+ * The server sends `dedupe` as an object, so decoding the whole verdict failed
+ * ("Expected a string but was BEGIN_OBJECT at path $.pillar_verdicts.dedupe")
+ * and the integrator got error 2001 instead of the decision.
+ */
 @JsonClass(generateAdapter = true)
 data class PillarVerdicts(
-    @Json(name = "channel_trust") val channelTrust: String? = null,
-    @Json(name = "liveness") val liveness: String? = null,
-    @Json(name = "dedupe") val dedupe: String? = null,
+    @Json(name = "deepsense") val deepsense: PillarVerdict? = null,
+    @Json(name = "livesense") val livesense: PillarVerdict? = null,
+    @Json(name = "dedupe") val dedupe: PillarVerdict? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class PillarVerdict(
+    @Json(name = "score") val score: Double? = null,
+    @Json(name = "verdict") val verdict: String? = null,
 )
 
 @JsonClass(generateAdapter = true)
