@@ -187,6 +187,16 @@ class HostedPageActivity : AppCompatActivity() {
     private var stepUpRoundActive = false
 
     /**
+     * Each challenge phase is one capture round. Its completion callbacks carry
+     * the round they belong to, and only the latest round completes, once.
+     * A second completion (a double-tapped start button, a duplicate timer)
+     * used to see an empty buffer and show NO_FRAMES_CAPTURED over an upload
+     * that was already running, and the real result then replaced the error.
+     */
+    private var captureRound = 0
+    private var completedRound = -1
+
+    /**
      * Backstop for a capture that stops making progress: moves the screen to a
      * terminal error with a stable code instead of an endless spinner.
      */
@@ -793,7 +803,12 @@ class HostedPageActivity : AppCompatActivity() {
         captureTitle.text = getString(R.string.usesense_getting_ready)
         captureSubtitle.text = ""
 
+        instructionsCta.isEnabled = true
         instructionsCta.setOnClickListener {
+            // One tap starts one capture: a queued second tap must not bind the
+            // camera again and start a second capture behind the first.
+            if (!instructionsCta.isEnabled) return@setOnClickListener
+            instructionsCta.isEnabled = false
             instructionsOverlay.visibility = View.GONE
             startCameraAndCapture()
         }
@@ -948,7 +963,10 @@ class HostedPageActivity : AppCompatActivity() {
         captureTitle.text = getString(R.string.usesense_position_face)
         captureSubtitle.text = getString(R.string.usesense_center_face)
 
+        faceGuideReadyButton.isEnabled = true
         faceGuideReadyButton.setOnClickListener {
+            if (!faceGuideReadyButton.isEnabled) return@setOnClickListener
+            faceGuideReadyButton.isEnabled = false
             faceGuideOverlay.visibility = View.GONE
             watchdog.arm(WatchdogPhase.CAPTURE)
             sess.startCapture()
@@ -1042,18 +1060,19 @@ class HostedPageActivity : AppCompatActivity() {
 
     private fun startChallengePhase() {
         val sess = session ?: return
+        val round = ++captureRound
         sess.setCapturePhase(CapturePhase.CHALLENGE)
         eventEmitter.emit(EventType.CHALLENGE_STARTED, mapOf("type" to (sess.challengeSpec?.type ?: "")))
 
         val presenter = challengePresenter
         if (presenter == null) {
             val remaining = (sess.uploadConfig?.captureDurationMs ?: 4500) - BASELINE_MS
-            handler.postDelayed({ onCaptureComplete() }, remaining.coerceAtLeast(1000))
+            handler.postDelayed({ onCaptureComplete(round) }, remaining.coerceAtLeast(1000))
             return
         }
 
         showPhaseBadge("CHALLENGE")
-        presenter.onChallengeComplete = { onCaptureComplete() }
+        presenter.onChallengeComplete = { onCaptureComplete(round) }
 
         when (presenter) {
             is FollowDotChallenge -> {
@@ -1160,7 +1179,12 @@ class HostedPageActivity : AppCompatActivity() {
 
     // ─── Capture Complete → Upload → Result ──────────────────────────────
 
-    private fun onCaptureComplete() {
+    private fun onCaptureComplete(round: Int) {
+        if (round != captureRound || round == completedRound) {
+            Log.w(TAG, "Ignoring duplicate capture completion (round $round, current $captureRound)")
+            return
+        }
+        completedRound = round
         val sess = session ?: return
         if (stepUpRoundActive) {
             stepUpRoundActive = false
