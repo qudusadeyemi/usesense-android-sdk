@@ -143,9 +143,14 @@ class MockUseSenseServer {
             put("liveness_score", scores.second)
             put("dedupe_risk_score", scores.third)
             put("pillar_verdicts", JSONObject().apply {
-                put("channel_trust", if (scores.first >= 50) "PASS" else "FAIL")
-                put("liveness", if (scores.second >= 50) "PASS" else "FAIL")
-                put("dedupe", if (scores.third <= 50) "PASS" else "FAIL")
+                // Same shape as the real server: { score, verdict } per pillar.
+                fun pillar(score: Int, pass: Boolean) = JSONObject().apply {
+                    put("score", score)
+                    put("verdict", if (pass) "PASS" else "FAIL")
+                }
+                put("deepsense", pillar(scores.first, scores.first >= 50))
+                put("livesense", pillar(scores.second, scores.second >= 50))
+                put("dedupe", pillar(scores.third, scores.third <= 50))
             })
             put("verdict_metadata", JSONObject().apply {
                 put("source", "matrix")

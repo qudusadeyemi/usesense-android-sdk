@@ -31,14 +31,10 @@ internal class VerificationPackageBuilder {
 
         for (fitted in fitter.results) {
             val frameHash = frameHashes[fitted.frameIndex] ?: continue
-            val meshData = meshDataList.find { it.frameIndex == fitted.frameIndex }
-            val landmarkCount = meshData?.landmarks?.size ?: 468
-
             val meshDigest = MeshBindingProof.computeMeshDigest(
                 shapeParams = fitted.shapeParams,
                 pose = fitted.pose,
                 depthPlausibility = fitted.depthPlausibility,
-                landmarkCount = landmarkCount,
             )
 
             val bindingProof = if (meshBindingChallenge.isNotEmpty()) {

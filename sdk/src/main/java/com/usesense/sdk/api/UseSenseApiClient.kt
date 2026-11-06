@@ -1,7 +1,6 @@
 package com.usesense.sdk.api
 
 import com.squareup.moshi.Moshi
-import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import com.usesense.sdk.UseSenseConfig
 import com.usesense.sdk.UseSenseEnvironment
 import com.usesense.sdk.UseSenseError
@@ -92,9 +91,7 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
      */
     var onUploadProgress: ((Long, Long) -> Unit)? = null
 
-    private val moshi: Moshi = Moshi.Builder()
-        .addLast(KotlinJsonAdapterFactory())
-        .build()
+    private val moshi: Moshi = apiMoshi()
 
     @Volatile
     var sessionToken: String? = null

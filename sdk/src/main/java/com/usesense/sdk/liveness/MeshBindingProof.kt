@@ -15,22 +15,28 @@ import javax.crypto.spec.SecretKeySpec
  * CRITICAL implementation notes:
  * - The challenge MUST be hex-decoded (not text-encoded) as the HMAC key
  * - Shape params MUST use Double precision (64-bit), not Float (32-bit)
- * - Canonical JSON field order MUST be: s, p (y, p, r), d, l
+ * - The canonical JSON MUST be byte-identical to the server's
+ *   `computeMeshDigest` (usesense-watchtower mesh-integrity-validator.tsx),
+ *   which is `JSON.stringify({ s, p: [yaw, pitch, roll], d, l: "none" })`:
+ *   `p` is an array, `l` is the literal "none" (landmarks are not uploaded),
+ *   and every number is formatted as JavaScript would format it.
+ *   Until 2026-11 this built `p` as an object and `l` as the landmark count,
+ *   so every Android binding proof failed server-side with
+ *   `mesh_integrity_failed` at tier "binding".
  */
 internal object MeshBindingProof {
 
     /**
      * Compute the mesh digest: SHA-256 of the canonical JSON representation.
      *
-     * Canonical format: {"s":[...],"p":{"y":...,"p":...,"r":...},"d":...,"l":468}
+     * Canonical format: {"s":[...],"p":[yaw,pitch,roll],"d":...,"l":"none"}
      */
     fun computeMeshDigest(
         shapeParams: DoubleArray,
         pose: HeadPose,
         depthPlausibility: Int,
-        landmarkCount: Int,
     ): String {
-        val canonical = buildCanonicalJson(shapeParams, pose, depthPlausibility, landmarkCount)
+        val canonical = buildCanonicalJson(shapeParams, pose, depthPlausibility)
         return sha256Hex(canonical.toByteArray(Charsets.UTF_8))
     }
 
@@ -59,34 +65,69 @@ internal object MeshBindingProof {
     }
 
     /**
-     * Build the canonical JSON string with EXACTLY the right field order.
-     * This must produce identical output to the server's canonical form.
+     * Build the canonical JSON string, byte-identical to the server's
+     * `JSON.stringify({ s, p: [yaw, pitch, roll], d, l: "none" })`.
      */
     internal fun buildCanonicalJson(
         shapeParams: DoubleArray,
         pose: HeadPose,
         depthPlausibility: Int,
-        landmarkCount: Int,
     ): String {
-        // Build manually to guarantee field order (JSONObject doesn't preserve order)
         val sb = StringBuilder()
         sb.append("{\"s\":[")
         shapeParams.forEachIndexed { index, param ->
             if (index > 0) sb.append(",")
-            sb.append(param) // Double precision
+            sb.append(jsNumber(param))
         }
-        sb.append("],\"p\":{\"y\":")
-        sb.append(pose.yaw)
-        sb.append(",\"p\":")
-        sb.append(pose.pitch)
-        sb.append(",\"r\":")
-        sb.append(pose.roll)
-        sb.append("},\"d\":")
+        sb.append("],\"p\":[")
+        sb.append(jsNumber(pose.yaw)).append(",")
+        sb.append(jsNumber(pose.pitch)).append(",")
+        sb.append(jsNumber(pose.roll))
+        sb.append("],\"d\":")
         sb.append(depthPlausibility)
-        sb.append(",\"l\":")
-        sb.append(landmarkCount)
-        sb.append("}")
+        sb.append(",\"l\":\"none\"}")
         return sb.toString()
+    }
+
+    /**
+     * Format a Double exactly as JavaScript's `JSON.stringify` does
+     * (ECMAScript Number::toString): the shortest digits that round-trip,
+     * fixed notation for 1e-7 < |x| < 1e21, otherwise `1.5e-7` / `1e+21`.
+     * NaN and infinities become `null`, and -0 becomes `0`.
+     *
+     * Kotlin's `Double.toString` differs ("1.0", "1.0E-5", "1.0E21"), and
+     * any single differing character breaks the binding proof.
+     */
+    internal fun jsNumber(value: Double): String {
+        if (value.isNaN() || value.isInfinite()) return "null"
+        if (value == 0.0) return "0"
+
+        // Shortest correctly-rounded decimal that parses back to the same Double.
+        val exact = java.math.BigDecimal(value)
+        var shortest = exact
+        for (precision in 1..17) {
+            val candidate = exact.round(java.math.MathContext(precision, java.math.RoundingMode.HALF_EVEN))
+            if (candidate.toDouble() == value) { shortest = candidate; break }
+        }
+        shortest = shortest.stripTrailingZeros()
+
+        val digits = shortest.unscaledValue().abs().toString()
+        val k = digits.length
+        // value = 0.digits × 10^n
+        val n = k - shortest.scale()
+        val sign = if (value < 0) "-" else ""
+
+        val body = when {
+            n in k..21 -> digits + "0".repeat(n - k)
+            n in 1..21 -> digits.substring(0, n) + "." + digits.substring(n)
+            n in -5..0 -> "0." + "0".repeat(-n) + digits
+            else -> {
+                val e = n - 1
+                val mantissa = if (k == 1) digits else digits[0] + "." + digits.substring(1)
+                mantissa + "e" + (if (e >= 0) "+" else "-") + kotlin.math.abs(e)
+            }
+        }
+        return sign + body
     }
 
     private fun sha256Hex(data: ByteArray): String {

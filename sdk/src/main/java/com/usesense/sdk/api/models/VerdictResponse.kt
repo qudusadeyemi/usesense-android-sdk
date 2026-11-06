@@ -11,9 +11,9 @@ data class VerdictResponse(
     @Json(name = "identity_id") val identityId: String? = null,
     @Json(name = "decision") val decision: String,
     @Json(name = "matrix_decision") val matrixDecision: String? = null,
-    @Json(name = "channel_trust_score") val channelTrustScore: Int = 0,
-    @Json(name = "liveness_score") val livenessScore: Int = 0,
-    @Json(name = "dedupe_risk_score") val dedupeRiskScore: Int = 0,
+    @Json(name = "channel_trust_score") val channelTrustScore: Double = 0.0,
+    @Json(name = "liveness_score") val livenessScore: Double = 0.0,
+    @Json(name = "dedupe_risk_score") val dedupeRiskScore: Double = 0.0,
     @Json(name = "pillar_verdicts") val pillarVerdicts: PillarVerdicts? = null,
     @Json(name = "verdict_metadata") val verdictMetadata: VerdictMetadata? = null,
     @Json(name = "reasons") val reasons: List<String> = emptyList(),
@@ -28,11 +28,26 @@ data class VerdictResponse(
     @Json(name = "debug") val debug: DebugInfo? = null,
 )
 
+/**
+ * Per-pillar verdicts, in the shape the server sends:
+ * `{ "deepsense": {"score": 82, "verdict": "PASS"}, "livesense": {...}, "dedupe": {...} }`.
+ *
+ * This used to declare `channel_trust` / `liveness` / `dedupe` as strings.
+ * The server sends `dedupe` as an object, so decoding the whole verdict failed
+ * ("Expected a string but was BEGIN_OBJECT at path $.pillar_verdicts.dedupe")
+ * and the integrator got error 2001 instead of the decision.
+ */
 @JsonClass(generateAdapter = true)
 data class PillarVerdicts(
-    @Json(name = "channel_trust") val channelTrust: String? = null,
-    @Json(name = "liveness") val liveness: String? = null,
-    @Json(name = "dedupe") val dedupe: String? = null,
+    @Json(name = "deepsense") val deepsense: PillarVerdict? = null,
+    @Json(name = "livesense") val livesense: PillarVerdict? = null,
+    @Json(name = "dedupe") val dedupe: PillarVerdict? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class PillarVerdict(
+    @Json(name = "score") val score: Double? = null,
+    @Json(name = "verdict") val verdict: String? = null,
 )
 
 @JsonClass(generateAdapter = true)
@@ -46,16 +61,16 @@ data class VerdictMetadata(
 
 @JsonClass(generateAdapter = true)
 data class GCScoreResult(
-    @Json(name = "score") val score: Int = 0,
+    @Json(name = "score") val score: Double = 0.0,
     @Json(name = "sub_signals") val subSignals: GCSubSignals? = null,
     @Json(name = "flags") val flags: GCFlags? = null,
 )
 
 @JsonClass(generateAdapter = true)
 data class GCSubSignals(
-    @Json(name = "depth_plausibility") val depthPlausibility: Int? = null,
-    @Json(name = "cross_frame_consistency") val crossFrameConsistency: Int? = null,
-    @Json(name = "dual_path_comparison") val dualPathComparison: Int? = null,
+    @Json(name = "depth_plausibility") val depthPlausibility: Double? = null,
+    @Json(name = "cross_frame_consistency") val crossFrameConsistency: Double? = null,
+    @Json(name = "dual_path_comparison") val dualPathComparison: Double? = null,
     @Json(name = "material_classification") val materialClassification: String? = null,
 )
 
@@ -81,7 +96,7 @@ data class SenseiStepUpResult(
 @JsonClass(generateAdapter = true)
 data class InlineStepUpResult(
     @Json(name = "triggered") val triggered: Boolean = false,
-    @Json(name = "suspicion_score") val suspicionScore: Int? = null,
+    @Json(name = "suspicion_score") val suspicionScore: Double? = null,
     @Json(name = "passed") val passed: Boolean = false,
     @Json(name = "hard_reject") val hardReject: Boolean = false,
     @Json(name = "flash_reflection") val flashReflection: Any? = null,
@@ -92,7 +107,7 @@ data class InlineStepUpResult(
 data class ChallengeValidationResult(
     @Json(name = "challengeType") val challengeType: String? = null,
     @Json(name = "verdict") val verdict: String? = null,
-    @Json(name = "overallScore") val overallScore: Int = 0,
+    @Json(name = "overallScore") val overallScore: Double = 0.0,
     @Json(name = "stepsCompliant") val stepsCompliant: Int = 0,
     @Json(name = "stepsTotal") val stepsTotal: Int = 0,
 )
@@ -100,8 +115,8 @@ data class ChallengeValidationResult(
 @JsonClass(generateAdapter = true)
 data class DedupeAnalysisResult(
     @Json(name = "duplicateSearchPerformed") val duplicateSearchPerformed: Boolean = false,
-    @Json(name = "highestDuplicateSimilarity") val highestDuplicateSimilarity: Int = 0,
-    @Json(name = "crossIdentityRisk") val crossIdentityRisk: Int = 0,
+    @Json(name = "highestDuplicateSimilarity") val highestDuplicateSimilarity: Double = 0.0,
+    @Json(name = "crossIdentityRisk") val crossIdentityRisk: Double = 0.0,
     @Json(name = "duplicateMatches") val duplicateMatches: List<Any> = emptyList(),
     @Json(name = "reference_match") val referenceMatch: ReferenceMatchResult? = null,
 )
@@ -109,7 +124,7 @@ data class DedupeAnalysisResult(
 @JsonClass(generateAdapter = true)
 data class ReferenceMatchResult(
     @Json(name = "similarity") val similarity: Double = 0.0,
-    @Json(name = "threshold") val threshold: Int = 80,
+    @Json(name = "threshold") val threshold: Double = 80.0,
     @Json(name = "matched") val matched: Boolean = false,
     @Json(name = "reference_data") val referenceData: String? = null,
 )
