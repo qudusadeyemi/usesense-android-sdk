@@ -1,5 +1,6 @@
 package com.usesense.demo
 
+import android.util.Log
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -24,18 +25,33 @@ class MockUseSenseServer {
 
     private var lastSessionId: String? = null
 
+    // MockWebServer resolves its host name when it binds, which is a network
+    // call: on the main thread Android throws NetworkOnMainThreadException.
+    // Start and stop it on a worker and wait; both take milliseconds.
     fun start() {
-        server = MockWebServer()
-        server?.dispatcher = createDispatcher()
-        server?.start(0) // random available port
-        port = server?.port ?: 0
+        val mock = MockWebServer().apply { dispatcher = createDispatcher() }
+        offMainThread { mock.start(0) } // random available port
+        server = mock
+        port = mock.port
     }
 
     fun stop() {
-        try {
-            server?.shutdown()
-        } catch (_: Exception) {}
+        val mock = server ?: return
         server = null
+        offMainThread {
+            try {
+                mock.shutdown()
+            } catch (_: Exception) {}
+        }
+    }
+
+    private fun offMainThread(block: () -> Unit) {
+        var failure: Throwable? = null
+        Thread { runCatching(block).onFailure { failure = it } }.apply {
+            start()
+            join()
+        }
+        failure?.let { throw it }
     }
 
     val baseUrl: String get() = "http://localhost:$port"
@@ -43,13 +59,17 @@ class MockUseSenseServer {
     private fun createDispatcher(): Dispatcher {
         return object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
-                val path = request.path ?: ""
+                // Path only: the SDK appends ?env= (and ?nonce=) to every call.
+                val path = request.requestUrl?.encodedPath ?: ""
                 return when {
                     path == "/v1/sessions" && request.method == "POST" -> handleCreateSession()
                     path.matches(Regex("/v1/sessions/.+/signals")) && request.method == "POST" -> handleUploadSignals()
                     path.matches(Regex("/v1/sessions/.+/complete")) && request.method == "POST" -> handleComplete()
                     path.matches(Regex("/v1/sessions/.+/status")) && request.method == "GET" -> handleStatus()
-                    else -> MockResponse().setResponseCode(404).setBody("""{"error":{"code":"not_found","message":"Not found"}}""")
+                    else -> {
+                        Log.w("MockUseSenseServer", "No mock for ${request.method} $path")
+                        MockResponse().setResponseCode(404).setBody("""{"error":{"code":"not_found","message":"Not found"}}""")
+                    }
                 }
             }
         }

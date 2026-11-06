@@ -5,8 +5,8 @@ import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.app.Activity
-import android.app.AlertDialog
 import android.content.Context
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.content.pm.PackageManager
@@ -21,6 +21,7 @@ import android.view.View
 import android.view.animation.OvershootInterpolator
 import android.view.animation.PathInterpolator
 import android.widget.*
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.*
@@ -31,13 +32,18 @@ import androidx.core.graphics.ColorUtils
 import com.google.android.material.button.MaterialButton
 import com.usesense.sdk.R
 import com.usesense.sdk.*
+import com.usesense.sdk.api.ApiException
 import com.usesense.sdk.api.UseSenseApiClient
 import com.usesense.sdk.api.models.*
 import com.usesense.sdk.capture.FrameCaptureManager
 import com.usesense.sdk.capture.ImageQualityAnalyzer
 import com.usesense.sdk.challenge.*
+import com.usesense.sdk.internal.Bounded
 import com.usesense.sdk.internal.CapturePhase
+import com.usesense.sdk.internal.CaptureWatchdog
 import com.usesense.sdk.internal.SessionState
+import com.usesense.sdk.internal.WatchdogPhase
+import com.usesense.sdk.internal.boundedCall
 import com.usesense.sdk.finalization.*
 import kotlinx.coroutines.*
 import java.util.concurrent.Executors
@@ -83,8 +89,15 @@ class HostedPageActivity : AppCompatActivity() {
     // Screen views
     private lateinit var loadingScreen: LinearLayout
     private lateinit var loadingText: TextView
-    private lateinit var errorScreen: LinearLayout
+    private lateinit var errorScreen: ScrollView
+    private lateinit var errorIconCircle: FrameLayout
+    private lateinit var errorIcon: ImageView
+    private lateinit var errorTitle: TextView
     private lateinit var errorMessage: TextView
+    private lateinit var errorCode: TextView
+    private lateinit var errorPrimaryButton: MaterialButton
+    private lateinit var errorSecondaryButton: MaterialButton
+    private lateinit var errorExitButton: MaterialButton
     private lateinit var introScreen: ScrollView
     private lateinit var introHeadline: TextView
     private lateinit var introDescription: TextView
@@ -173,6 +186,35 @@ class HostedPageActivity : AppCompatActivity() {
     /** True while a server step-up round (round 2) is being captured. */
     private var stepUpRoundActive = false
 
+    /**
+     * Each challenge phase is one capture round. Its completion callbacks carry
+     * the round they belong to, and only the latest round completes, once.
+     * A second completion (a double-tapped start button, a duplicate timer)
+     * used to see an empty buffer and show NO_FRAMES_CAPTURED over an upload
+     * that was already running, and the real result then replaced the error.
+     */
+    private var captureRound = 0
+    private var completedRound = -1
+
+    /**
+     * Backstop for a capture that stops making progress: moves the screen to a
+     * terminal error with a stable code instead of an endless spinner.
+     */
+    private lateinit var watchdog: CaptureWatchdog
+
+    /** The finalization (upload + complete) coroutine of the current attempt. */
+    private var finalizationJob: Job? = null
+
+    /** Delivers exactly one host callback per activity. */
+    private val callbackGate = FinalizationCallbackGate<UseSenseResult, UseSenseError>(
+        { pendingDirectCallback?.onSuccess(it) },
+        { pendingDirectCallback?.onError(it) },
+        { pendingDirectCallback?.onCancelled() },
+    )
+
+    /** The error on screen right now, delivered if the subject leaves from it. */
+    private var pendingTerminalError: UseSenseError? = null
+
     enum class PageStep {
         LOADING, ERROR, INTRODUCTION, ACTION_REVIEW,
         PERMISSION, CAPTURE, FINALIZING, RESULT
@@ -195,6 +237,16 @@ class HostedPageActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_usesense_hosted)
         bindViews()
+
+        watchdog = CaptureWatchdog(mainScope) { _, error -> onWatchdogTimeout(error) }
+        // Leaving the capture must never end silently: abandon the attempt and
+        // let onDestroy deliver onCancelled (or the error on screen).
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                abortAttempt()
+                finish()
+            }
+        })
 
         val config = pendingConfig ?: run {
             showError("SDK not initialized")
@@ -238,7 +290,14 @@ class HostedPageActivity : AppCompatActivity() {
         loadingScreen = findViewById(R.id.hostedLoadingScreen)
         loadingText = findViewById(R.id.hostedLoadingText)
         errorScreen = findViewById(R.id.hostedErrorScreen)
+        errorIconCircle = findViewById(R.id.errorIconCircle)
+        errorIcon = findViewById(R.id.errorIcon)
+        errorTitle = findViewById(R.id.hostedErrorTitle)
         errorMessage = findViewById(R.id.hostedErrorMessage)
+        errorCode = findViewById(R.id.hostedErrorCode)
+        errorPrimaryButton = findViewById(R.id.errorPrimaryButton)
+        errorSecondaryButton = findViewById(R.id.errorSecondaryButton)
+        errorExitButton = findViewById(R.id.errorExitButton)
         introScreen = findViewById(R.id.hostedIntroScreen)
         introHeadline = findViewById(R.id.introHeadline)
         introDescription = findViewById(R.id.introDescription)
@@ -445,13 +504,13 @@ class HostedPageActivity : AppCompatActivity() {
                 FlowType.VERIFICATION -> loadVerificationData()
             }
         } catch (e: Exception) {
-            showError(e.message ?: "Failed to load session data")
+            showError(e, "Failed to load session data")
         }
     }
 
     private suspend fun loadEnrollmentData() {
         val result = apiClient.getRemoteEnrollmentData(remoteId)
-        result.onFailure { showError(it.message ?: "Failed to load enrollment"); return }
+        result.onFailure { showError(it, "Failed to load enrollment"); return }
 
         val data = result.getOrNull() ?: run { showError("Empty response"); return }
         orgBranding = data.branding ?: data.enrollment?.branding
@@ -465,7 +524,7 @@ class HostedPageActivity : AppCompatActivity() {
 
     private suspend fun loadVerificationData() {
         val result = apiClient.getRemoteSessionData(remoteId)
-        result.onFailure { showError(it.message ?: "Failed to load session"); return }
+        result.onFailure { showError(it, "Failed to load session"); return }
 
         val data = result.getOrNull() ?: run { showError("Empty response"); return }
         orgBranding = data.branding ?: data.session?.branding
@@ -598,7 +657,7 @@ class HostedPageActivity : AppCompatActivity() {
                     FlowType.VERIFICATION -> apiClient.initVerificationSession(remoteId)
                 }
                 initResult.onFailure {
-                    showError(it.message ?: "Failed to initialize session")
+                    showError(it, "Failed to initialize session")
                     return
                 }
                 sessionData = initResult.getOrNull()
@@ -617,9 +676,27 @@ class HostedPageActivity : AppCompatActivity() {
             // Flows launches the hosted page with pre-minted credentials from
             // /sdk/flow-runs/:id/init-session; skip createSession in that path.
             val prebuilt = pendingPrebuiltSession
+            val refresh = pendingSessionFactory
             if (prebuilt != null) {
                 sess.injectHostedSessionData(prebuilt)
                 pendingPrebuiltSession = null
+            } else if (refresh != null) {
+                // "Try again" in the Flows path: the first session was consumed,
+                // so mint a fresh one for this step (bounded; the factory makes a
+                // blocking network call that cancellation cannot interrupt).
+                val fresh = when (val r = boundedCall(mainScope, SESSION_REFRESH_TIMEOUT_MS) { runCatching { refresh() } }) {
+                    is Bounded.Done -> r.value
+                    is Bounded.TimedOut -> Result.failure(java.io.InterruptedIOException("init-session timed out"))
+                }
+                val response = fresh.getOrElse { e ->
+                    val error = when (e) {
+                        is java.io.InterruptedIOException -> UseSenseError.networkTimeout()
+                        else -> UseSenseError.networkError(e.message)
+                    }
+                    showTerminalFailure(error, WatchdogPhase.CAMERA.wire)
+                    return
+                }
+                sess.injectHostedSessionData(response)
             } else {
                 val createResult = sess.createSession()
                 createResult.onFailure { e ->
@@ -726,7 +803,12 @@ class HostedPageActivity : AppCompatActivity() {
         captureTitle.text = getString(R.string.usesense_getting_ready)
         captureSubtitle.text = ""
 
+        instructionsCta.isEnabled = true
         instructionsCta.setOnClickListener {
+            // One tap starts one capture: a queued second tap must not bind the
+            // camera again and start a second capture behind the first.
+            if (!instructionsCta.isEnabled) return@setOnClickListener
+            instructionsCta.isEnabled = false
             instructionsOverlay.visibility = View.GONE
             startCameraAndCapture()
         }
@@ -747,9 +829,19 @@ class HostedPageActivity : AppCompatActivity() {
 
     private fun startCamera() {
         val sess = session ?: return
+        // System-paced from here: the camera must bind and the capture must
+        // finish, upload and settle within the watchdog's budget.
+        watchdog.arm(WatchdogPhase.CAMERA)
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
-            val cameraProvider = cameraProviderFuture.get()
+            if (session !== sess || isFinishing) return@addListener
+            val cameraProvider = try {
+                cameraProviderFuture.get()
+            } catch (e: Exception) {
+                watchdog.disarm()
+                showCameraError(getString(R.string.usesense_camera_unavailable_message))
+                return@addListener
+            }
 
             val preview = Preview.Builder()
                 .build()
@@ -822,8 +914,11 @@ class HostedPageActivity : AppCompatActivity() {
                 val requiresStepup = sess.policy?.requiresStepup == true
 
                 if (requiresStepup) {
+                    // The face guide waits for the subject's tap: not supervised.
+                    watchdog.disarm()
                     showFaceGuide()
                 } else {
+                    watchdog.enter(WatchdogPhase.CAPTURE)
                     sess.startCapture()
                     eventEmitter.emit(EventType.CAPTURE_STARTED)
                     if (sess.requiresAudio) {
@@ -833,6 +928,7 @@ class HostedPageActivity : AppCompatActivity() {
                     startBaselinePhase()
                 }
             } catch (e: Exception) {
+                watchdog.disarm()
                 showCameraError(getString(R.string.usesense_camera_unavailable_message))
             }
         }, ContextCompat.getMainExecutor(this))
@@ -867,8 +963,12 @@ class HostedPageActivity : AppCompatActivity() {
         captureTitle.text = getString(R.string.usesense_position_face)
         captureSubtitle.text = getString(R.string.usesense_center_face)
 
+        faceGuideReadyButton.isEnabled = true
         faceGuideReadyButton.setOnClickListener {
+            if (!faceGuideReadyButton.isEnabled) return@setOnClickListener
+            faceGuideReadyButton.isEnabled = false
             faceGuideOverlay.visibility = View.GONE
+            watchdog.arm(WatchdogPhase.CAPTURE)
             sess.startCapture()
             eventEmitter.emit(EventType.CAPTURE_STARTED)
             if (sess.requiresAudio) {
@@ -960,18 +1060,19 @@ class HostedPageActivity : AppCompatActivity() {
 
     private fun startChallengePhase() {
         val sess = session ?: return
+        val round = ++captureRound
         sess.setCapturePhase(CapturePhase.CHALLENGE)
         eventEmitter.emit(EventType.CHALLENGE_STARTED, mapOf("type" to (sess.challengeSpec?.type ?: "")))
 
         val presenter = challengePresenter
         if (presenter == null) {
             val remaining = (sess.uploadConfig?.captureDurationMs ?: 4500) - BASELINE_MS
-            handler.postDelayed({ onCaptureComplete() }, remaining.coerceAtLeast(1000))
+            handler.postDelayed({ onCaptureComplete(round) }, remaining.coerceAtLeast(1000))
             return
         }
 
         showPhaseBadge("CHALLENGE")
-        presenter.onChallengeComplete = { onCaptureComplete() }
+        presenter.onChallengeComplete = { onCaptureComplete(round) }
 
         when (presenter) {
             is FollowDotChallenge -> {
@@ -1078,7 +1179,12 @@ class HostedPageActivity : AppCompatActivity() {
 
     // ─── Capture Complete → Upload → Result ──────────────────────────────
 
-    private fun onCaptureComplete() {
+    private fun onCaptureComplete(round: Int) {
+        if (round != captureRound || round == completedRound) {
+            Log.w(TAG, "Ignoring duplicate capture completion (round $round, current $captureRound)")
+            return
+        }
+        completedRound = round
         val sess = session ?: return
         if (stepUpRoundActive) {
             stepUpRoundActive = false
@@ -1092,6 +1198,14 @@ class HostedPageActivity : AppCompatActivity() {
             eventEmitter.emit(EventType.CHALLENGE_COMPLETED)
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping capture", e)
+        }
+
+        // A camera that delivered nothing is a system failure. Uploading an
+        // empty capture would come back as a verdict against the subject.
+        if (sess.capturedFrameCount == 0) {
+            watchdog.disarm()
+            showTerminalFailure(UseSenseError.noFramesCaptured(), WatchdogPhase.CAPTURE.wire)
+            return
         }
 
         startFinalization(sess)
@@ -1111,7 +1225,9 @@ class HostedPageActivity : AppCompatActivity() {
             }
             override fun takeStepUp(): StepUpInstruction? = sess.takeStepUp()
         }
-        mainScope.launch {
+        watchdog.enter(if (startAt == FinalizationPhase.COMPLETING) WatchdogPhase.COMPLETING else WatchdogPhase.PREPARING)
+        finalizationJob?.cancel()
+        finalizationJob = mainScope.launch {
             try {
                 uploadOverlayTitle.text = if (flowType == FlowType.ENROLLMENT) {
                     getString(R.string.usesense_processing_enrollment)
@@ -1120,20 +1236,48 @@ class HostedPageActivity : AppCompatActivity() {
                 }
                 setStep(PageStep.FINALIZING)
                 FinalizationCoordinator(operations).run(startAt) { update ->
+                    if (watchdog.fired) return@run
                     when (update) {
-                        is FinalizationUpdate.Phase -> uploadOverlaySubtitle.text = when (update.phase) {
-                            FinalizationPhase.PREPARING -> "Preparing capture data"
-                            FinalizationPhase.UPLOADING -> "Uploading securely"
-                            FinalizationPhase.COMPLETING -> "Waiting for verification result"
+                        is FinalizationUpdate.Phase -> {
+                            watchdog.enter(
+                                when (update.phase) {
+                                    FinalizationPhase.PREPARING -> WatchdogPhase.PREPARING
+                                    FinalizationPhase.UPLOADING -> WatchdogPhase.UPLOADING
+                                    FinalizationPhase.COMPLETING -> WatchdogPhase.COMPLETING
+                                },
+                            )
+                            uploadOverlaySubtitle.text = when (update.phase) {
+                                FinalizationPhase.PREPARING -> "Preparing capture data"
+                                FinalizationPhase.UPLOADING -> "Uploading securely"
+                                FinalizationPhase.COMPLETING -> "Waiting for verification result"
+                            }
                         }
-                        is FinalizationUpdate.Progress -> uploadOverlaySubtitle.text =
-                            "${update.bytesSent * 100 / update.bytesTotal.coerceAtLeast(1)}% uploaded"
-                        is FinalizationUpdate.Result -> finishHostedFinalization(update.result)
-                        is FinalizationUpdate.StepUpRequired -> runStepUpRound(sess, update.instruction)
-                        is FinalizationUpdate.Recovery -> showTechnicalRecovery(sess, update)
+                        is FinalizationUpdate.Progress -> {
+                            watchdog.onProgress()
+                            // Progress fires on the OkHttp writer thread.
+                            uploadOverlaySubtitle.post {
+                                uploadOverlaySubtitle.text =
+                                    "${update.bytesSent * 100 / update.bytesTotal.coerceAtLeast(1)}% uploaded"
+                            }
+                        }
+                        is FinalizationUpdate.Result -> {
+                            watchdog.disarm()
+                            finishHostedFinalization(update.result)
+                        }
+                        is FinalizationUpdate.StepUpRequired -> {
+                            watchdog.enter(WatchdogPhase.CAPTURE)
+                            runStepUpRound(sess, update.instruction)
+                        }
+                        is FinalizationUpdate.Recovery -> {
+                            watchdog.disarm()
+                            showTechnicalRecovery(sess, update)
+                        }
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
+                watchdog.disarm()
                 Log.e(TAG, "Unhandled error in upload/complete pipeline", e)
                 showTechnicalRecovery(
                     sess,
@@ -1166,12 +1310,15 @@ class HostedPageActivity : AppCompatActivity() {
 
     /** Upload round 2, then resume finalization at COMPLETING. */
     private fun finishStepUpRound(sess: UseSenseSession) {
-        mainScope.launch {
+        watchdog.enter(WatchdogPhase.UPLOADING)
+        finalizationJob?.cancel()
+        finalizationJob = mainScope.launch {
             setStep(PageStep.FINALIZING)
             uploadOverlaySubtitle.text = "Uploading securely"
             sess.uploadStepUpRound().fold(
                 onSuccess = { startFinalization(sess, FinalizationPhase.COMPLETING) },
                 onFailure = { e ->
+                    watchdog.disarm()
                     val error = (e as? com.usesense.sdk.api.ApiException)?.useSenseError
                         ?: UseSenseError.networkError(e.message)
                     // Retry restarts finalization from round 1, which the server
@@ -1197,26 +1344,154 @@ class HostedPageActivity : AppCompatActivity() {
             }
         }
         showResult(result.decision, result)
-        pendingDirectCallback?.onSuccess(result)
+        pendingTerminalError = null
+        callbackGate.success(result)
     }
 
     private fun showTechnicalRecovery(sess: UseSenseSession, recovery: FinalizationUpdate.Recovery) {
-        eventEmitter.emit(EventType.ERROR, mapOf("phase" to recovery.phase.name.lowercase(), "error" to recovery.error.message))
-        val dialog = AlertDialog.Builder(this)
-            .setTitle("We could not finish your identity check")
-            .setMessage(recovery.error.message)
-            .setNegativeButton("Exit") { _, _ ->
-                pendingDirectCallback?.onError(recovery.error)
-                finish()
-            }
-        if (RecoveryAction.RETRY in recovery.actions) dialog.setPositiveButton("Retry") { _, _ -> startFinalization(sess) }
-        dialog.setNeutralButton("Restart") { _, _ -> mainScope.launch { initAndStartCapture() } }
-        dialog.setCancelable(false).show()
+        eventEmitter.emit(EventType.ERROR, errorEvent(recovery.phase.name.lowercase(), recovery.error))
+        showRecoveryDialog(recovery.error, RecoveryAction.RETRY in recovery.actions) {
+            // Resume where it failed. If only /complete failed, the signals are already
+            // on the server, and uploading them again resets a finished session.
+            startFinalization(sess, recovery.phase)
+        }
+    }
+
+    /**
+     * A terminal failure of this attempt (watchdog, no frames, session refresh):
+     * a clear error with its code, "Try again" for a clean attempt, or Exit.
+     */
+    private fun showTerminalFailure(error: UseSenseError, phase: String) {
+        eventEmitter.emit(EventType.ERROR, errorEvent(phase, error))
+        showRecoveryDialog(error, canRetryUpload = false, retry = null)
+    }
+
+    /**
+     * A failure the subject can recover from: the error screen with
+     * "Try again" (a clean attempt), "Retry upload" when the captured frames
+     * can be re-sent, and "Exit". Replaces the stock AlertDialog, which showed
+     * raw server text to end users.
+     */
+    private fun showRecoveryDialog(error: UseSenseError, canRetryUpload: Boolean, retry: (() -> Unit)?) {
+        if (isFinishing || isDestroyed) return
+        pendingTerminalError = error
+        callbackGate.recovery()
+        bindErrorScreen(error)
+
+        val uploadRetry = retry.takeIf { canRetryUpload }
+        if (uploadRetry != null) {
+            // The frames are already captured: re-sending them is the cheaper fix.
+            errorPrimaryButton.text = getString(R.string.usesense_retry_finalize)
+            errorPrimaryButton.setOnClickListener { pendingTerminalError = null; uploadRetry() }
+            errorSecondaryButton.text = getString(R.string.usesense_start_over)
+            errorSecondaryButton.setOnClickListener { restartCapture() }
+            errorSecondaryButton.visibility = View.VISIBLE
+        } else {
+            errorPrimaryButton.text = getString(R.string.usesense_retry)
+            errorPrimaryButton.setOnClickListener { restartCapture() }
+            errorSecondaryButton.visibility = View.GONE
+        }
+        errorExitButton.text = getString(R.string.usesense_exit)
+        errorExitButton.setOnClickListener {
+            callbackGate.exit(error)
+            finish()
+        }
+        errorExitButton.visibility = View.VISIBLE
+        setStep(PageStep.ERROR)
+    }
+
+    /** Icon, plain-language title and message, and the code as a caption. */
+    private fun bindErrorScreen(error: UseSenseError?) {
+        errorIcon.setImageResource(R.drawable.usesense_icon_error)
+        errorIcon.setColorFilter(Color.parseColor("#DB4E33")) // error-6
+        errorIconCircle.background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL; setColor(Color.parseColor("#FFF0EC")) // error-0
+        }
+        val (title, body) = errorCopy(error)
+        errorTitle.text = getString(title)
+        errorMessage.text = getString(body)
+        val code = error?.serverCode?.takeIf { it.isNotBlank() } ?: error?.code?.toString()
+        if (code != null) {
+            errorCode.text = getString(R.string.usesense_error_code, code)
+            errorCode.visibility = View.VISIBLE
+        } else {
+            errorCode.visibility = View.GONE
+        }
+    }
+
+    private fun errorCopy(error: UseSenseError?): Pair<Int, Int> = when {
+        error == null -> R.string.usesense_error_default_title to R.string.usesense_error_default_body
+        error.code == UseSenseError.NETWORK_ERROR || error.code == UseSenseError.NETWORK_TIMEOUT ||
+            error.code == UseSenseError.UPLOAD_FAILED || error.code == UseSenseError.UPLOAD_TIMEOUT ->
+            R.string.usesense_error_connection_title to R.string.usesense_error_connection_body
+        error.code == UseSenseError.CAPTURE_TIMEOUT || error.code == UseSenseError.CAPTURE_FAILED ||
+            error.code == UseSenseError.ENCODING_FAILED || error.serverCode == UseSenseError.CODE_NO_FRAMES ->
+            R.string.usesense_error_capture_title to R.string.usesense_error_capture_body
+        error.code == UseSenseError.SESSION_EXPIRED || error.serverCode == "session_expired" ->
+            R.string.usesense_error_expired_title to R.string.usesense_error_expired_body
+        // Integration problems (bad key, quota, config) and server overload: the
+        // subject can't fix these, so no capture advice.
+        error.code == UseSenseError.QUOTA_EXCEEDED || error.code == UseSenseError.INVALID_CONFIG ||
+            error.code == 401 || error.code == 402 || error.code == 403 ||
+            error.code == 429 || error.code == 503 ->
+            R.string.usesense_error_unavailable_title to R.string.usesense_error_unavailable_body
+        else -> R.string.usesense_error_default_title to R.string.usesense_error_default_body
+    }
+
+    private fun errorEvent(phase: String, error: UseSenseError): Map<String, Any> = buildMap {
+        put("phase", phase)
+        put("error", error.message)
+        put("code", error.code)
+        error.serverCode?.let { put("error_code", it) }
+    }
+
+    /** The watchdog fired: abandon the stuck work without waiting on it. */
+    private fun onWatchdogTimeout(error: UseSenseError) {
+        if (isFinishing || isDestroyed) return
+        Log.w(TAG, "Capture watchdog fired: ${error.serverCode} ${error.details}")
+        abortAttempt()
+        showTerminalFailure(error, (error.details?.get("phase") as? String) ?: "unknown")
+    }
+
+    /**
+     * Stop everything the current attempt started: timers, the challenge, the
+     * finalization coroutine and frame capture. Cancels without joining, so a
+     * wedged native call cannot hold the UI.
+     */
+    private fun abortAttempt() {
+        watchdog.disarm()
+        finalizationJob?.cancel()
+        finalizationJob = null
+        handler.removeCallbacksAndMessages(null)
+        challengePresenter?.stop()
+        stepUpRoundActive = false
+        runCatching { session?.stopCapture() }
+    }
+
+    /**
+     * "Try again": a clean attempt. The old session is released (its mesh,
+     * integrity and sensor jobs cancelled) and a new one is created -- in the
+     * Flows path from a fresh init-session, never the consumed credentials.
+     */
+    private fun restartCapture() {
+        abortAttempt()
+        pendingTerminalError = null
+        challengePresenter = null
+        frameCaptureManager = null
+        session?.release()
+        session = null
+        runCatching {
+            val future = ProcessCameraProvider.getInstance(this)
+            if (future.isDone) future.get().unbindAll()
+        }
+        mainScope.launch { initAndStartCapture() }
     }
 
     private fun deliverError(error: UseSenseError) {
-        pendingDirectCallback?.onError(error)
+        watchdog.disarm()
+        callbackGate.exit(error)
         if (!isFinishing) {
+            pendingTerminalError = error
             showError(error.message)
         }
     }
@@ -1289,8 +1564,33 @@ class HostedPageActivity : AppCompatActivity() {
         setStep(PageStep.RESULT)
     }
 
+    /** A terminal failure with a cause: an API error keeps its own code and copy. */
+    private fun showError(cause: Throwable, fallback: String) {
+        if (cause is ApiException && pendingTerminalError == null) {
+            pendingTerminalError = cause.useSenseError
+        }
+        showError(cause.message ?: fallback)
+    }
+
+    /**
+     * A terminal error: nothing on this screen can fix it, so it offers Close.
+     * The raw message goes to the host through the callback, not to the subject.
+     */
     private fun showError(message: String) {
-        errorMessage.text = message
+        if (::watchdog.isInitialized) watchdog.disarm()
+        // A bare message has no type: show the generic copy and no code, rather
+        // than dressing it up as a capture failure (an API-key error used to say
+        // "We couldn't see your face clearly").
+        val typed = pendingTerminalError
+        if (typed == null) {
+            pendingTerminalError = UseSenseError.captureFailed(message)
+        }
+        Log.w(TAG, "Terminal error shown: $message")
+        bindErrorScreen(typed)
+        errorPrimaryButton.text = getString(R.string.usesense_close)
+        errorPrimaryButton.setOnClickListener { finish() }
+        errorSecondaryButton.visibility = View.GONE
+        errorExitButton.visibility = View.GONE
         setStep(PageStep.ERROR)
     }
 
@@ -1307,6 +1607,11 @@ class HostedPageActivity : AppCompatActivity() {
 
         if (step != PageStep.FINALIZING) {
             allScreens.forEach { it.visibility = View.GONE }
+        } else {
+            // Finalizing overlays the capture screen; a retry from the error
+            // screen must not leave the error showing on top of it.
+            errorScreen.visibility = View.GONE
+            resultScreen.visibility = View.GONE
         }
 
         when (step) {
@@ -1357,6 +1662,13 @@ class HostedPageActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        // Never end silently: the host hears an error (if one is on screen) or
+        // a cancellation. The gate makes this a no-op after a success/exit.
+        if (!isChangingConfigurations) {
+            pendingTerminalError?.let { callbackGate.exit(it) } ?: callbackGate.cancel()
+        }
+        if (::watchdog.isInitialized) watchdog.disarm()
+        finalizationJob?.cancel()
         super.onDestroy()
         mainScope.cancel()
         handler.removeCallbacksAndMessages(null)
@@ -1365,6 +1677,7 @@ class HostedPageActivity : AppCompatActivity() {
         pendingConfig = null
         pendingRequest = null
         pendingDirectCallback = null
+        pendingSessionFactory = null
     }
 
     companion object {
@@ -1377,6 +1690,9 @@ class HostedPageActivity : AppCompatActivity() {
         private const val STEP_UP_BRIEF_MS = 1500L
         private const val COUNTDOWN_MS = 3000L
 
+        /** Ceiling on minting a fresh Flows session for "Try again". */
+        private const val SESSION_REFRESH_TIMEOUT_MS = 30_000L
+
         internal var pendingConfig: UseSenseConfig? = null
         internal var pendingRequest: VerificationRequest? = null
         internal var pendingDirectCallback: UseSenseCallback? = null
@@ -1385,6 +1701,9 @@ class HostedPageActivity : AppCompatActivity() {
         // /sdk/flow-runs/:id/init-session. When set, initAndStartCapture()
         // injects them instead of calling createSession (cleared after use).
         internal var pendingPrebuiltSession: com.usesense.sdk.api.models.CreateSessionResponse? = null
+
+        /** Flows path: mints a fresh session for "Try again" (the first one is consumed). */
+        internal var pendingSessionFactory: (suspend () -> com.usesense.sdk.api.models.CreateSessionResponse)? = null
 
         /**
          * Launch the hosted page UI for a direct SDK verification/enrollment flow.
@@ -1422,11 +1741,13 @@ class HostedPageActivity : AppCompatActivity() {
             response: com.usesense.sdk.api.models.CreateSessionResponse,
             sessionType: SessionType,
             callback: UseSenseCallback,
+            refreshSession: (suspend () -> com.usesense.sdk.api.models.CreateSessionResponse)? = null,
         ) {
             pendingConfig = config
             pendingRequest = VerificationRequest(sessionType = sessionType)
             pendingDirectCallback = callback
             pendingPrebuiltSession = response
+            pendingSessionFactory = refreshSession
             val flowType = if (sessionType == SessionType.ENROLLMENT) "enrollment" else "verification"
             val intent = Intent(context, HostedPageActivity::class.java).apply {
                 putExtra(EXTRA_FLOW_TYPE, flowType)

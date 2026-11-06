@@ -95,6 +95,9 @@ internal class FlowsActivity : ComponentActivity() {
 
     /** Nonce of the Device Trust step already posted, so it is sent once. */
     private var submittedDeviceNonce: String? = null
+
+    /** Re-reads a run that has no pending action yet; bounded by FlowRunPoller. */
+    private var pollJob: kotlinx.coroutines.Job? = null
     private var reloadedForDeviceNonce = false
 
     private val pickDocument = registerForActivityResult(
@@ -238,6 +241,8 @@ internal class FlowsActivity : ComponentActivity() {
 
     private fun render() {
         val v = view ?: return
+        pollJob?.cancel()
+        pollJob = null
         hideSpinner()
         if (v.state in TERMINAL_STATES) {
             reportSuccess(FlowRunResult(v.id, v.state, v.outcome))
@@ -245,7 +250,11 @@ internal class FlowsActivity : ComponentActivity() {
         }
         val action = v.pendingAction
         if (action == null) {
+            // Not terminal and nothing to do yet: a step is settling on the
+            // server. This used to show a spinner and stop -- nothing re-read
+            // the run, so the subject waited forever. Poll, bounded.
             showSpinner()
+            pollUntilActionable()
             return
         }
         when (action) {
@@ -256,6 +265,26 @@ internal class FlowsActivity : ComponentActivity() {
             is PendingAction.CaptureIdNumber -> presentIdNumber(action.idTypes)
             is PendingAction.Info -> installInfoSurface(action.info)
             is PendingAction.RedirectToConsent -> launchConsent(action.consentUrl)
+        }
+    }
+
+    private fun pollUntilActionable() {
+        pollJob = lifecycleScope.launch {
+            try {
+                val next = FlowRunPoller().pollUntil(
+                    fetch = { withContext(Dispatchers.IO) { client.get() } },
+                    isSettled = { it.state in TERMINAL_STATES || it.pendingAction != null },
+                )
+                pollJob = null
+                view = next
+                render()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: FlowError) {
+                reportError(e)
+            } catch (e: Throwable) {
+                reportError(FlowError(Code.UNKNOWN, e.message ?: "Unknown error"))
+            }
         }
     }
 
@@ -738,8 +767,9 @@ internal class FlowsActivity : ComponentActivity() {
 
                     override fun onError(error: UseSenseError) {
                         reportError(FlowError(
-                            Code.PROVIDER_UNAVAILABLE,
+                            faceErrorCode(error),
                             error.message ?: text(mergedCopy()?.errors?.providerUnavailable, "Face capture failed"),
+                            error.serverCode,
                         ))
                     }
 
@@ -747,12 +777,19 @@ internal class FlowsActivity : ComponentActivity() {
                         lifecycleScope.launch { cancelRun() }
                     }
                 }
+                // "Try again" on the capture screen needs a clean session, not
+                // the consumed one: it re-runs init-session for this step.
+                val runClient = client
+                val refreshSession: suspend () -> com.usesense.sdk.api.models.CreateSessionResponse = {
+                    withContext(Dispatchers.IO) { runClient.initSession(toolId, collectDeviceBinding()) }
+                }
                 HostedPageActivity.startWithPrebuiltSession(
                     context = this@FlowsActivity,
                     config = config,
                     response = response,
                     sessionType = SessionType.ENROLLMENT,
                     callback = bridge,
+                    refreshSession = refreshSession,
                 )
                 removeFacePrimer()
             } catch (e: FlowError) {
@@ -1087,6 +1124,13 @@ internal class FlowsActivity : ComponentActivity() {
             FlowRunState.COMPLETED, FlowRunState.ERRORED, FlowRunState.CANCELLED, FlowRunState.ABANDONED,
         )
     }
+}
+
+/** The runner-level code for a face capture failure; timeouts keep their stable code. */
+internal fun faceErrorCode(error: UseSenseError): Code = when (error.code) {
+    UseSenseError.CAPTURE_TIMEOUT -> Code.CAPTURE_TIMEOUT
+    UseSenseError.UPLOAD_TIMEOUT, UseSenseError.FINALIZATION_TIMEOUT -> Code.UPLOAD_TIMEOUT
+    else -> Code.PROVIDER_UNAVAILABLE
 }
 
 private fun humanise(s: String): String =

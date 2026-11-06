@@ -400,6 +400,7 @@
                     android:textColor="@color/usesense_text_primary"
                     android:fontFamily="sans-serif-medium"
                     android:textStyle="bold"
+                    android:gravity="center_horizontal"
                     android:textAlignment="center" />
 
                 <TextView
@@ -449,6 +450,7 @@
                         android:textColor="@color/usesense_text_primary"
                         android:fontFamily="sans-serif-medium"
                         android:textStyle="bold"
+                        android:gravity="center_horizontal"
                         android:textAlignment="center" />
 
                     <TextView

@@ -108,6 +108,10 @@ class UseSenseActivity : AppCompatActivity() {
     private var retryFinalization: (() -> Unit)? = null
     /** True while a server step-up round (round 2) is being captured. */
     private var stepUpRoundActive = false
+
+    /** Only the latest capture round completes, once (see HostedPageActivity). */
+    private var captureRound = 0
+    private var completedRound = -1
     private var recoveryError: UseSenseError? = null
     private lateinit var callbackGate: FinalizationCallbackGate<UseSenseResult, UseSenseError>
     private lateinit var recoveryBackCallback: OnBackPressedCallback
@@ -390,7 +394,11 @@ class UseSenseActivity : AppCompatActivity() {
         captureTitle.text = getString(R.string.usesense_getting_ready)
         captureSubtitle.text = ""
 
+        instructionsCta.isEnabled = true
         instructionsCta.setOnClickListener {
+            // One tap starts one capture.
+            if (!instructionsCta.isEnabled) return@setOnClickListener
+            instructionsCta.isEnabled = false
             instructionsOverlay.visibility = View.GONE
             startCameraAndCapture()
         }
@@ -524,7 +532,10 @@ class UseSenseActivity : AppCompatActivity() {
         captureTitle.text = getString(R.string.usesense_position_face)
         captureSubtitle.text = getString(R.string.usesense_center_face)
 
+        faceGuideReadyButton.isEnabled = true
         faceGuideReadyButton.setOnClickListener {
+            if (!faceGuideReadyButton.isEnabled) return@setOnClickListener
+            faceGuideReadyButton.isEnabled = false
             faceGuideOverlay.visibility = View.GONE
 
             session.startCapture()
@@ -631,6 +642,7 @@ class UseSenseActivity : AppCompatActivity() {
     }
 
     private fun startChallengePhase() {
+        val round = ++captureRound
         session.setCapturePhase(CapturePhase.CHALLENGE)
         eventEmitter.emit(EventType.CHALLENGE_STARTED, mapOf(
             "type" to (session.challengeSpec?.type ?: "")
@@ -639,12 +651,12 @@ class UseSenseActivity : AppCompatActivity() {
         val presenter = challengePresenter
         if (presenter == null) {
             val remaining = (session.uploadConfig?.captureDurationMs ?: 4500) - BASELINE_MS
-            handler.postDelayed({ onCaptureComplete() }, remaining.coerceAtLeast(1000))
+            handler.postDelayed({ onCaptureComplete(round) }, remaining.coerceAtLeast(1000))
             return
         }
 
         showPhaseBadge("CHALLENGE")
-        presenter.onChallengeComplete = { onCaptureComplete() }
+        presenter.onChallengeComplete = { onCaptureComplete(round) }
 
         when (presenter) {
             is FollowDotChallenge -> {
@@ -781,7 +793,12 @@ class UseSenseActivity : AppCompatActivity() {
      * Section 13.1 + 13.2: Global safety net wraps the upload + complete pipeline.
      * Even if complete fails, we STILL show a result screen (never leave user stuck).
      */
-    private fun onCaptureComplete() {
+    private fun onCaptureComplete(round: Int) {
+        if (round != captureRound || round == completedRound) {
+            android.util.Log.w(TAG, "Ignoring duplicate capture completion (round $round, current $captureRound)")
+            return
+        }
+        completedRound = round
         if (stepUpRoundActive) {
             stepUpRoundActive = false
             finishStepUpRound()

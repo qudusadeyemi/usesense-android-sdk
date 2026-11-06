@@ -148,4 +148,20 @@
     <string name="usesense_instructions_title_follow_dot">Follow the Dot</string>
     <string name="usesense_instructions_title_head_turn">Head Turn Challenge</string>
     <string name="usesense_instructions_title_speak_phrase">Voice Challenge</string>
+    <!-- Error screen: plain language per failure type; the code is a caption. -->
+    <string name="usesense_error_connection_title">Connection problem</string>
+    <string name="usesense_error_connection_body">We couldn\'t reach the server. Check your internet connection and try again.</string>
+    <string name="usesense_error_capture_title">We couldn\'t see your face clearly</string>
+    <string name="usesense_error_capture_body">Find a well-lit spot, hold your phone at eye level and keep your face inside the frame, then try again.</string>
+    <string name="usesense_error_expired_title">This session has expired</string>
+    <string name="usesense_error_expired_body">Please go back and start the verification again.</string>
+    <string name="usesense_error_unavailable_title">Verification is unavailable</string>
+    <string name="usesense_error_unavailable_body">Please try again later.</string>
+    <string name="usesense_error_default_title">Something went wrong</string>
+    <string name="usesense_error_default_body">We couldn\'t finish your check. Please try again.</string>
+    <string name="usesense_error_code">Error code: %s</string>
+    <!-- Re-sends / re-checks what was already captured. -->
+    <string name="usesense_retry_finalize">Retry</string>
+    <!-- Discards the capture and starts the face check again. -->
+    <string name="usesense_start_over">Start over</string>
 </resources>
