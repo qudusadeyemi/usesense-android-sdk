@@ -158,6 +158,10 @@ internal class UseSenseSession(
     val policy: SessionPolicy? get() = sessionResponse?.policy
     val uploadConfig: UploadConfig? get() = sessionResponse?.upload
     val challengeSpec: ChallengeSpec? get() = sessionResponse?.policy?.challenge
+
+    /** The dashboard's branding delivered with the session (null on older servers). */
+    internal val serverBranding: com.usesense.sdk.ServerBranding?
+        get() = sessionResponse?.branding?.toServerBranding()
     val requiresAudio: Boolean get() = sessionResponse?.policy?.requiresAudio == true
     val expiresAt: String? get() = sessionResponse?.expiresAt
     val geometricCoherenceConfig get() = sessionResponse?.geometricCoherence
