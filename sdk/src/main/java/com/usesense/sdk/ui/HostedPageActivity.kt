@@ -384,33 +384,24 @@ class HostedPageActivity : AppCompatActivity() {
     private fun applyBranding() {
         val branding = effectiveBranding
 
-        if (branding.logoUrl != null) {
-            // Logo and name together, as on iOS and the Flows screens; the name
-            // used to be hidden whenever a logo was set.
-            headerLogo.visibility = View.VISIBLE
-            headerText.visibility = if (branding.displayName.isNotBlank()) View.VISIBLE else View.GONE
-            headerText.text = branding.displayName
-            (headerText.layoutParams as? android.view.ViewGroup.MarginLayoutParams)?.let {
-                it.marginStart = (8 * resources.displayMetrics.density).toInt()
-                headerText.layoutParams = it
-            }
+        // As iOS (HostedPageHeader): the logo alone when there is one; the name
+        // shows while it loads and stays if there is no logo or it fails.
+        headerText.text = branding.displayName
+        headerText.visibility = View.VISIBLE
+        headerLogo.visibility = View.GONE
+        branding.logoUrl?.let { logoUrl ->
             mainScope.launch(Dispatchers.IO) {
-                try {
-                    val url = java.net.URL(branding.logoUrl)
-                    val bitmap = android.graphics.BitmapFactory.decodeStream(url.openStream())
-                    withContext(Dispatchers.Main) { headerLogo.setImageBitmap(bitmap) }
-                } catch (_: Exception) {
+                val bitmap = runCatching {
+                    java.net.URL(logoUrl).openStream().use { android.graphics.BitmapFactory.decodeStream(it) }
+                }.getOrNull()
+                if (bitmap != null) {
                     withContext(Dispatchers.Main) {
-                        headerLogo.visibility = View.GONE
-                        headerText.visibility = View.VISIBLE
-                        headerText.text = branding.displayName
+                        headerLogo.setImageBitmap(bitmap)
+                        headerLogo.visibility = View.VISIBLE
+                        headerText.visibility = View.GONE
                     }
                 }
             }
-        } else {
-            headerLogo.visibility = View.GONE
-            headerText.visibility = View.VISIBLE
-            headerText.text = branding.displayName
         }
 
         try {

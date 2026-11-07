@@ -174,11 +174,19 @@ internal class FlowsActivity : ComponentActivity() {
      * "UseSense" while iOS showed the org's (e.g. XTransfer's) logo and name.
      * Logo: the appearance's logo first, then the branding logo.
      */
-    private fun brandName(): String? = view?.branding?.displayName?.takeIf { it.isNotBlank() }
+    private fun headerSuppressed(): Boolean =
+        mergedAppearance()?.logo?.placement == AppearanceLogo.Placement.NONE
+
+    private fun brandName(): String? =
+        if (headerSuppressed()) null else view?.branding?.displayName?.takeIf { it.isNotBlank() }
 
     private fun brandLogo(): String? =
-        mergedAppearance()?.logo?.url?.takeIf { it.isNotBlank() }
-            ?: view?.branding?.logoUrl?.takeIf { it.isNotBlank() }
+        if (headerSuppressed()) {
+            null
+        } else {
+            mergedAppearance()?.logo?.url?.takeIf { it.isNotBlank() }
+                ?: view?.branding?.logoUrl?.takeIf { it.isNotBlank() }
+        }
 
     /** Wrap a Compose surface in the resolved white-label appearance. */
     private fun ComposeView.themedContent(content: @Composable () -> Unit) {
