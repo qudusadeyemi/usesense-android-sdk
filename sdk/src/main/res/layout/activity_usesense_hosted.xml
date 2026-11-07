@@ -557,6 +557,16 @@
                             android:layout_width="match_parent"
                             android:layout_height="match_parent" />
 
+                        <!-- Quality dot: as iOS (top-left, compact). -->
+                        <com.usesense.sdk.ui.QualityIndicatorView
+                            android:id="@+id/hostedFaceGuideQualityDot"
+                            android:layout_width="12dp"
+                            android:layout_height="12dp"
+                            android:layout_gravity="top|start"
+                            android:layout_marginTop="24dp"
+                            android:layout_marginStart="28dp"
+                            android:visibility="invisible" />
+
                         <!-- Close: as iOS (top-right, 36dp, 50% black). -->
                         <TextView
                             android:id="@+id/hostedFaceGuideCloseButton"
@@ -600,7 +610,7 @@
                                 android:layout_width="match_parent"
                                 android:layout_height="36dp"
                                 android:layout_marginTop="8dp"
-                                android:visibility="invisible" />
+                                android:visibility="gone" />
 
                             <com.google.android.material.button.MaterialButton
                                 android:id="@+id/hostedFaceGuideReadyButton"

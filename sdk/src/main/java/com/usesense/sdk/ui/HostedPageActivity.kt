@@ -171,6 +171,7 @@ class HostedPageActivity : AppCompatActivity() {
     // Face guide extras (as iOS FaceGuideOverlay): close button, live quality
     private lateinit var faceGuideCloseButton: TextView
     private lateinit var faceGuideQuality: QualityIndicatorView
+    private lateinit var faceGuideQualityDot: QualityIndicatorView
 
     // Capture footer (Section 11.8)
     private lateinit var captureFooterText: TextView
@@ -402,6 +403,8 @@ class HostedPageActivity : AppCompatActivity() {
         uploadOverlaySpinner = findViewById(R.id.hostedUploadOverlaySpinner)
         faceGuideCloseButton = findViewById(R.id.hostedFaceGuideCloseButton)
         faceGuideQuality = findViewById(R.id.hostedFaceGuideQuality)
+        faceGuideQualityDot = findViewById<QualityIndicatorView>(R.id.hostedFaceGuideQualityDot)
+            .apply { mode = QualityIndicatorView.Mode.COMPACT }
 
         // Capture footer
         captureFooterText = findViewById(R.id.captureFooterText)
@@ -976,8 +979,10 @@ class HostedPageActivity : AppCompatActivity() {
                         if (cameraLive.markFrame()) {
                             runOnUiThread { if (session === sess && !isFinishing) cameraLive.onLive() }
                         }
-                        frameCaptureManager?.createAnalyzer()?.analyze(imageProxy)
-
+                        // Quality first: the frame-capture analyzer closes the
+                        // ImageProxy, after which its image is gone. Run after it,
+                        // the quality check never saw a frame (no indicator, no
+                        // guidance banner on any hosted capture).
                         val now = System.currentTimeMillis()
                         val phase = sess.capturePhase
                         val shouldAnalyze = phase in setOf(
@@ -1003,7 +1008,9 @@ class HostedPageActivity : AppCompatActivity() {
                             } catch (_: Exception) {}
                         }
 
-                        imageProxy.close()
+                        // Closes the frame (every path).
+                        frameCaptureManager?.createAnalyzer()?.analyze(imageProxy)
+                            ?: imageProxy.close()
                     }
                 }
 
@@ -1051,8 +1058,11 @@ class HostedPageActivity : AppCompatActivity() {
         qualityIndicator.updateQuality(report)
         qualityBanner.updateQuality(report)
         qualityIndicator.visibility = View.VISIBLE
+        // As iOS: the dot always, the message only when quality is not good
+        // (the FULL view hides itself when good).
         faceGuideQuality.updateQuality(report)
-        faceGuideQuality.visibility = View.VISIBLE
+        faceGuideQualityDot.updateQuality(report)
+        faceGuideQualityDot.visibility = View.VISIBLE
         qualityBanner.visibility = if (report.isAcceptable) View.GONE else View.VISIBLE
 
         val bg = videoContainer.background
@@ -1797,7 +1807,8 @@ class HostedPageActivity : AppCompatActivity() {
         phaseBadge.visibility = View.GONE
         challengeProgress.visibility = View.GONE
         qualityIndicator.visibility = View.GONE
-        faceGuideQuality.visibility = View.INVISIBLE
+        faceGuideQuality.visibility = View.GONE
+        faceGuideQualityDot.visibility = View.INVISIBLE
         qualityBanner.visibility = View.GONE
     }
 
