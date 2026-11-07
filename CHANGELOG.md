@@ -6,6 +6,49 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [4.11.0] - 2026-11-07
+
+Tested on a Samsung Galaxy A03 (Android 13) in a Flutter release build (R8),
+in session mode and in a Flow, against the sandbox API.
+
+### Fixed
+
+- **Release builds no longer crash at the face step.** R8 stripped Flogger,
+  which MediaPipe needs, so `Graph.<clinit>` threw an `Error` on the first face
+  capture. Consumer rules now keep it (and silence the AutoValue
+  `javax.lang.model` warnings), so integrators need no rules of their own; face
+  mesh also catches `Throwable` and continues without mesh rather than crashing.
+- **The capture quality check never ran.** The frame-capture analyzer closed
+  each camera frame before the quality check read it, so no quality report was
+  produced: no indicator and no guidance on any hosted capture. Fixed.
+- **Branding reached every screen.** The Flows loader, intro glyph, spinners
+  and capture screens take the brand colour, and the header shows the org's
+  logo alone (the name only when there is no logo), as on iOS.
+
+### Changed
+
+- **Branding precedence: code wins, field by field.** Per-launch and SDK-init
+  values beat the dashboard (Flow, then org), which beats the built-in
+  defaults; only values that were explicitly set count. Session mode now gets
+  the dashboard branding too (it arrives with the session). Debug logging
+  (`adb shell setprop log.tag.UseSense DEBUG`) shows the source of each field.
+  `BrandingConfig.buttonRadius` is now nullable: unset inherits the dashboard.
+- **The capture flow matches iOS.** No intro screen; Flows go primer → face
+  guide → capture. The face guide has a close button (cancels), a quality dot
+  and guidance, with copy and "I'm Ready" at the bottom. Processing reads
+  "Verifying your presence", then "Almost done", with a brand-coloured spinner.
+- **The result screen matches iOS.** A raised card under the org's logo
+  header, iOS wording ("Verification Successful / Unsuccessful / Under
+  Review"), one button in the outcome colour (Continue / Done / Got It) and,
+  in session mode only, "Try Again" on a reject. The org redirect URL is no
+  longer opened from the result.
+- **Behaviour change: the decision reaches your callback when the person taps
+  the result button** (or leaves the screen), not when the result first
+  appears. This is what lets "Try Again" start a clean attempt, and it is how
+  iOS already behaves.
+- Inside a Flow there is no "Try Again" on the result: the server settles the
+  run when the capture completes, and the Flow's own policy decides retries.
+
 ## [4.10.0] - 2026-11-07
 
 Tested on a real budget device (Samsung Galaxy A03, Android 13, 2.5 GB) against
