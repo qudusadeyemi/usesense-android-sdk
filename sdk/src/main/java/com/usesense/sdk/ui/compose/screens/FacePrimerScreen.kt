@@ -23,6 +23,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -96,23 +97,36 @@ fun FacePrimerScreen(
             },
         ) {
             Spacer(Modifier.height(4.dp))
-            Box(
-                Modifier
-                    .size(56.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(brand.copy(alpha = 0.08f)),
-                contentAlignment = Alignment.Center,
+            // Centred hero (icon, title, body), like the other capture screens;
+            // the tips below stay a left-aligned list.
+            Column(
+                Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Icon(Icons.Filled.CenterFocusStrong, null, tint = brand, modifier = Modifier.size(28.dp))
+                Box(
+                    Modifier
+                        .size(56.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(brand.copy(alpha = 0.08f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Filled.CenterFocusStrong, null, tint = brand, modifier = Modifier.size(28.dp))
+                }
+                Spacer(Modifier.height(20.dp))
+                Text(
+                    title,
+                    style = USType.h2.copy(fontSize = 24.sp),
+                    color = colors.foreground,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    body,
+                    style = USType.body,
+                    color = colors.mutedForeground,
+                    textAlign = TextAlign.Center,
+                )
             }
-            Spacer(Modifier.height(20.dp))
-            Text(title, style = USType.h2.copy(fontSize = 24.sp), color = colors.foreground)
-            Spacer(Modifier.height(6.dp))
-            Text(
-                body,
-                style = USType.body,
-                color = colors.mutedForeground,
-            )
             Spacer(Modifier.height(28.dp))
             PrimerPoint(Icons.Filled.Visibility, "Face forward and make sure your eyes are clearly visible.", colors)
             Spacer(Modifier.height(16.dp))

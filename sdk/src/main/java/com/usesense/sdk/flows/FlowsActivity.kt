@@ -1088,6 +1088,10 @@ internal class FlowsActivity : ComponentActivity() {
      *  title is used, honouring the merged-copy `loading.default` override. */
     private fun showSpinner(message: String? = null) {
         loadingMessage.value = message ?: text(mergedCopy()?.loading?.default, "Loading")
+        // Re-theme on every show: the loader is built before the server's
+        // branding arrives, so it used to stay DeepSense Blue for the whole run
+        // (between steps too) while every other screen took the brand colour.
+        loadingView?.themedContent { FlowLoadingScreen(title = loadingMessage.value) }
         loadingView?.visibility = View.VISIBLE
     }
 

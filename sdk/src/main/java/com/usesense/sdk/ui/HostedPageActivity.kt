@@ -420,6 +420,12 @@ class HostedPageActivity : AppCompatActivity() {
             }
             introIconCircle.background = circleDrawable
             actionReviewIconCircle.background = circleDrawable
+            // The glyph inside each circle too: it is tinted DeepSense Blue in
+            // XML, so a branded intro showed a blue camera on a brand circle.
+            val glyphTint = ColorStateList.valueOf(primaryColor)
+            listOf(introIconCircle, actionReviewIconCircle).forEach { circle ->
+                ((circle as? android.view.ViewGroup)?.getChildAt(0) as? ImageView)?.imageTintList = glyphTint
+            }
         } catch (_: Exception) {}
 
         try {
