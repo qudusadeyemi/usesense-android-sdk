@@ -6,6 +6,46 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [4.10.0] - 2026-11-07
+
+Tested on a real budget device (Samsung Galaxy A03, Android 13, 2.5 GB) against
+the sandbox API before release.
+
+### Fixed
+
+- **Mesh binding proofs now match the server.** The canonical mesh JSON used
+  `p` as an object, the landmark count for `l`, and Kotlin number formatting,
+  so every capture from 4.8.0 on failed the server's binding check
+  (`mesh_integrity_failed`, tier "binding"). It now matches the server and iOS
+  byte for byte.
+- **Verdicts always decode.** `pillar_verdicts` arrives as
+  `{deepsense, livesense, dedupe}` objects and scores can be fractional. Both
+  used to fail decoding, so the app got error 2001 instead of the decision.
+  Optional detail blocks now decode leniently.
+- **The capture clock starts on the camera's first frame.** On slow cameras
+  the capture window used to close before frames arrived (0–13 frames;
+  0 ended in `NO_FRAMES_CAPTURED`). The same phone now captures 22–23.
+- **Every wait is bounded.** Capture, upload, completion and Flows polling
+  have time limits, so a capture can no longer hang silently.
+- **Retry resumes from the step that failed.** If only completion failed, the
+  frames are not uploaded again.
+- **One capture per tap.** "Got it — start challenge" and "I'm Ready" can't
+  start a second capture, and a capture round completes exactly once.
+
+### Added
+
+- Error codes `capture_timeout`, `upload_timeout` and `run_timeout`
+  (`FlowError`), passed through the Flutter and React Native wrappers as
+  strings.
+
+### Changed
+
+- **Error and result screens.** Failures show a branded, centred screen with
+  plain-language copy per cause, Retry / Start over / Exit, and the error code
+  as a caption, instead of a system dialog with raw server text. The host
+  callback fires on Close, not on the failure. Text is centred even when the
+  host app doesn't declare `supportsRtl`.
+
 ## [4.9.2] - 2026-10-09
 
 ### Added
