@@ -557,34 +557,76 @@
                             android:layout_width="match_parent"
                             android:layout_height="match_parent" />
 
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_gravity="center_horizontal|top"
-                            android:layout_marginTop="16dp"
-                            android:paddingHorizontal="16dp"
-                            android:paddingVertical="8dp"
-                            android:background="@drawable/usesense_pill_bg"
-                            android:text="@string/usesense_face_guide_label"
-                            android:textColor="@android:color/white"
-                            android:textSize="14sp"
-                            android:fontFamily="sans-serif-medium" />
+                        <!-- Quality dot: as iOS (top-left, compact). -->
+                        <com.usesense.sdk.ui.QualityIndicatorView
+                            android:id="@+id/hostedFaceGuideQualityDot"
+                            android:layout_width="12dp"
+                            android:layout_height="12dp"
+                            android:layout_gravity="top|start"
+                            android:layout_marginTop="24dp"
+                            android:layout_marginStart="28dp"
+                            android:visibility="invisible" />
 
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/hostedFaceGuideReadyButton"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_gravity="center_horizontal|bottom"
-                            android:layout_marginBottom="24dp"
-                            android:paddingHorizontal="32dp"
-                            android:paddingVertical="12dp"
-                            android:text="@string/usesense_face_guide_ready"
-                            android:textAllCaps="false"
+                        <!-- Close: as iOS (top-right, 36dp, 50% black). -->
+                        <TextView
+                            android:id="@+id/hostedFaceGuideCloseButton"
+                            android:layout_width="36dp"
+                            android:layout_height="36dp"
+                            android:layout_gravity="top|end"
+                            android:layout_marginTop="12dp"
+                            android:layout_marginEnd="16dp"
+                            android:background="@drawable/usesense_close_circle_bg"
+                            android:contentDescription="@string/usesense_close"
+                            android:gravity="center"
+                            android:text="\u2715"
+                            android:textColor="@android:color/white"
                             android:textSize="16sp"
-                            android:textStyle="bold"
-                            app:cornerRadius="16dp"
-                            app:backgroundTint="@color/usesense_primary_dark"
-                            android:elevation="8dp" />
+                            android:textStyle="bold" />
+
+                        <!-- Copy, live quality and "I'm Ready" pinned to the bottom over a scrim (iOS FaceGuideOverlay). -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="bottom"
+                            android:background="@drawable/usesense_face_guide_scrim"
+                            android:gravity="center_horizontal"
+                            android:orientation="vertical"
+                            android:paddingTop="64dp"
+                            android:paddingBottom="24dp">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginHorizontal="24dp"
+                                android:gravity="center_horizontal"
+                                android:textAlignment="center"
+                                android:text="@string/usesense_face_guide_label"
+                                android:textColor="@android:color/white"
+                                android:textSize="16sp"
+                                android:fontFamily="sans-serif-medium" />
+
+                            <com.usesense.sdk.ui.QualityIndicatorView
+                                android:id="@+id/hostedFaceGuideQuality"
+                                android:layout_width="match_parent"
+                                android:layout_height="36dp"
+                                android:layout_marginTop="8dp"
+                                android:visibility="gone" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/hostedFaceGuideReadyButton"
+                                android:layout_width="match_parent"
+                                android:layout_height="52dp"
+                                android:layout_marginTop="4dp"
+                                android:layout_marginHorizontal="32dp"
+                                android:insetTop="0dp"
+                                android:insetBottom="0dp"
+                                android:text="@string/usesense_face_guide_ready"
+                                android:textAllCaps="false"
+                                android:textSize="17sp"
+                                android:textStyle="bold"
+                                app:cornerRadius="12dp"
+                                app:backgroundTint="@color/usesense_primary_dark" />
+                        </LinearLayout>
                     </FrameLayout>
 
                     <!-- Countdown Overlay -->
@@ -707,19 +749,25 @@
                             android:layout_height="wrap_content"
                             android:layout_gravity="center"
                             android:gravity="center"
-                            android:orientation="vertical">
+                            android:orientation="vertical"
+                            android:paddingHorizontal="32dp">
 
+                            <!-- As iOS ProcessingView: brand-coloured spinner, title, subtitle. -->
                             <ProgressBar
-                                android:layout_width="48dp"
-                                android:layout_height="48dp"
-                                android:indeterminateTint="@android:color/white" />
+                                android:id="@+id/hostedUploadOverlaySpinner"
+                                android:layout_width="56dp"
+                                android:layout_height="56dp"
+                                android:indeterminateTint="@color/usesense_primary" />
 
                             <TextView
                                 android:id="@+id/hostedUploadOverlayTitle"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:layout_marginTop="16dp"
-                                android:textSize="16sp"
+                                android:layout_marginTop="20dp"
+                                android:gravity="center_horizontal"
+                                android:textAlignment="center"
+                                android:text="@string/usesense_processing_title"
+                                android:textSize="20sp"
                                 android:textStyle="bold"
                                 android:textColor="@android:color/white" />
 
@@ -727,10 +775,12 @@
                                 android:id="@+id/hostedUploadOverlaySubtitle"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:layout_marginTop="4dp"
-                                android:textSize="14sp"
-                                android:textColor="#80FFFFFF"
-                                android:text="@string/usesense_finalizing_body" />
+                                android:layout_marginTop="12dp"
+                                android:gravity="center_horizontal"
+                                android:textAlignment="center"
+                                android:textSize="15sp"
+                                android:textColor="#B3FFFFFF"
+                                android:text="@string/usesense_processing_body" />
                         </LinearLayout>
                     </FrameLayout>
                 </FrameLayout>
@@ -885,27 +935,37 @@
                 android:id="@+id/hostedResultScreen"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
+                android:background="@color/usesense_background"
                 android:fillViewport="true"
                 android:visibility="gone">
+
+                <!-- As iOS ResultView: a raised card centred on the page background. -->
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingHorizontal="24dp"
+                    android:paddingVertical="24dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:background="@drawable/usesense_result_card_bg"
+                    android:elevation="6dp"
                     android:orientation="vertical"
-                    android:paddingHorizontal="32dp"
-                    android:paddingVertical="24dp"
-                    android:gravity="center">
+                    android:padding="32dp"
+                    android:gravity="center_horizontal">
 
-                    <!-- Result icon (80dp circle with colored background) -->
+                    <!-- Result icon (96dp circle with coloured background) -->
                     <FrameLayout
                         android:id="@+id/resultIconCircle"
-                        android:layout_width="80dp"
-                        android:layout_height="80dp">
+                        android:layout_width="96dp"
+                        android:layout_height="96dp">
 
                         <ImageView
                             android:id="@+id/resultIcon"
-                            android:layout_width="40dp"
-                            android:layout_height="40dp"
+                            android:layout_width="44dp"
+                            android:layout_height="44dp"
                             android:layout_gravity="center" />
                     </FrameLayout>
 
@@ -913,10 +973,10 @@
                         android:id="@+id/resultTitle"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="24dp"
-                        android:textSize="20sp"
+                        android:layout_marginTop="20dp"
+                        android:textSize="26sp"
                         android:textStyle="bold"
-                        android:textColor="#0F172A"
+                        android:textColor="#1C1A17"
                         android:gravity="center_horizontal"
                         android:textAlignment="center" />
 
@@ -924,10 +984,11 @@
                         android:id="@+id/resultBody"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:lineSpacingMultiplier="1.3"
-                        android:textSize="15sp"
-                        android:textColor="#475569"
+                        android:layout_marginTop="20dp"
+                        android:paddingHorizontal="8dp"
+                        android:lineSpacingMultiplier="1.2"
+                        android:textSize="16sp"
+                        android:textColor="#6B6760"
                         android:gravity="center_horizontal"
                         android:textAlignment="center" />
 
@@ -959,13 +1020,37 @@
                             android:textColor="#0F172A" />
                     </LinearLayout>
 
+                    <!-- As iOS ResultView: primary in the outcome colour, then "Try Again" on a reject. -->
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/resultButton"
-                        style="@style/UseSense.Button.Secondary"
                         android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="32dp" />
+                        android:layout_height="52dp"
+                        android:layout_marginTop="28dp"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:textAllCaps="false"
+                        android:textSize="17sp"
+                        android:textStyle="bold"
+                        android:textColor="@android:color/white"
+                        app:cornerRadius="12dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/resultRetryButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="52dp"
+                        android:layout_marginTop="20dp"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:text="@string/usesense_try_again"
+                        android:textAllCaps="false"
+                        android:textSize="17sp"
+                        android:textStyle="bold"
+                        android:textColor="#1C1A17"
+                        android:visibility="gone"
+                        app:backgroundTint="@color/usesense_border"
+                        app:cornerRadius="12dp" />
                 </LinearLayout>
+                </FrameLayout>
             </ScrollView>
         </FrameLayout>
 

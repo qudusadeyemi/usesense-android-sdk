@@ -320,10 +320,15 @@ data class FlowRunView(
     val pendingAction: PendingAction?,
     val branding: Branding?,
 ) {
+    /**
+     * The dashboard's branding for this run. Every field is null when the
+     * dashboard never set it (no invented defaults: those belong to the SDK's
+     * built-in layer, see BrandingResolver).
+     */
     data class Branding(
-        val displayName: String,
+        val displayName: String?,
         val logoUrl: String?,
-        val primaryColor: String,
+        val primaryColor: String?,
         val redirectUrl: String?,
         /**
          * Operator-configured white-label appearance (Phase 1c). Optional; when
@@ -339,7 +344,16 @@ data class FlowRunView(
          * built-in defaults.
          */
         val copy: FlowCopy? = null,
-    )
+    ) {
+        fun toServerBranding(): com.usesense.sdk.ServerBranding = com.usesense.sdk.ServerBranding(
+            displayName = displayName,
+            logoUrl = logoUrl,
+            primaryColor = primaryColor,
+            redirectUrl = redirectUrl,
+            appearance = appearance,
+            copy = copy,
+        )
+    }
 
     companion object {
         fun decode(json: JSONObject): FlowRunView {
@@ -356,10 +370,10 @@ data class FlowRunView(
                 pendingAction = pendingActionJson?.let { PendingAction.decode(it) },
                 branding = brandingJson?.let {
                     Branding(
-                        displayName = it.optString("display_name", "UseSense"),
-                        logoUrl = it.optString("logo_url", null),
-                        primaryColor = it.optString("primary_color", "#4F7CFF"),
-                        redirectUrl = it.optString("redirect_url", null),
+                        displayName = it.optStringOrNull("display_name"),
+                        logoUrl = it.optStringOrNull("logo_url"),
+                        primaryColor = it.optStringOrNull("primary_color"),
+                        redirectUrl = it.optStringOrNull("redirect_url"),
                         appearance = it.optJSONObject("appearance")?.let(FlowAppearance::decode),
                         copy = it.optJSONObject("copy")?.let(FlowCopy::decode),
                     )

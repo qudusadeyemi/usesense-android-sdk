@@ -12,7 +12,34 @@ data class CreateSessionResponse(
     @Json(name = "policy") val policy: SessionPolicy,
     @Json(name = "upload") val upload: UploadConfig,
     @Json(name = "geometric_coherence") val geometricCoherence: GeometricCoherenceConfig? = null,
+    /** The dashboard's branding for this session (null/absent on older servers). */
+    @Json(name = "branding") val branding: SessionBranding? = null,
 )
+
+/**
+ * Same wire shape as the Flows run-view branding. Every field is nullable and
+ * null means "not configured on the dashboard".
+ */
+@JsonClass(generateAdapter = true)
+data class SessionBranding(
+    @Json(name = "display_name") val displayName: String? = null,
+    @Json(name = "logo_url") val logoUrl: String? = null,
+    @Json(name = "primary_color") val primaryColor: String? = null,
+    @Json(name = "redirect_url") val redirectUrl: String? = null,
+    @Json(name = "appearance") val appearance: Map<String, Any?>? = null,
+    @Json(name = "copy") val copy: Map<String, Any?>? = null,
+) {
+    fun toServerBranding(): com.usesense.sdk.ServerBranding = com.usesense.sdk.ServerBranding(
+        displayName = displayName,
+        logoUrl = logoUrl,
+        primaryColor = primaryColor,
+        redirectUrl = redirectUrl,
+        appearance = appearance?.let {
+            runCatching { com.usesense.sdk.flows.FlowAppearance.decode(org.json.JSONObject(it)) }.getOrNull()
+        },
+        copy = copy?.let { runCatching { com.usesense.sdk.flows.FlowCopy.decode(org.json.JSONObject(it)) }.getOrNull() },
+    )
+}
 
 @JsonClass(generateAdapter = true)
 data class SessionPolicy(
