@@ -25,6 +25,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import com.google.android.material.button.MaterialButton
+import com.usesense.sdk.internal.CameraLiveGate
 import com.usesense.sdk.*
 import com.usesense.sdk.api.models.ChallengeSpec
 import com.usesense.sdk.capture.FrameCaptureManager
@@ -127,6 +128,9 @@ class UseSenseActivity : AppCompatActivity() {
     // Quality analysis
     private val qualityAnalyzer = ImageQualityAnalyzer()
     private var lastQualityAnalysisMs = 0L
+
+    /** The capture clock starts on the camera's first frame, not at bind. */
+    private val cameraLive = CameraLiveGate()
     private val analysisExecutor = Executors.newSingleThreadExecutor()
 
     private val mainScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -431,6 +435,9 @@ class UseSenseActivity : AppCompatActivity() {
                 .build()
                 .also { analysis ->
                     analysis.setAnalyzer(analysisExecutor) { imageProxy ->
+                        if (cameraLive.markFrame()) {
+                            runOnUiThread { if (!isFinishing) cameraLive.onLive() }
+                        }
                         frameCaptureManager?.createAnalyzer()?.analyze(imageProxy)
 
                         // Quality analysis at 4Hz (every 250ms)
@@ -469,6 +476,7 @@ class UseSenseActivity : AppCompatActivity() {
 
             try {
                 cameraProvider.unbindAll()
+                cameraLive.reset()
                 val camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalysis)
 
                 // Report actual camera info for channel integrity scoring
@@ -483,13 +491,15 @@ class UseSenseActivity : AppCompatActivity() {
                 if (requiresStepup) {
                     showFaceGuide()
                 } else {
-                    session.startCapture()
-                    eventEmitter.emit(EventType.CAPTURE_STARTED)
-                    if (session.requiresAudio) {
-                        session.startAudioRecording()
-                        eventEmitter.emit(EventType.AUDIO_RECORD_STARTED)
+                    cameraLive.whenLive {
+                        session.startCapture()
+                        eventEmitter.emit(EventType.CAPTURE_STARTED)
+                        if (session.requiresAudio) {
+                            session.startAudioRecording()
+                            eventEmitter.emit(EventType.AUDIO_RECORD_STARTED)
+                        }
+                        startBaselinePhase()
                     }
-                    startBaselinePhase()
                 }
             } catch (e: Exception) {
                 // Section 13.3: Camera errors show retry UI, NOT onError
@@ -538,13 +548,15 @@ class UseSenseActivity : AppCompatActivity() {
             faceGuideReadyButton.isEnabled = false
             faceGuideOverlay.visibility = View.GONE
 
-            session.startCapture()
-            eventEmitter.emit(EventType.CAPTURE_STARTED)
-            if (session.requiresAudio) {
-                session.startAudioRecording()
-                eventEmitter.emit(EventType.AUDIO_RECORD_STARTED)
+            cameraLive.whenLive {
+                session.startCapture()
+                eventEmitter.emit(EventType.CAPTURE_STARTED)
+                if (session.requiresAudio) {
+                    session.startAudioRecording()
+                    eventEmitter.emit(EventType.AUDIO_RECORD_STARTED)
+                }
+                startBaselinePhase()
             }
-            startBaselinePhase()
         }
     }
 
