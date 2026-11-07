@@ -164,4 +164,9 @@
     <string name="usesense_retry_finalize">Retry</string>
     <!-- Discards the capture and starts the face check again. -->
     <string name="usesense_start_over">Start over</string>
+    <!-- Name-free fallbacks: used when neither code nor the dashboard set a display name. -->
+    <string name="usesense_intro_title_generic">Let\'s verify your identity.</string>
+    <string name="usesense_action_review_plain_generic">You\'ve been asked to verify your identity.</string>
+    <string name="usesense_action_review_action_generic">You\'ve been asked to verify the following action:</string>
+    <string name="usesense_result_failed_body_generic">We could not verify your identity. Please try again or contact support.</string>
 </resources>

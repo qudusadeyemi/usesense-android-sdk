@@ -30,6 +30,9 @@ import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
 import com.google.android.material.button.MaterialButton
+import com.usesense.sdk.internal.BrandHeader
+import com.usesense.sdk.internal.BrandingResolver
+import com.usesense.sdk.internal.ResolvedBranding
 import com.usesense.sdk.internal.CameraLiveGate
 import com.usesense.sdk.R
 import com.usesense.sdk.*
@@ -70,7 +73,10 @@ class HostedPageActivity : AppCompatActivity() {
 
     // Server data
     private var orgBranding: OrgBranding? = null
-    private var effectiveBranding: EffectiveBranding = EffectiveBranding()
+    /** Resolved once per session (and again as dashboard branding arrives); see BrandingResolver. */
+    private var resolvedBranding: ResolvedBranding = BrandingResolver.resolve(null, null)
+    private var brandingTrace: String? = null
+    private var headerLogoUrl: String? = null
     private var actionContext: ActionContext? = null
     private var sessionData: HostedInitSessionResponse? = null
 
@@ -198,13 +204,13 @@ class HostedPageActivity : AppCompatActivity() {
      * that was already running, and the real result then replaced the error.
      */
     /**
-     * Launched by the Flows runner (pre-minted session). The runner's own
-     * "Take a selfie" primer has already introduced the step, so this screen
-     * follows the iOS capture sequence: straight to the camera, instructions
-     * only when the step has a challenge, and the face guide ("I'm Ready")
-     * before every capture. The standalone hosted page keeps its intro.
+     * Launched by the SDK (session mode or the Flows runner) rather than by a
+     * remote hosted link. Such sessions follow the iOS capture sequence:
+     * straight to the camera, instructions only when the step has a challenge,
+     * and the face guide ("I'm Ready") before every capture. The remote hosted
+     * page keeps its intro / action review.
      */
-    private var isFlowsMode = false
+    private var usesSdkCaptureSequence = false
 
     private var captureRound = 0
     private var completedRound = -1
@@ -282,11 +288,11 @@ class HostedPageActivity : AppCompatActivity() {
         apiClient = UseSenseApiClient(config)
 
         // Merge SDK branding
-        effectiveBranding = EffectiveBranding.merge(config.branding, null)
+        resolveBranding(config.branding, pendingServerBranding ?: pendingPrebuiltSession?.branding?.toServerBranding())
         applyBranding()
 
-        isFlowsMode = pendingPrebuiltSession != null || pendingSessionFactory != null
-        if (isDirectMode && isFlowsMode) {
+        usesSdkCaptureSequence = isDirectMode
+        if (usesSdkCaptureSequence) {
             mainScope.launch { initAndStartCapture() }
         } else if (isDirectMode) {
             when (flowType) {
@@ -393,36 +399,71 @@ class HostedPageActivity : AppCompatActivity() {
 
     // ─── Branding ────────────────────────────────────────────────────────
 
+    /** Resolve [code] over [server] (BrandingResolver) and trace the outcome. */
+    private fun resolveBranding(code: BrandingConfig?, server: ServerBranding?) {
+        resolvedBranding = BrandingResolver.resolve(code, server)
+        brandingTrace = BrandingResolver.trace("capture", resolvedBranding, brandingTrace)
+    }
+
+    /** [withName] filled with the org's name, or the name-free [generic] when there is none. */
+    private fun orgText(withName: Int, generic: Int): String =
+        resolvedBranding.displayName.value?.let { getString(withName, it) } ?: getString(generic)
+
+    /** Whether the header bar has anything to show (logo or name). */
+    private val hasHeader: Boolean get() = resolvedBranding.header != BrandHeader.None
+
     private fun applyBranding() {
-        val branding = effectiveBranding
+        val branding = resolvedBranding
 
         // As iOS (HostedPageHeader): the logo alone when there is one; the name
-        // shows while it loads and stays if there is no logo or it fails.
-        headerText.text = branding.displayName
-        headerText.visibility = View.VISIBLE
-        headerLogo.visibility = View.GONE
-        branding.logoUrl?.let { logoUrl ->
-            mainScope.launch(Dispatchers.IO) {
-                val bitmap = runCatching {
-                    java.net.URL(logoUrl).openStream().use { android.graphics.BitmapFactory.decodeStream(it) }
-                }.getOrNull()
-                if (bitmap != null) {
-                    withContext(Dispatchers.Main) {
-                        headerLogo.setImageBitmap(bitmap)
-                        headerLogo.visibility = View.VISIBLE
-                        headerText.visibility = View.GONE
+        // shows while it loads and stays if there is no logo or it fails. With
+        // neither, there is no header (no invented "UseSense").
+        when (val header = branding.header) {
+            is BrandHeader.Logo -> {
+                headerText.text = header.fallbackName.orEmpty()
+                headerText.visibility = if (header.fallbackName != null) View.VISIBLE else View.GONE
+                if (headerLogoUrl != header.url) {
+                    headerLogoUrl = header.url
+                    headerLogo.visibility = View.GONE
+                    mainScope.launch(Dispatchers.IO) {
+                        val bitmap = runCatching {
+                            java.net.URL(header.url).openStream().use { android.graphics.BitmapFactory.decodeStream(it) }
+                        }.getOrNull()
+                        if (bitmap != null) {
+                            withContext(Dispatchers.Main) {
+                                if (headerLogoUrl != header.url) return@withContext
+                                headerLogo.setImageBitmap(bitmap)
+                                headerLogo.visibility = View.VISIBLE
+                                headerText.visibility = View.GONE
+                            }
+                        }
                     }
                 }
             }
+            is BrandHeader.Name -> {
+                headerLogoUrl = null
+                headerLogo.visibility = View.GONE
+                headerText.text = header.name
+                headerText.visibility = View.VISIBLE
+            }
+            BrandHeader.None -> {
+                headerLogoUrl = null
+                headerLogo.visibility = View.GONE
+                headerText.visibility = View.GONE
+            }
+        }
+        if (!hasHeader) {
+            headerBar.visibility = View.GONE
+            headerDivider.visibility = View.GONE
         }
 
         try {
-            val primaryColor = Color.parseColor(branding.primaryColor)
+            val primaryColor = Color.parseColor(branding.primaryColor.value)
             headerText.setTextColor(primaryColor)
         } catch (_: Exception) {}
 
         try {
-            val primaryColor = Color.parseColor(branding.primaryColor)
+            val primaryColor = Color.parseColor(branding.primaryColor.value)
             val bgColor = Color.argb(31, Color.red(primaryColor), Color.green(primaryColor), Color.blue(primaryColor))
             val circleDrawable = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
@@ -439,7 +480,7 @@ class HostedPageActivity : AppCompatActivity() {
         } catch (_: Exception) {}
 
         try {
-            val primaryColor = Color.parseColor(branding.primaryColor)
+            val primaryColor = Color.parseColor(branding.primaryColor.value)
             introGetStartedButton.setBackgroundColor(primaryColor)
             actionReviewVerifyButton.setBackgroundColor(primaryColor)
         } catch (_: Exception) {}
@@ -448,15 +489,15 @@ class HostedPageActivity : AppCompatActivity() {
     }
 
     /** The brand colour, or null when it is unparseable. */
-    private fun brandColor(): Int? = runCatching { Color.parseColor(effectiveBranding.primaryColor) }.getOrNull()
+    private fun brandColor(): Int? = runCatching { Color.parseColor(resolvedBranding.primaryColor.value) }.getOrNull()
 
     /** True when the org or integrator set a colour (not the built-in DeepSense Blue). */
     private val isBranded: Boolean
-        get() = !effectiveBranding.primaryColor.equals(BrandingConfig.DEFAULT_PRIMARY_COLOR, ignoreCase = true)
+        get() = resolvedBranding.isBrandColorSet
 
     /** Text on a brand-filled surface: the appearance's primaryForeground, else white. */
     private fun brandForeground(): Int =
-        pendingConfig?.branding?.appearance?.colors?.primaryForeground
+        resolvedBranding.appearance?.colors?.primaryForeground
             ?.let { runCatching { Color.parseColor(it) }.getOrNull() }
             ?: Color.WHITE
 
@@ -534,7 +575,7 @@ class HostedPageActivity : AppCompatActivity() {
 
         val data = result.getOrNull() ?: run { showError("Empty response"); return }
         orgBranding = data.branding ?: data.enrollment?.branding
-        effectiveBranding = EffectiveBranding.merge(pendingConfig?.branding, orgBranding?.let {
+        resolveBranding(pendingConfig?.branding, orgBranding?.let {
             ServerBranding(it.displayName, it.logoUrl, it.primaryColor, it.redirectUrl)
         })
         applyBranding()
@@ -549,7 +590,7 @@ class HostedPageActivity : AppCompatActivity() {
         val data = result.getOrNull() ?: run { showError("Empty response"); return }
         orgBranding = data.branding ?: data.session?.branding
         actionContext = data.actionContext ?: data.session?.actionContext
-        effectiveBranding = EffectiveBranding.merge(pendingConfig?.branding, orgBranding?.let {
+        resolveBranding(pendingConfig?.branding, orgBranding?.let {
             ServerBranding(it.displayName, it.logoUrl, it.primaryColor, it.redirectUrl)
         })
         applyBranding()
@@ -560,8 +601,7 @@ class HostedPageActivity : AppCompatActivity() {
     // ─── Introduction & Action Review ────────────────────────────────────
 
     private fun showIntroduction() {
-        val orgName = effectiveBranding.displayName
-        introHeadline.text = getString(R.string.usesense_intro_title, orgName)
+        introHeadline.text = orgText(R.string.usesense_intro_title, R.string.usesense_intro_title_generic)
         introDescription.text = getString(R.string.usesense_intro_body)
 
         introGetStartedButton.setOnClickListener {
@@ -572,17 +612,16 @@ class HostedPageActivity : AppCompatActivity() {
     }
 
     private fun showActionReview() {
-        val orgName = effectiveBranding.displayName
         val hasAction = actionContext != null
 
         if (hasAction) {
-            actionReviewHeadline.text = getString(R.string.usesense_action_review_action, orgName)
+            actionReviewHeadline.text = orgText(R.string.usesense_action_review_action, R.string.usesense_action_review_action_generic)
             actionReviewDescription.visibility = View.GONE
             actionContextCard.visibility = View.VISIBLE
             actionContextText.text = actionContext?.displayText ?: ""
 
             try {
-                val primaryColor = Color.parseColor(effectiveBranding.primaryColor)
+                val primaryColor = Color.parseColor(resolvedBranding.primaryColor.value)
                 val cardBg = GradientDrawable().apply {
                     shape = GradientDrawable.RECTANGLE
                     cornerRadius = 12f * resources.displayMetrics.density
@@ -603,7 +642,7 @@ class HostedPageActivity : AppCompatActivity() {
             actionReviewDisputeButton.visibility = View.VISIBLE
             actionReviewDisputeButton.setOnClickListener { showDisputeConfirmation() }
         } else {
-            actionReviewHeadline.text = getString(R.string.usesense_action_review_plain, orgName)
+            actionReviewHeadline.text = orgText(R.string.usesense_action_review_plain, R.string.usesense_action_review_plain_generic)
             actionReviewDescription.text = getString(R.string.usesense_action_review_plain_body)
             actionReviewDescription.visibility = View.VISIBLE
             actionContextCard.visibility = View.GONE
@@ -726,6 +765,11 @@ class HostedPageActivity : AppCompatActivity() {
                     deliverError(error)
                     return
                 }
+                // Session mode: the dashboard layer arrives with the session.
+                sess.serverBranding?.let {
+                    resolveBranding(config.branding, it)
+                    applyBranding()
+                }
             }
 
             eventEmitter.emit(EventType.SESSION_CREATED, mapOf("session_id" to (sess.sessionId ?: "")))
@@ -796,7 +840,7 @@ class HostedPageActivity : AppCompatActivity() {
 
     private fun onPermissionsGranted() {
         // As iOS: instructions only for a step with a challenge to explain.
-        if (isFlowsMode && !hasChallengeToExplain()) {
+        if (usesSdkCaptureSequence && !hasChallengeToExplain()) {
             // showInstructions() is what switches to the capture screen; without
             // it the camera started behind the "Getting ready…" loading screen.
             setStep(PageStep.CAPTURE)
@@ -952,7 +996,7 @@ class HostedPageActivity : AppCompatActivity() {
 
                 // iOS shows the face guide before every capture; the hosted
                 // page only did on step-up.
-                if (requiresStepup || isFlowsMode) {
+                if (requiresStepup || usesSdkCaptureSequence) {
                     // The face guide waits for the subject's tap: not supervised.
                     watchdog.disarm()
                     showFaceGuide()
@@ -1549,7 +1593,6 @@ class HostedPageActivity : AppCompatActivity() {
 
     private fun showResult(decision: String, result: UseSenseResult?) {
         val isEnrollment = flowType == FlowType.ENROLLMENT
-        val orgName = effectiveBranding.displayName
 
         when (decision) {
             UseSenseResult.DECISION_APPROVE -> {
@@ -1589,11 +1632,11 @@ class HostedPageActivity : AppCompatActivity() {
                 } else {
                     getString(R.string.usesense_result_failed_title)
                 }
-                resultBody.text = getString(R.string.usesense_result_failed_body, orgName)
+                resultBody.text = orgText(R.string.usesense_result_failed_body, R.string.usesense_result_failed_body_generic)
             }
         }
 
-        val redirectUrl = effectiveBranding.redirectUrl
+        val redirectUrl = resolvedBranding.redirectUrl.value
         if (redirectUrl != null) {
             resultButton.text = getString(R.string.usesense_continue)
             resultButton.setOnClickListener {
@@ -1677,8 +1720,8 @@ class HostedPageActivity : AppCompatActivity() {
         }
 
         // Section 11.8: Hide branded header/footer during capture, show capture footer
-        headerBar.visibility = if (isCaptureMode) View.GONE else View.VISIBLE
-        headerDivider.visibility = if (isCaptureMode) View.GONE else View.VISIBLE
+        headerBar.visibility = if (isCaptureMode || !hasHeader) View.GONE else View.VISIBLE
+        headerDivider.visibility = if (isCaptureMode || !hasHeader) View.GONE else View.VISIBLE
         footerText.visibility = if (isCaptureMode) View.GONE else View.VISIBLE
         footerDivider.visibility = if (isCaptureMode) View.GONE else View.VISIBLE
 
@@ -1722,6 +1765,7 @@ class HostedPageActivity : AppCompatActivity() {
         pendingRequest = null
         pendingDirectCallback = null
         pendingSessionFactory = null
+        pendingServerBranding = null
     }
 
     companion object {
@@ -1745,6 +1789,9 @@ class HostedPageActivity : AppCompatActivity() {
         // /sdk/flow-runs/:id/init-session. When set, initAndStartCapture()
         // injects them instead of calling createSession (cleared after use).
         internal var pendingPrebuiltSession: com.usesense.sdk.api.models.CreateSessionResponse? = null
+
+        /** The Flows run's dashboard branding, handed over with a pre-minted session. */
+        internal var pendingServerBranding: ServerBranding? = null
 
         /** Flows path: mints a fresh session for "Try again" (the first one is consumed). */
         internal var pendingSessionFactory: (suspend () -> com.usesense.sdk.api.models.CreateSessionResponse)? = null
@@ -1784,6 +1831,7 @@ class HostedPageActivity : AppCompatActivity() {
             config: UseSenseConfig,
             response: com.usesense.sdk.api.models.CreateSessionResponse,
             sessionType: SessionType,
+            serverBranding: ServerBranding? = null,
             callback: UseSenseCallback,
             refreshSession: (suspend () -> com.usesense.sdk.api.models.CreateSessionResponse)? = null,
         ) {
@@ -1792,6 +1840,7 @@ class HostedPageActivity : AppCompatActivity() {
             pendingDirectCallback = callback
             pendingPrebuiltSession = response
             pendingSessionFactory = refreshSession
+            pendingServerBranding = serverBranding
             val flowType = if (sessionType == SessionType.ENROLLMENT) "enrollment" else "verification"
             val intent = Intent(context, HostedPageActivity::class.java).apply {
                 putExtra(EXTRA_FLOW_TYPE, flowType)
