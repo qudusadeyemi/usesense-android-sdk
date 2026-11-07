@@ -30,6 +30,7 @@ import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
 import com.google.android.material.button.MaterialButton
+import com.usesense.sdk.internal.CameraLiveGate
 import com.usesense.sdk.R
 import com.usesense.sdk.*
 import com.usesense.sdk.api.ApiException
@@ -79,6 +80,9 @@ class HostedPageActivity : AppCompatActivity() {
     private var frameCaptureManager: FrameCaptureManager? = null
     private val qualityAnalyzer = ImageQualityAnalyzer()
     private var lastQualityAnalysisMs = 0L
+
+    /** The capture clock starts on the camera's first frame, not at bind. */
+    private val cameraLive = CameraLiveGate()
     private val analysisExecutor = Executors.newSingleThreadExecutor()
     private val handler = Handler(Looper.getMainLooper())
 
@@ -832,6 +836,7 @@ class HostedPageActivity : AppCompatActivity() {
         // System-paced from here: the camera must bind and the capture must
         // finish, upload and settle within the watchdog's budget.
         watchdog.arm(WatchdogPhase.CAMERA)
+        cameraLive.reset()
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
             if (session !== sess || isFinishing) return@addListener
@@ -868,6 +873,9 @@ class HostedPageActivity : AppCompatActivity() {
                 .build()
                 .also { analysis ->
                     analysis.setAnalyzer(analysisExecutor) { imageProxy ->
+                        if (cameraLive.markFrame()) {
+                            runOnUiThread { if (session === sess && !isFinishing) cameraLive.onLive() }
+                        }
                         frameCaptureManager?.createAnalyzer()?.analyze(imageProxy)
 
                         val now = System.currentTimeMillis()
@@ -918,14 +926,17 @@ class HostedPageActivity : AppCompatActivity() {
                     watchdog.disarm()
                     showFaceGuide()
                 } else {
-                    watchdog.enter(WatchdogPhase.CAPTURE)
-                    sess.startCapture()
-                    eventEmitter.emit(EventType.CAPTURE_STARTED)
-                    if (sess.requiresAudio) {
-                        sess.startAudioRecording()
-                        eventEmitter.emit(EventType.AUDIO_RECORD_STARTED)
+                    // The camera watchdog keeps running until frames flow.
+                    cameraLive.whenLive {
+                        watchdog.enter(WatchdogPhase.CAPTURE)
+                        sess.startCapture()
+                        eventEmitter.emit(EventType.CAPTURE_STARTED)
+                        if (sess.requiresAudio) {
+                            sess.startAudioRecording()
+                            eventEmitter.emit(EventType.AUDIO_RECORD_STARTED)
+                        }
+                        startBaselinePhase()
                     }
-                    startBaselinePhase()
                 }
             } catch (e: Exception) {
                 watchdog.disarm()
@@ -969,13 +980,15 @@ class HostedPageActivity : AppCompatActivity() {
             faceGuideReadyButton.isEnabled = false
             faceGuideOverlay.visibility = View.GONE
             watchdog.arm(WatchdogPhase.CAPTURE)
-            sess.startCapture()
-            eventEmitter.emit(EventType.CAPTURE_STARTED)
-            if (sess.requiresAudio) {
-                sess.startAudioRecording()
-                eventEmitter.emit(EventType.AUDIO_RECORD_STARTED)
+            cameraLive.whenLive {
+                sess.startCapture()
+                eventEmitter.emit(EventType.CAPTURE_STARTED)
+                if (sess.requiresAudio) {
+                    sess.startAudioRecording()
+                    eventEmitter.emit(EventType.AUDIO_RECORD_STARTED)
+                }
+                startBaselinePhase()
             }
-            startBaselinePhase()
         }
     }
 
