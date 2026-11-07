@@ -168,6 +168,18 @@ internal class FlowsActivity : ComponentActivity() {
         return mergeAppearance(sdkInit, mergeAppearance(serverAppearance, legacy))
     }
 
+    /**
+     * The org's name and logo for screen headers and the capture screen. Both
+     * used to be dropped on Android: the capture header fell back to
+     * "UseSense" while iOS showed the org's (e.g. XTransfer's) logo and name.
+     * Logo: the appearance's logo first, then the branding logo.
+     */
+    private fun brandName(): String? = view?.branding?.displayName?.takeIf { it.isNotBlank() }
+
+    private fun brandLogo(): String? =
+        mergedAppearance()?.logo?.url?.takeIf { it.isNotBlank() }
+            ?: view?.branding?.logoUrl?.takeIf { it.isNotBlank() }
+
     /** Wrap a Compose surface in the resolved white-label appearance. */
     private fun ComposeView.themedContent(content: @Composable () -> Unit) {
         val appearance = mergedAppearance()
@@ -372,6 +384,8 @@ internal class FlowsActivity : ComponentActivity() {
         val view = ComposeView(this).apply {
             themedContent {
                 IdNumberScreen(
+                    displayName = brandName(),
+                    logoUrl = brandLogo(),
                     idTypes = options,
                     onSubmit = { idType, field, value ->
                         removeIdNumberChrome()
@@ -694,6 +708,8 @@ internal class FlowsActivity : ComponentActivity() {
         val primer = ComposeView(this).apply {
             themedContent {
                 FacePrimerScreen(
+                    displayName = brandName(),
+                    logoUrl = brandLogo(),
                     onStart = {
                         busy.value = true
                         beginFaceCapture(toolId)
@@ -753,6 +769,8 @@ internal class FlowsActivity : ComponentActivity() {
                     apiKey = "flow_runner",
                     baseUrl = endpoint,
                     branding = BrandingConfig(
+                        displayName = brandName(),
+                        logoUrl = brandLogo(),
                         primaryColor = appearance?.colors?.primary,
                         appearance = appearance,
                         copy = mergedCopy(),
@@ -845,6 +863,8 @@ internal class FlowsActivity : ComponentActivity() {
             val typeView = ComposeView(this).apply {
                 themedContent {
                     DocumentTypeSelectScreen(
+                        displayName = brandName(),
+                        logoUrl = brandLogo(),
                         documentTypes = action.documentTypes,
                         onContinue = { selected -> showPrimer(selected) },
                         title = text(c?.document?.selectTitle, "Pick a document"),
@@ -1070,7 +1090,7 @@ internal class FlowsActivity : ComponentActivity() {
             visibility = View.GONE
             // SDK-init appearance only here (server branding may not have loaded
             // yet); the per-step surfaces re-resolve with server branding folded in.
-            themedContent { FlowLoadingScreen(title = loadingMessage.value) }
+            themedContent { FlowLoadingScreen(title = loadingMessage.value, displayName = brandName(), logoUrl = brandLogo()) }
         }
         loadingView = loader
         root.addView(content, FrameLayout.LayoutParams(
@@ -1091,7 +1111,7 @@ internal class FlowsActivity : ComponentActivity() {
         // Re-theme on every show: the loader is built before the server's
         // branding arrives, so it used to stay DeepSense Blue for the whole run
         // (between steps too) while every other screen took the brand colour.
-        loadingView?.themedContent { FlowLoadingScreen(title = loadingMessage.value) }
+        loadingView?.themedContent { FlowLoadingScreen(title = loadingMessage.value, displayName = brandName(), logoUrl = brandLogo()) }
         loadingView?.visibility = View.VISIBLE
     }
 

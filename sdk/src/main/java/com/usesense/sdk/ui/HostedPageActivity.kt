@@ -385,8 +385,15 @@ class HostedPageActivity : AppCompatActivity() {
         val branding = effectiveBranding
 
         if (branding.logoUrl != null) {
+            // Logo and name together, as on iOS and the Flows screens; the name
+            // used to be hidden whenever a logo was set.
             headerLogo.visibility = View.VISIBLE
-            headerText.visibility = View.GONE
+            headerText.visibility = if (branding.displayName.isNotBlank()) View.VISIBLE else View.GONE
+            headerText.text = branding.displayName
+            (headerText.layoutParams as? android.view.ViewGroup.MarginLayoutParams)?.let {
+                it.marginStart = (8 * resources.displayMetrics.density).toInt()
+                headerText.layoutParams = it
+            }
             mainScope.launch(Dispatchers.IO) {
                 try {
                     val url = java.net.URL(branding.logoUrl)
