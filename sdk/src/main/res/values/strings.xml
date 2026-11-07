@@ -89,20 +89,31 @@
     <string name="usesense_dispute_success">Your report has been submitted. All pending actions have been frozen.</string>
 
     <!-- Result Screens (Section 12) -->
-    <string name="usesense_result_success_title">Identity Verified</string>
-    <string name="usesense_result_success_enrollment_title">Enrollment Successful</string>
-    <string name="usesense_result_success_body">Your identity has been confirmed. You may now close this page.</string>
-    <string name="usesense_result_failed_title">Verification Failed</string>
-    <string name="usesense_result_failed_enrollment_title">Enrollment Failed</string>
+    <string name="usesense_result_success_title">Verification Successful</string>
+    <string name="usesense_result_success_enrollment_title">Verification Successful</string>
+    <string name="usesense_result_success_body">Your identity has been verified successfully. You can now proceed.</string>
+    <string name="usesense_result_failed_title">Verification Unsuccessful</string>
+    <string name="usesense_result_failed_enrollment_title">Verification Unsuccessful</string>
     <string name="usesense_result_failed_body">We could not verify your identity. Please contact %s for assistance.</string>
-    <string name="usesense_result_review_title">Pending Review</string>
-    <string name="usesense_result_review_body">Your verification is pending review.</string>
+    <string name="usesense_result_review_title">Under Review</string>
+    <string name="usesense_result_review_body">Your verification is being reviewed. You will be notified of the result shortly.</string>
     <string name="usesense_result_authorised">You have authorised:</string>
+    <!-- Same wording as iOS ResultView. -->
+    <string name="usesense_result_failed_body_unsuccessful">We were unable to verify your identity. Please try again or contact support.</string>
+    <string name="usesense_result_button_approve">Continue</string>
+    <string name="usesense_result_button_reject">Done</string>
+    <string name="usesense_result_button_review">Got It</string>
+    <string name="usesense_try_again">Try Again</string>
 
     <!-- Finalizing (Section 11.9) -->
     <string name="usesense_processing_verification">Processing Verification</string>
     <string name="usesense_processing_enrollment">Finalizing Enrollment</string>
     <string name="usesense_finalizing_body">Finalizing your identity check\u2026</string>
+    <!-- Same wording as iOS UseSenseView (.uploading / .completing). -->
+    <string name="usesense_processing_title">Verifying your presence</string>
+    <string name="usesense_processing_body">Please wait while we securely process your session...</string>
+    <string name="usesense_completing_title">Almost done</string>
+    <string name="usesense_completing_body">Finishing up - this will only take a moment.</string>
 
     <!-- Loading (Section 11.3) -->
     <string name="usesense_loading_enrollment">Loading enrollment session\u2026</string>

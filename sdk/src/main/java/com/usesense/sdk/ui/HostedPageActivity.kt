@@ -166,6 +166,11 @@ class HostedPageActivity : AppCompatActivity() {
     private lateinit var uploadOverlay: FrameLayout
     private lateinit var uploadOverlayTitle: TextView
     private lateinit var uploadOverlaySubtitle: TextView
+    private lateinit var uploadOverlaySpinner: ProgressBar
+
+    // Face guide extras (as iOS FaceGuideOverlay): close button, live quality
+    private lateinit var faceGuideCloseButton: TextView
+    private lateinit var faceGuideQuality: QualityIndicatorView
 
     // Capture footer (Section 11.8)
     private lateinit var captureFooterText: TextView
@@ -185,6 +190,7 @@ class HostedPageActivity : AppCompatActivity() {
     private lateinit var resultActionBox: LinearLayout
     private lateinit var resultActionText: TextView
     private lateinit var resultButton: MaterialButton
+    private lateinit var resultRetryButton: MaterialButton
     private lateinit var footerText: TextView
     private lateinit var footerDivider: View
 
@@ -233,6 +239,13 @@ class HostedPageActivity : AppCompatActivity() {
 
     /** The error on screen right now, delivered if the subject leaves from it. */
     private var pendingTerminalError: UseSenseError? = null
+
+    /**
+     * The decision on the result screen. As on iOS it reaches the host when the
+     * subject taps the primary button (or leaves), not before, so "Try Again"
+     * on a reject can start a clean attempt instead.
+     */
+    private var pendingResult: UseSenseResult? = null
 
     enum class PageStep {
         LOADING, ERROR, INTRODUCTION, ACTION_REVIEW,
@@ -378,6 +391,9 @@ class HostedPageActivity : AppCompatActivity() {
         uploadOverlay = findViewById(R.id.hostedUploadOverlay)
         uploadOverlayTitle = findViewById(R.id.hostedUploadOverlayTitle)
         uploadOverlaySubtitle = findViewById(R.id.hostedUploadOverlaySubtitle)
+        uploadOverlaySpinner = findViewById(R.id.hostedUploadOverlaySpinner)
+        faceGuideCloseButton = findViewById(R.id.hostedFaceGuideCloseButton)
+        faceGuideQuality = findViewById(R.id.hostedFaceGuideQuality)
 
         // Capture footer
         captureFooterText = findViewById(R.id.captureFooterText)
@@ -393,6 +409,7 @@ class HostedPageActivity : AppCompatActivity() {
         resultActionBox = findViewById(R.id.resultActionBox)
         resultActionText = findViewById(R.id.resultActionText)
         resultButton = findViewById(R.id.resultButton)
+        resultRetryButton = findViewById(R.id.resultRetryButton)
         footerText = findViewById(R.id.footerText)
         footerDivider = findViewById(R.id.footerDivider)
     }
@@ -516,6 +533,7 @@ class HostedPageActivity : AppCompatActivity() {
 
         loadingSpinner.indeterminateTintList = tint
         finalizingSpinner.indeterminateTintList = tint
+        uploadOverlaySpinner.indeterminateTintList = tint
         challengeProgress.progressTintList = tint
         permissionIcon.imageTintList = tint
         permissionButton.backgroundTintList = tint
@@ -877,6 +895,7 @@ class HostedPageActivity : AppCompatActivity() {
         }
 
         instructionsOverlay.visibility = View.VISIBLE
+        showCaptureText(true)
         captureTitle.text = getString(R.string.usesense_getting_ready)
         captureSubtitle.text = ""
 
@@ -898,8 +917,8 @@ class HostedPageActivity : AppCompatActivity() {
         frameCaptureManager = sess.initCapture()
         challengePresenter = sess.createChallengePresenter()
 
-        captureTitle.text = getString(R.string.usesense_position_face)
-        captureSubtitle.text = getString(R.string.usesense_center_face)
+        // The face guide carries its own copy (as iOS); no second line under the camera.
+        showCaptureText(false)
 
         startCamera()
     }
@@ -1024,6 +1043,8 @@ class HostedPageActivity : AppCompatActivity() {
         qualityIndicator.updateQuality(report)
         qualityBanner.updateQuality(report)
         qualityIndicator.visibility = View.VISIBLE
+        faceGuideQuality.updateQuality(report)
+        faceGuideQuality.visibility = View.VISIBLE
         qualityBanner.visibility = if (report.isAcceptable) View.GONE else View.VISIBLE
 
         val bg = videoContainer.background
@@ -1045,9 +1066,13 @@ class HostedPageActivity : AppCompatActivity() {
         val sess = session ?: return
         sess.setCapturePhase(CapturePhase.FACE_GUIDE)
         faceGuideOverlay.visibility = View.VISIBLE
-
-        captureTitle.text = getString(R.string.usesense_position_face)
-        captureSubtitle.text = getString(R.string.usesense_center_face)
+        showCaptureText(false)
+        faceGuideCloseButton.setOnClickListener {
+            // As iOS: closing the capture cancels it.
+            abortAttempt()
+            callbackGate.cancel()
+            finish()
+        }
 
         faceGuideReadyButton.isEnabled = true
         faceGuideReadyButton.setOnClickListener {
@@ -1073,6 +1098,7 @@ class HostedPageActivity : AppCompatActivity() {
             sess.setCapturePhase(CapturePhase.BASELINE)
             challengeOverlay.visibility = View.VISIBLE
 
+            showCaptureText(true)
             captureTitle.text = getString(R.string.usesense_hold_still)
             captureSubtitle.text = getString(R.string.usesense_keep_still)
 
@@ -1299,6 +1325,23 @@ class HostedPageActivity : AppCompatActivity() {
         startFinalization(sess)
     }
 
+    private fun setProcessingCopy(phase: FinalizationPhase) {
+        if (phase == FinalizationPhase.COMPLETING) {
+            uploadOverlayTitle.text = getString(R.string.usesense_completing_title)
+            uploadOverlaySubtitle.text = getString(R.string.usesense_completing_body)
+        } else {
+            uploadOverlayTitle.text = getString(R.string.usesense_processing_title)
+            uploadOverlaySubtitle.text = getString(R.string.usesense_processing_body)
+        }
+    }
+
+    /** The status lines under the camera; hidden where a screen carries its own copy. */
+    private fun showCaptureText(visible: Boolean) {
+        val v = if (visible) View.VISIBLE else View.GONE
+        captureTitle.visibility = v
+        captureSubtitle.visibility = v
+    }
+
     private fun startFinalization(sess: UseSenseSession, startAt: FinalizationPhase = FinalizationPhase.PREPARING) {
         val operations = object : FinalizationOperations {
             override suspend fun prepare() = Result.success(Unit)
@@ -1317,11 +1360,9 @@ class HostedPageActivity : AppCompatActivity() {
         finalizationJob?.cancel()
         finalizationJob = mainScope.launch {
             try {
-                uploadOverlayTitle.text = if (flowType == FlowType.ENROLLMENT) {
-                    getString(R.string.usesense_processing_enrollment)
-                } else {
-                    getString(R.string.usesense_processing_verification)
-                }
+                // As iOS: "Verifying your presence" while preparing/uploading,
+                // "Almost done" while the result is computed. No percentage.
+                setProcessingCopy(FinalizationPhase.PREPARING)
                 setStep(PageStep.FINALIZING)
                 FinalizationCoordinator(operations).run(startAt) { update ->
                     if (watchdog.fired) return@run
@@ -1334,19 +1375,10 @@ class HostedPageActivity : AppCompatActivity() {
                                     FinalizationPhase.COMPLETING -> WatchdogPhase.COMPLETING
                                 },
                             )
-                            uploadOverlaySubtitle.text = when (update.phase) {
-                                FinalizationPhase.PREPARING -> "Preparing capture data"
-                                FinalizationPhase.UPLOADING -> "Uploading securely"
-                                FinalizationPhase.COMPLETING -> "Waiting for verification result"
-                            }
+                            setProcessingCopy(update.phase)
                         }
                         is FinalizationUpdate.Progress -> {
                             watchdog.onProgress()
-                            // Progress fires on the OkHttp writer thread.
-                            uploadOverlaySubtitle.post {
-                                uploadOverlaySubtitle.text =
-                                    "${update.bytesSent * 100 / update.bytesTotal.coerceAtLeast(1)}% uploaded"
-                            }
                         }
                         is FinalizationUpdate.Result -> {
                             watchdog.disarm()
@@ -1388,6 +1420,7 @@ class HostedPageActivity : AppCompatActivity() {
         stepUpRoundActive = true
         setStep(PageStep.CAPTURE)
         challengeOverlay.visibility = View.VISIBLE
+        showCaptureText(true)
         captureTitle.text = "One more quick check"
         captureSubtitle.text = "Get ready..."
         handler.postDelayed({
@@ -1431,9 +1464,9 @@ class HostedPageActivity : AppCompatActivity() {
                 }.onFailure { Log.e(TAG, "Hosted complete error (non-fatal)", it) }
             }
         }
-        showResult(result.decision, result)
         pendingTerminalError = null
-        callbackGate.success(result)
+        pendingResult = result
+        showResult(result.decision, result)
     }
 
     private fun showTechnicalRecovery(sess: UseSenseSession, recovery: FinalizationUpdate.Recovery) {
@@ -1592,8 +1625,6 @@ class HostedPageActivity : AppCompatActivity() {
     // ─── Result Screen ───────────────────────────────────────────────────
 
     private fun showResult(decision: String, result: UseSenseResult?) {
-        val isEnrollment = flowType == FlowType.ENROLLMENT
-
         when (decision) {
             UseSenseResult.DECISION_APPROVE -> {
                 resultIcon.setImageResource(R.drawable.usesense_icon_success)
@@ -1601,11 +1632,7 @@ class HostedPageActivity : AppCompatActivity() {
                 resultIconCircle.background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL; setColor(Color.parseColor("#E6FBF5")) // green-0
                 }
-                resultTitle.text = if (isEnrollment) {
-                    getString(R.string.usesense_result_success_enrollment_title)
-                } else {
-                    getString(R.string.usesense_result_success_title)
-                }
+                resultTitle.text = getString(R.string.usesense_result_success_title)
                 resultBody.text = getString(R.string.usesense_result_success_body)
                 if (actionContext != null) {
                     resultActionBox.visibility = View.VISIBLE
@@ -1627,25 +1654,35 @@ class HostedPageActivity : AppCompatActivity() {
                 resultIconCircle.background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL; setColor(Color.parseColor("#FFF0EC")) // error-0
                 }
-                resultTitle.text = if (isEnrollment) {
-                    getString(R.string.usesense_result_failed_enrollment_title)
-                } else {
-                    getString(R.string.usesense_result_failed_title)
-                }
-                resultBody.text = orgText(R.string.usesense_result_failed_body, R.string.usesense_result_failed_body_generic)
+                resultTitle.text = getString(R.string.usesense_result_failed_title)
+                resultBody.text = getString(R.string.usesense_result_failed_body_unsuccessful)
             }
         }
 
-        val redirectUrl = resolvedBranding.redirectUrl.value
-        if (redirectUrl != null) {
-            resultButton.text = getString(R.string.usesense_continue)
-            resultButton.setOnClickListener {
-                try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(redirectUrl))) } catch (_: Exception) {}
-                finish()
-            }
-        } else {
-            resultButton.text = getString(R.string.usesense_close)
-            resultButton.setOnClickListener { finish() }
+        // As iOS ResultView: one primary button in the outcome colour
+        // (Continue / Done / Got It) that hands the decision to the host, and
+        // "Try Again" on a reject. No redirect: the host decides what's next.
+        val isReject = decision != UseSenseResult.DECISION_APPROVE &&
+            decision != UseSenseResult.DECISION_MANUAL_REVIEW
+        val (buttonText, buttonColor) = when (decision) {
+            UseSenseResult.DECISION_APPROVE -> R.string.usesense_result_button_approve to "#00AA88"
+            UseSenseResult.DECISION_MANUAL_REVIEW -> R.string.usesense_result_button_review to "#DB973A"
+            else -> R.string.usesense_result_button_reject to "#DB4E33"
+        }
+        resultButton.text = getString(buttonText)
+        resultButton.backgroundTintList = ColorStateList.valueOf(Color.parseColor(buttonColor))
+        resultButton.setOnClickListener {
+            pendingResult?.let { callbackGate.success(it) }
+            pendingResult = null
+            finish()
+        }
+        // A clean attempt needs a session we can re-create (SDK or Flows);
+        // a hosted remote link has already been completed on the server.
+        val canRetry = isReject && isDirectMode
+        resultRetryButton.visibility = if (canRetry) View.VISIBLE else View.GONE
+        resultRetryButton.setOnClickListener {
+            pendingResult = null
+            restartCapture()
         }
 
         setStep(PageStep.RESULT)
@@ -1715,6 +1752,13 @@ class HostedPageActivity : AppCompatActivity() {
                 // Keep capture screen visible — show dark overlay on camera
                 captureScreen.visibility = View.VISIBLE
                 uploadOverlay.visibility = View.VISIBLE
+                // Nothing from the capture shows through under the overlay
+                // ("Hold still" used to sit below it); the footer stays.
+                showCaptureText(false)
+                challengeProgress.visibility = View.GONE
+                directionText.visibility = View.GONE
+                speakPhraseLayout.visibility = View.GONE
+                qualityBanner.visibility = View.GONE
             }
             PageStep.RESULT -> resultScreen.visibility = View.VISIBLE
         }
@@ -1745,6 +1789,7 @@ class HostedPageActivity : AppCompatActivity() {
         phaseBadge.visibility = View.GONE
         challengeProgress.visibility = View.GONE
         qualityIndicator.visibility = View.GONE
+        faceGuideQuality.visibility = View.INVISIBLE
         qualityBanner.visibility = View.GONE
     }
 
@@ -1752,7 +1797,10 @@ class HostedPageActivity : AppCompatActivity() {
         // Never end silently: the host hears an error (if one is on screen) or
         // a cancellation. The gate makes this a no-op after a success/exit.
         if (!isChangingConfigurations) {
-            pendingTerminalError?.let { callbackGate.exit(it) } ?: callbackGate.cancel()
+            // Leaving from the result screen still delivers its decision.
+            pendingResult?.let { callbackGate.success(it) }
+                ?: pendingTerminalError?.let { callbackGate.exit(it) }
+                ?: callbackGate.cancel()
         }
         if (::watchdog.isInitialized) watchdog.disarm()
         finalizationJob?.cancel()
