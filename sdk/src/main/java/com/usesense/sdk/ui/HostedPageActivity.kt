@@ -218,6 +218,13 @@ class HostedPageActivity : AppCompatActivity() {
      */
     private var usesSdkCaptureSequence = false
 
+    /**
+     * Launched by the Flows runner (pre-minted session). The run's outcome is
+     * decided on the server when this capture completes, so the result screen
+     * offers no "Try Again": retries belong to the Flow's own policy.
+     */
+    private var isFlowRun = false
+
     private var captureRound = 0
     private var completedRound = -1
 
@@ -305,6 +312,7 @@ class HostedPageActivity : AppCompatActivity() {
         applyBranding()
 
         usesSdkCaptureSequence = isDirectMode
+        isFlowRun = pendingPrebuiltSession != null
         if (usesSdkCaptureSequence) {
             mainScope.launch { initAndStartCapture() }
         } else if (isDirectMode) {
@@ -1676,9 +1684,9 @@ class HostedPageActivity : AppCompatActivity() {
             pendingResult = null
             finish()
         }
-        // A clean attempt needs a session we can re-create (SDK or Flows);
-        // a hosted remote link has already been completed on the server.
-        val canRetry = isReject && isDirectMode
+        // Session mode only. Inside a Flow the server has already moved the
+        // run on from this decision; a hosted remote link is completed too.
+        val canRetry = isReject && isDirectMode && !isFlowRun
         resultRetryButton.visibility = if (canRetry) View.VISIBLE else View.GONE
         resultRetryButton.setOnClickListener {
             pendingResult = null
