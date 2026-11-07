@@ -197,6 +197,15 @@ class HostedPageActivity : AppCompatActivity() {
      * used to see an empty buffer and show NO_FRAMES_CAPTURED over an upload
      * that was already running, and the real result then replaced the error.
      */
+    /**
+     * Launched by the Flows runner (pre-minted session). The runner's own
+     * "Take a selfie" primer has already introduced the step, so this screen
+     * follows the iOS capture sequence: straight to the camera, instructions
+     * only when the step has a challenge, and the face guide ("I'm Ready")
+     * before every capture. The standalone hosted page keeps its intro.
+     */
+    private var isFlowsMode = false
+
     private var captureRound = 0
     private var completedRound = -1
 
@@ -276,7 +285,10 @@ class HostedPageActivity : AppCompatActivity() {
         effectiveBranding = EffectiveBranding.merge(config.branding, null)
         applyBranding()
 
-        if (isDirectMode) {
+        isFlowsMode = pendingPrebuiltSession != null || pendingSessionFactory != null
+        if (isDirectMode && isFlowsMode) {
+            mainScope.launch { initAndStartCapture() }
+        } else if (isDirectMode) {
             when (flowType) {
                 FlowType.ENROLLMENT -> showIntroduction()
                 FlowType.VERIFICATION -> showActionReview()
@@ -777,7 +789,20 @@ class HostedPageActivity : AppCompatActivity() {
         }
     }
 
+    private fun hasChallengeToExplain(): Boolean {
+        val type = session?.challengeSpec?.type
+        return !type.isNullOrBlank() && !type.equals("none", ignoreCase = true)
+    }
+
     private fun onPermissionsGranted() {
+        // As iOS: instructions only for a step with a challenge to explain.
+        if (isFlowsMode && !hasChallengeToExplain()) {
+            // showInstructions() is what switches to the capture screen; without
+            // it the camera started behind the "Getting ready…" loading screen.
+            setStep(PageStep.CAPTURE)
+            startCameraAndCapture()
+            return
+        }
         showInstructions()
     }
 
@@ -925,7 +950,9 @@ class HostedPageActivity : AppCompatActivity() {
 
                 val requiresStepup = sess.policy?.requiresStepup == true
 
-                if (requiresStepup) {
+                // iOS shows the face guide before every capture; the hosted
+                // page only did on step-up.
+                if (requiresStepup || isFlowsMode) {
                     // The face guide waits for the subject's tap: not supervised.
                     watchdog.disarm()
                     showFaceGuide()
