@@ -1055,6 +1055,9 @@ class HostedPageActivity : AppCompatActivity() {
     }
 
     private fun updateQualityUI(report: ImageQualityAnalyzer.ImageQualityReport) {
+        // A report posted just before processing started must not show its
+        // guidance through the processing overlay.
+        if (uploadOverlay.visibility == View.VISIBLE || captureScreen.visibility != View.VISIBLE) return
         qualityIndicator.updateQuality(report)
         qualityBanner.updateQuality(report)
         qualityIndicator.visibility = View.VISIBLE
@@ -1773,6 +1776,7 @@ class HostedPageActivity : AppCompatActivity() {
                 // Nothing from the capture shows through under the overlay
                 // ("Hold still" used to sit below it); the footer stays.
                 showCaptureText(false)
+                qualityIndicator.visibility = View.GONE
                 challengeProgress.visibility = View.GONE
                 directionText.visibility = View.GONE
                 speakPhraseLayout.visibility = View.GONE
