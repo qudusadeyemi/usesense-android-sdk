@@ -43,17 +43,20 @@ data class UseSenseConfig(
 }
 
 /**
- * SDK-level branding overrides. Inheritance rule (Section 2):
- *   SDK-level branding > Organization settings > UseSense defaults
+ * SDK-level branding. Precedence (docs/branding-precedence.md, agreed
+ * 2026-11-07), resolved field by field:
+ *   code (this config / per-launch options) > dashboard (Flow, then brand/org)
+ *   > built-in defaults.
  *
- * Null values inherit from server-side org settings.
+ * Every field defaults to null = "not set": it never hides a dashboard value.
  */
 data class BrandingConfig(
     val displayName: String? = null,   // null = inherit from org
     val logoUrl: String? = null,       // null = inherit from org
-    val primaryColor: String? = null,  // null = inherit from org (#4f46e5 default)
+    val primaryColor: String? = null,  // null = inherit from the dashboard, then the built-in default
     val redirectUrl: String? = null,   // null = inherit from org
-    val buttonRadius: Int = 12,
+    /** Button corner radius in dp. Null (default) = inherit; was a fixed 12 before 4.10.1. */
+    val buttonRadius: Int? = null,
     val fontFamily: String? = null,
     /**
      * Full white-label appearance for the Flows runner (Phase 1c). When set this
@@ -76,34 +79,41 @@ data class BrandingConfig(
 }
 
 /**
- * Effective branding after merging SDK overrides with server org settings.
+ * Effective branding after resolving SDK branding over the dashboard's. Kept
+ * for compatibility; the SDK resolves through its internal BrandingResolver.
+ * [displayName] is null when neither code nor the dashboard set one (there is
+ * no invented default name).
  */
 data class EffectiveBranding(
-    val displayName: String = "UseSense",
+    val displayName: String? = null,
     val logoUrl: String? = null,
     val primaryColor: String = BrandingConfig.DEFAULT_PRIMARY_COLOR,
     val redirectUrl: String? = null,
 ) {
     companion object {
         fun merge(sdk: BrandingConfig?, server: ServerBranding?): EffectiveBranding {
+            val r = com.usesense.sdk.internal.BrandingResolver.resolve(sdk, server)
             return EffectiveBranding(
-                displayName = sdk?.displayName ?: server?.displayName ?: "UseSense",
-                logoUrl = sdk?.logoUrl ?: server?.logoUrl,
-                primaryColor = sdk?.primaryColor ?: server?.primaryColor ?: BrandingConfig.DEFAULT_PRIMARY_COLOR,
-                redirectUrl = sdk?.redirectUrl ?: server?.redirectUrl,
+                displayName = r.displayName.value,
+                logoUrl = r.logoUrl.value,
+                primaryColor = r.primaryColor.value,
+                redirectUrl = r.redirectUrl.value,
             )
         }
     }
 }
 
 /**
- * Branding fields received from the server's org settings.
+ * Branding delivered by the server (the dashboard's Flow / brand / org
+ * settings). Every field is null when the dashboard never configured it.
  */
 data class ServerBranding(
     val displayName: String? = null,
     val logoUrl: String? = null,
     val primaryColor: String? = null,
     val redirectUrl: String? = null,
+    val appearance: com.usesense.sdk.flows.FlowAppearance? = null,
+    val copy: com.usesense.sdk.flows.FlowCopy? = null,
 )
 
 enum class UseSenseEnvironment {

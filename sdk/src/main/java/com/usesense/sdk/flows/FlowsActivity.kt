@@ -27,6 +27,8 @@ import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import androidx.core.view.setPadding
 import androidx.lifecycle.lifecycleScope
+import com.usesense.sdk.internal.BrandingResolver
+import com.usesense.sdk.internal.ResolvedBranding
 import com.usesense.sdk.SessionType
 import com.usesense.sdk.UseSenseCallback
 import com.usesense.sdk.BrandingConfig
@@ -157,36 +159,31 @@ internal class FlowsActivity : ComponentActivity() {
      * (branding.appearance) > legacy primaryColor (synthesised into an
      * appearance) > built-in hosted-page tokens.
      */
-    private fun mergedAppearance(): FlowAppearance? {
-        val sdkInit = options.appearance
-        val serverAppearance = view?.branding?.appearance
-        // Legacy fallback: fold the flat primary_color into an appearance so a
-        // server that only sends primaryColor still tints the runner.
-        val legacy = view?.branding?.primaryColor
-            ?.takeIf { it.isNotBlank() && serverAppearance?.colors?.primary == null && sdkInit?.colors?.primary == null }
-            ?.let { FlowAppearance(colors = AppearanceColors(primary = it)) }
-        return mergeAppearance(sdkInit, mergeAppearance(serverAppearance, legacy))
-    }
+    private fun mergedAppearance(): FlowAppearance? = resolvedBranding().appearance
 
     /**
-     * The org's name and logo for screen headers and the capture screen. Both
-     * used to be dropped on Android: the capture header fell back to
-     * "UseSense" while iOS showed the org's (e.g. XTransfer's) logo and name.
-     * Logo: the appearance's logo first, then the branding logo.
+     * The run's branding resolved by the shared BrandingResolver (code over
+     * dashboard, field by field; see docs/branding-precedence.md). "Code" here
+     * is the per-launch run options (appearance, copy); the dashboard layer is
+     * the run view's branding.
      */
-    private fun headerSuppressed(): Boolean =
-        mergedAppearance()?.logo?.placement == AppearanceLogo.Placement.NONE
+    private fun resolvedBranding(): ResolvedBranding {
+        val resolved = BrandingResolver.resolve(codeBranding(), view?.branding?.toServerBranding())
+        brandingTrace = BrandingResolver.trace("flows", resolved, brandingTrace)
+        return resolved
+    }
 
-    private fun brandName(): String? =
-        if (headerSuppressed()) null else view?.branding?.displayName?.takeIf { it.isNotBlank() }
+    private fun codeBranding(): BrandingConfig = BrandingConfig(appearance = options.appearance, copy = options.copy)
 
-    private fun brandLogo(): String? =
-        if (headerSuppressed()) {
-            null
-        } else {
-            mergedAppearance()?.logo?.url?.takeIf { it.isNotBlank() }
-                ?: view?.branding?.logoUrl?.takeIf { it.isNotBlank() }
-        }
+    private var brandingTrace: String? = null
+
+    /**
+     * The org's name and logo for the Compose headers (same lockup as iOS
+     * USBrandingHeader). Placement `none` hides them; no invented name.
+     */
+    private fun brandName(): String? = resolvedBranding().let { if (it.headerSuppressed) null else it.displayName.value }
+
+    private fun brandLogo(): String? = resolvedBranding().let { if (it.headerSuppressed) null else it.logoUrl.value }
 
     /** Wrap a Compose surface in the resolved white-label appearance. */
     private fun ComposeView.themedContent(content: @Composable () -> Unit) {
@@ -202,7 +199,7 @@ internal class FlowsActivity : ComponentActivity() {
      * branding. Merge order (highest first): SDK-init (options.copy) > server
      * (branding.copy) > built-in defaults.
      */
-    private fun mergedCopy(): FlowCopy? = mergeCopy(options.copy, view?.branding?.copy)
+    private fun mergedCopy(): FlowCopy? = resolvedBranding().copy
 
     // ── Driver ────────────────────────────────────────────────────────────────
 
@@ -772,17 +769,13 @@ internal class FlowsActivity : ComponentActivity() {
                 // screens tint from the flat EffectiveBranding field, while the
                 // Compose surfaces read the appearance; passing only one leaves
                 // half the screens unbranded.
-                val appearance = mergedAppearance()
+                // The capture screen resolves its own branding with the same
+                // resolver: the run options as code, the run view's branding as
+                // the dashboard layer, so every field keeps its true source.
                 val config = UseSenseConfig(
                     apiKey = "flow_runner",
                     baseUrl = endpoint,
-                    branding = BrandingConfig(
-                        displayName = brandName(),
-                        logoUrl = brandLogo(),
-                        primaryColor = appearance?.colors?.primary,
-                        appearance = appearance,
-                        copy = mergedCopy(),
-                    ),
+                    branding = codeBranding(),
                 )
                 val bridge = object : UseSenseCallback {
                     override fun onSuccess(result: UseSenseResult) {
@@ -812,6 +805,7 @@ internal class FlowsActivity : ComponentActivity() {
                 HostedPageActivity.startWithPrebuiltSession(
                     context = this@FlowsActivity,
                     config = config,
+                    serverBranding = view?.branding?.toServerBranding(),
                     response = response,
                     sessionType = SessionType.ENROLLMENT,
                     callback = bridge,
