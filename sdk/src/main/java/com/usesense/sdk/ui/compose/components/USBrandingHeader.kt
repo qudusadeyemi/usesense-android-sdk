@@ -46,7 +46,7 @@ fun USBrandingHeader(
                 )
             }
             Text(
-                "Secured by UseSense",
+                "Secured by Sense",
                 style = USType.bodyMedium.copy(fontSize = 11.sp),
                 color = colors.mutedForeground,
             )

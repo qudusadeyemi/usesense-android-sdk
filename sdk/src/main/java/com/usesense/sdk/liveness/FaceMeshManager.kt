@@ -57,7 +57,15 @@ internal class FaceMeshManager(private val context: Context) {
             faceLandmarker = FaceLandmarker.createFromOptions(context, options)
             lastInitError = null
             true
-        } catch (e: Exception) {
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            // Throwable, not Exception: MediaPipe fails with Errors too
+            // (ExceptionInInitializerError when R8 strips Flogger,
+            // UnsatisfiedLinkError on a missing native lib). Those used to
+            // escape this coroutine and crash the host app at the face step.
+            // Without the mesh the capture continues; the server scores the
+            // session with the mesh marked absent.
             lastInitError = "${e.javaClass.simpleName}: ${e.message.orEmpty().take(160)}"
             false
         }
@@ -109,7 +117,7 @@ internal class FaceMeshManager(private val context: Context) {
                 _frameMeshData.add(data)
             }
             data
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             null
         }
     }

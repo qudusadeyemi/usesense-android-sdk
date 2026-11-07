@@ -48,3 +48,18 @@
 # ML Kit Face Detection (for RMAS action validation)
 -keep class com.google.mlkit.vision.face.** { *; }
 -dontwarn com.google.mlkit.vision.face.**
+
+# ── Release builds (R8) with MediaPipe ──────────────────────────────────────
+# MediaPipe logs through Flogger, which finds its caller by walking the stack
+# for its own class names. If R8 renames them, Graph.<clinit> throws
+# "no caller found on the stack" and the app crashes when the face step starts
+# (found 2026-11-07 on a Flutter release build).
+-keep class com.google.common.flogger.** { *; }
+-dontwarn com.google.common.flogger.**
+# tasks-vision ships the AutoValue annotation processor on the runtime
+# classpath; it references compile-time-only javax.lang.model classes and
+# fails R8 with "Missing class" unless these are suppressed.
+-dontwarn javax.lang.model.**
+-dontwarn autovalue.shaded.**
+-dontwarn com.google.auto.value.**
+-dontwarn com.google.auto.common.**
