@@ -935,27 +935,37 @@
                 android:id="@+id/hostedResultScreen"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
+                android:background="@color/usesense_background"
                 android:fillViewport="true"
                 android:visibility="gone">
+
+                <!-- As iOS ResultView: a raised card centred on the page background. -->
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingHorizontal="24dp"
+                    android:paddingVertical="24dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:background="@drawable/usesense_result_card_bg"
+                    android:elevation="6dp"
                     android:orientation="vertical"
-                    android:paddingHorizontal="32dp"
-                    android:paddingVertical="24dp"
-                    android:gravity="center">
+                    android:padding="32dp"
+                    android:gravity="center_horizontal">
 
-                    <!-- Result icon (80dp circle with colored background) -->
+                    <!-- Result icon (96dp circle with coloured background) -->
                     <FrameLayout
                         android:id="@+id/resultIconCircle"
-                        android:layout_width="80dp"
-                        android:layout_height="80dp">
+                        android:layout_width="96dp"
+                        android:layout_height="96dp">
 
                         <ImageView
                             android:id="@+id/resultIcon"
-                            android:layout_width="40dp"
-                            android:layout_height="40dp"
+                            android:layout_width="44dp"
+                            android:layout_height="44dp"
                             android:layout_gravity="center" />
                     </FrameLayout>
 
@@ -963,10 +973,10 @@
                         android:id="@+id/resultTitle"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="24dp"
-                        android:textSize="20sp"
+                        android:layout_marginTop="20dp"
+                        android:textSize="26sp"
                         android:textStyle="bold"
-                        android:textColor="#0F172A"
+                        android:textColor="#1C1A17"
                         android:gravity="center_horizontal"
                         android:textAlignment="center" />
 
@@ -974,10 +984,11 @@
                         android:id="@+id/resultBody"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:lineSpacingMultiplier="1.3"
-                        android:textSize="15sp"
-                        android:textColor="#475569"
+                        android:layout_marginTop="20dp"
+                        android:paddingHorizontal="8dp"
+                        android:lineSpacingMultiplier="1.2"
+                        android:textSize="16sp"
+                        android:textColor="#6B6760"
                         android:gravity="center_horizontal"
                         android:textAlignment="center" />
 
@@ -1014,7 +1025,7 @@
                         android:id="@+id/resultButton"
                         android:layout_width="match_parent"
                         android:layout_height="52dp"
-                        android:layout_marginTop="32dp"
+                        android:layout_marginTop="28dp"
                         android:insetTop="0dp"
                         android:insetBottom="0dp"
                         android:textAllCaps="false"
@@ -1027,7 +1038,7 @@
                         android:id="@+id/resultRetryButton"
                         android:layout_width="match_parent"
                         android:layout_height="52dp"
-                        android:layout_marginTop="12dp"
+                        android:layout_marginTop="20dp"
                         android:insetTop="0dp"
                         android:insetBottom="0dp"
                         android:text="@string/usesense_try_again"
@@ -1039,6 +1050,7 @@
                         app:backgroundTint="@color/usesense_border"
                         app:cornerRadius="12dp" />
                 </LinearLayout>
+                </FrameLayout>
             </ScrollView>
         </FrameLayout>
 
