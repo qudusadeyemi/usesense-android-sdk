@@ -20,25 +20,35 @@ class QualityGateTest {
     )
 
     /**
-     * 478 points filling an ellipse of radii [rx] x [ry] around ([cx], [cy]),
-     * iris centres [eyeDist] apart, stable points slightly moved by [jitter].
+     * 478 points filling a face ellipse of radii [rx] x [ry] around ([cx], [cy]),
+     * the FACE_OVAL silhouette on its outline (10 top, 152 chin, 234 / 454
+     * cheeks), iris centres [eyeDist] apart, stable points moved by [jitter].
+     * The defaults sit where a well-placed face does: centred, low in the oval.
      */
     private fun face(
         cx: Float = 240f,
-        cy: Float = 320f,
-        rx: Float = 85f,
-        ry: Float = 115f,
-        eyeDist: Float = 110f,
+        cy: Float = 364f,
+        rx: Float = 110f,
+        ry: Float = 150f,
+        eyeDist: Float = 100f,
         jitter: Float = 0f,
     ): FloatArray {
         val pts = FloatArray(478 * 3)
         for (i in 0 until 478) {
             val a = i * 2.399963
-            val r = kotlin.math.sqrt((i + 0.5) / 478.0)
+            val r = kotlin.math.sqrt((i + 0.5) / 478.0) * 0.9
             pts[i * 3] = cx + (rx * r * cos(a)).toFloat() + jitter
             pts[i * 3 + 1] = cy + (ry * r * sin(a)).toFloat()
             pts[i * 3 + 2] = (-r).toFloat()
         }
+        val ring = QualityGate.FACE_OVAL
+        ring.forEachIndexed { k, idx ->
+            val a = -Math.PI / 2 + 2 * Math.PI * k / ring.size
+            pts[idx * 3] = cx + (rx * cos(a)).toFloat() + jitter
+            pts[idx * 3 + 1] = cy + (ry * sin(a)).toFloat()
+        }
+        pts[234 * 3] = cx - rx + jitter; pts[234 * 3 + 1] = cy
+        pts[454 * 3] = cx + rx + jitter; pts[454 * 3 + 1] = cy
         pts[468 * 3] = cx - eyeDist / 2 + jitter
         pts[468 * 3 + 1] = cy - 20
         pts[473 * 3] = cx + eyeDist / 2 + jitter
@@ -94,23 +104,36 @@ class QualityGateTest {
         assertEquals(GateHint.CENTRE, r.top)
     }
 
-    @Test fun `face bigger than the oval asks to move back, not to centre`() {
+    @Test fun `silhouette may reach 1_15 oval radii`() {
         val gate = QualityGate()
         warm(gate)
-        val r = gate.evaluate(frame(500, pts = face(rx = 140f, ry = 190f, eyeDist = 120f)), identity, oval)
-        assertFalse(GateHint.CENTRE in r.failing)
-        assertTrue(GateHint.MOVE_BACK in r.failing)
+        // The lower diagonal of a wider face reaches ~1.14 radii: still in frame.
+        val r = gate.evaluate(frame(500, pts = face(rx = 138f)), identity, oval)
+        assertTrue("fit ${r.metrics!!.ovalFit}", r.metrics.ovalFit in 1.1f..1.15f)
+        assertFalse(r.failing.any { it.check == GateCheck.IN_OVAL })
     }
 
-    @Test fun `distance thresholds are eye distance over frame width`() {
+    @Test fun `a centred face too big for the oval asks to move back, not to centre`() {
         val gate = QualityGate()
         warm(gate)
-        // 0.15 < 0.17
-        assertTrue(GateHint.MOVE_CLOSER in gate.evaluate(frame(500, pts = face(eyeDist = 72f)), identity, oval).failing)
-        // 0.32 > 0.30
-        assertTrue(GateHint.MOVE_BACK in gate.evaluate(frame(600, pts = face(eyeDist = 154f)), identity, oval).failing)
-        // 0.25 is fine
-        val ok = gate.evaluate(frame(700, pts = face(eyeDist = 120f)), identity, oval)
+        // Cheeks at 160 / 130 = 1.23, face centre where a well-placed face sits.
+        val r = gate.evaluate(frame(500, pts = face(rx = 160f)), identity, oval)
+        assertFalse(GateHint.CENTRE in r.failing)
+        assertTrue(GateHint.TOO_BIG in r.failing)
+    }
+
+    @Test fun `eye ratio is on screen, relative to the oval, and runs before in-frame`() {
+        val gate = QualityGate()
+        warm(gate)
+        // The oval is 260 px wide, so the ratio is eye distance / 361.
+        // 55 / 361 = 0.15 < 0.17
+        assertTrue(GateHint.MOVE_CLOSER in gate.evaluate(frame(500, pts = face(eyeDist = 55f)), identity, oval).failing)
+        // 120 / 361 = 0.33 > 0.31, and the size hint comes first.
+        val far = gate.evaluate(frame(600, pts = face(eyeDist = 120f, rx = 160f)), identity, oval)
+        assertEquals(GateHint.MOVE_BACK, far.top)
+        assertFalse(GateHint.TOO_BIG in far.failing)
+        // 100 / 361 = 0.28 is fine.
+        val ok = gate.evaluate(frame(700, pts = face(eyeDist = 100f)), identity, oval)
         assertFalse(ok.failing.any { it.check == GateCheck.DISTANCE })
     }
 
@@ -167,11 +190,11 @@ class QualityGateTest {
     @Test fun `movement fails stillness, small jitter does not`() {
         val gate = QualityGate()
         warm(gate)
-        // 3 px of jitter on a 110 px eye distance = 0.027 < 0.04
+        // 3 px of jitter on a 100 px eye distance = 0.03 < 0.04
         assertTrue(gate.evaluate(frame(500, pts = face(jitter = 3f)), identity, oval).allPass)
         val g2 = QualityGate()
         warm(g2)
-        // 12 px jump = 0.11 > 0.04
+        // 12 px jump = 0.12 > 0.04
         assertTrue(GateHint.HOLD_STILL in g2.evaluate(frame(500, pts = face(jitter = 12f)), identity, oval).failing)
     }
 

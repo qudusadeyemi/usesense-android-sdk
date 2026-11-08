@@ -19,6 +19,9 @@ internal interface DebugCaptureHooks {
     /** Ring / upload bar progress to hold, 0..1. */
     val forceProgress: Float?
 
+    /** A GateHint name to hold on the align screen (e.g. CENTRE, FACE_LIGHT). */
+    val forceHint: String?
+
     /** The video is held on one frame. */
     val frozen: Boolean
 

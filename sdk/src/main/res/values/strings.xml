@@ -180,31 +180,25 @@
     <string name="usesense_action_review_plain_generic">You\'ve been asked to verify your identity.</string>
     <string name="usesense_action_review_action_generic">You\'ve been asked to verify the following action:</string>
     <string name="usesense_result_failed_body_generic">We could not verify your identity. Please try again or contact support.</string>
-    <!-- Capture quality gate (LiveSense capture redesign, Phase 1). One hint at a
-         time, highest-priority failing check first. Copy is shared with iOS and Web:
-         change it in all three. -->
+    <!-- Capture guidance (LiveSense capture redesign, Phase 1; capture-test-kit SPEC v1.1).
+         One instruction at a time, highest-priority failing check first. Shared with iOS and
+         Web: change it in all three. -->
     <string name="usesense_hint_show_face">Show your face in the oval</string>
-    <string name="usesense_hint_one_person">Only one person in view, please</string>
+    <string name="usesense_hint_one_person">Only you in the picture</string>
     <string name="usesense_hint_centre">Move your face to the centre</string>
-    <string name="usesense_hint_move_closer">Move closer</string>
+    <string name="usesense_hint_move_closer">Move a little closer</string>
     <string name="usesense_hint_move_back">Move back a little</string>
-    <string name="usesense_hint_look_straight">Look straight at the screen</string>
-    <string name="usesense_hint_brightening">Brightening your screen</string>
-    <string name="usesense_hint_brightening_detail">If it\'s still dark, face a window or lamp</string>
-    <string name="usesense_hint_face_light">Face a light</string>
-    <string name="usesense_hint_too_bright">Move out of direct light</string>
-    <string name="usesense_hint_hold_steady">Hold the phone steady</string>
+    <string name="usesense_hint_look_straight">Look straight ahead</string>
+    <string name="usesense_hint_face_light">Find more light</string>
+    <string name="usesense_hint_face_light_detail">Face a window or lamp</string>
+    <string name="usesense_hint_too_bright">Too much light behind you</string>
+    <string name="usesense_hint_too_bright_detail">Turn away from the window</string>
+    <string name="usesense_hint_hold_steady">Hold your phone steady</string>
     <string name="usesense_hint_eyes_open">Keep your eyes open</string>
     <string name="usesense_hint_hold_still">Hold still</string>
-    <string name="usesense_scan_progress">Scanning \u00B7 %1$d of %2$d s</string>
-    <string name="usesense_shutter_title">Tap the shutter when you\'re ready</string>
-    <plurals name="usesense_shutter_detail">
-        <item quantity="one">We\'ll still scan for %1$d second</item>
-        <item quantity="other">We\'ll still scan for %1$d seconds</item>
-    </plurals>
+    <string name="usesense_shutter_title">Tap the button when you\'re ready</string>
     <string name="usesense_shutter_button">Start scan</string>
     <string name="usesense_scan_complete">Scan complete</string>
-    <string name="usesense_scan_getting_ready">Getting ready</string>
     <string name="usesense_upload_title">Checking it\'s you</string>
     <string name="usesense_upload_detail">Usually 3\u20135 seconds</string>
 </resources>

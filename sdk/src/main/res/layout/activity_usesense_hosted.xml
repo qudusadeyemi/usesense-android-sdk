@@ -573,62 +573,54 @@
                             android:textColor="@android:color/white"
                             android:textSize="17sp" />
 
-                        <!-- Hint and shutter. Placed with its pill centred at 74% of
-                             the height (HostedPageActivity.placeHint). -->
+                        <!-- Guidance: plain centred text under the oval (SPEC v1.1), and the
+                             shutter. HostedPageActivity.placeHint puts its top 28dp below the oval. -->
                         <LinearLayout
                             android:id="@+id/hostedHintGroup"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:gravity="center_horizontal"
-                            android:orientation="vertical">
+                            android:orientation="vertical"
+                            android:paddingHorizontal="24dp">
 
-                            <!-- One hint at a time. Spoken by TalkBack when it changes. -->
                             <LinearLayout
                                 android:id="@+id/hostedHintPill"
-                                android:layout_width="wrap_content"
+                                android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
-                                android:layout_marginHorizontal="24dp"
-                                android:background="@drawable/usesense_hint_pill_bg"
-                                android:gravity="center_vertical"
-                                android:orientation="horizontal"
-                                android:paddingHorizontal="14dp"
-                                android:paddingVertical="10dp"
-                                android:visibility="invisible">
+                                android:accessibilityLiveRegion="polite"
+                                android:gravity="center_horizontal"
+                                android:orientation="vertical">
 
                                 <TextView
-                                    android:id="@+id/hostedHintIcon"
-                                    android:layout_width="24dp"
-                                    android:layout_height="24dp"
-                                    android:background="@drawable/usesense_hint_icon_bg"
-                                    android:gravity="center"
-                                    android:importantForAccessibility="no"
-                                    android:textColor="@android:color/white"
-                                    android:textSize="13sp" />
-
-                                <LinearLayout
+                                    android:id="@+id/hostedHintTitle"
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:layout_marginStart="10dp"
-                                    android:orientation="vertical">
+                                    android:gravity="center_horizontal"
+                                    android:textAlignment="center"
+                                    android:maxLines="2"
+                                    android:letterSpacing="-0.01"
+                                    android:textColor="@android:color/white"
+                                    android:textSize="22sp"
+                                    android:fontFamily="sans-serif-medium"
+                                    android:textStyle="bold"
+                                    android:shadowColor="#73000000"
+                                    android:shadowDy="2"
+                                    android:shadowRadius="14" />
 
-                                    <TextView
-                                        android:id="@+id/hostedHintTitle"
-                                        android:layout_width="wrap_content"
-                                        android:layout_height="wrap_content"
-                                        android:textColor="@android:color/white"
-                                        android:textSize="15sp"
-                                        android:fontFamily="sans-serif-medium"
-                                        android:textStyle="bold" />
-
-                                    <TextView
-                                        android:id="@+id/hostedHintDetail"
-                                        android:layout_width="wrap_content"
-                                        android:layout_height="wrap_content"
-                                        android:layout_marginTop="1dp"
-                                        android:textColor="#FFA3A9B8"
-                                        android:textSize="12sp"
-                                        android:visibility="gone" />
-                                </LinearLayout>
+                                <TextView
+                                    android:id="@+id/hostedHintDetail"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="6dp"
+                                    android:gravity="center_horizontal"
+                                    android:textAlignment="center"
+                                    android:textColor="#D1FFFFFF"
+                                    android:textSize="15sp"
+                                    android:fontFamily="sans-serif-medium"
+                                    android:shadowColor="#73000000"
+                                    android:shadowDy="2"
+                                    android:shadowRadius="14"
+                                    android:visibility="gone" />
                             </LinearLayout>
 
                             <!-- Shutter fallback: after 20 s or 3 dropped windows. -->
@@ -636,7 +628,7 @@
                                 android:id="@+id/hostedShutterButton"
                                 android:layout_width="72dp"
                                 android:layout_height="72dp"
-                                android:layout_marginTop="20dp"
+                                android:layout_marginTop="24dp"
                                 android:background="@drawable/usesense_shutter_bg"
                                 android:contentDescription="@string/usesense_shutter_button"
                                 android:visibility="gone" />

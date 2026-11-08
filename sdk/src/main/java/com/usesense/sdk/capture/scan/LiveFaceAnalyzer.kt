@@ -198,16 +198,11 @@ internal class LiveFaceAnalyzer(
             }
         }
 
-        // Light and sharpness on the inner face: trim the box's edges, which
-        // carry hair and background at the corners.
-        val bw = maxX - minX
-        val bh = maxY - minY
+        // Light and sharpness on the face box (the landmark bounds), as iOS and Web.
         val argb = IntArray(w * h)
         bmp.getPixels(argb, 0, w, 0, 0, w, h)
         val region = qualityAnalyzer.analyzeFaceRegion(
-            argb, w, h,
-            (minX + bw * ROI_TRIM_X).toInt(), (minY + bh * ROI_TRIM_Y).toInt(),
-            (maxX - bw * ROI_TRIM_X).toInt(), (maxY - bh * ROI_TRIM_Y).toInt(),
+            argb, w, h, minX.toInt(), minY.toInt(), maxX.toInt() + 1, maxY.toInt() + 1,
         )
         onFrame(GateFrame(ts, w, h, faces.size, pts, pose, region, blinkL, blinkR))
     }
@@ -224,9 +219,12 @@ internal class LiveFaceAnalyzer(
 
     companion object {
         private const val TAG = "UseSenseGate"
-        /** Long edge of the analysed copy; landmarks are normalised, so this loses little. */
-        const val TARGET_LONG_EDGE = 320f
-        private const val ROI_TRIM_X = 0.15f
-        private const val ROI_TRIM_Y = 0.10f
+        /**
+         * Long edge of the analysed copy: the analysis stream's own size, so
+         * the face crop for sharpness isn't softened by a downscale first
+         * (a 320 px copy read the golden frame at 9.7 against the shared floor
+         * of 12). MediaPipe resizes for its models itself.
+         */
+        const val TARGET_LONG_EDGE = 640f
     }
 }

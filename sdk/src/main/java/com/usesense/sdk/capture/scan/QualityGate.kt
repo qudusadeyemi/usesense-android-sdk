@@ -12,20 +12,23 @@ import kotlin.math.max
  * (LiveSense capture proposal, "Quality gate").
  */
 internal enum class GateCheck {
-    FACE_FOUND, ONE_PERSON, IN_OVAL, DISTANCE, POSE, LIGHT, SHARPNESS, EYES_OPEN, STILLNESS,
+    // v1.2: distance runs before in-frame, so size problems get size guidance.
+    FACE_FOUND, ONE_PERSON, DISTANCE, IN_OVAL, POSE, LIGHT, SHARPNESS, EYES_OPEN, STILLNESS,
 }
 
 /** One hint per failure. Several hints can belong to one check (closer / back). */
 internal enum class GateHint(val check: GateCheck) {
     SHOW_FACE(GateCheck.FACE_FOUND),
     ONE_PERSON(GateCheck.ONE_PERSON),
-    CENTRE(GateCheck.IN_OVAL),
     MOVE_CLOSER(GateCheck.DISTANCE),
     MOVE_BACK(GateCheck.DISTANCE),
+    CENTRE(GateCheck.IN_OVAL),
+    /** In-frame fails but the face is centred: it is too big for the oval. */
+    TOO_BIG(GateCheck.IN_OVAL),
     LOOK_STRAIGHT(GateCheck.POSE),
-    /** Too dark while the screen fill light is still coming up. */
+    /** Too dark while the screen fill light is still coming up (no text: the light works silently). */
     BRIGHTENING(GateCheck.LIGHT),
-    /** Still too dark with the fill light on. */
+    /** Still too dark with the fill light on: "Find more light". */
     FACE_LIGHT(GateCheck.LIGHT),
     TOO_BRIGHT(GateCheck.LIGHT),
     HOLD_STEADY(GateCheck.SHARPNESS),
@@ -101,6 +104,8 @@ internal class QualityGate(
     private val sharpnessHistory = ArrayDeque<Double>()
     private val stillHistory = ArrayDeque<Pair<Long, FloatArray>>()
     private val mapped = FloatArray(2)
+    private var vx = FloatArray(478)
+    private var vy = FloatArray(478)
     private var lastJitter = Float.NaN
 
     fun reset() {
@@ -136,42 +141,45 @@ internal class QualityGate(
         // 2. One person.
         if (frame.faceCount >= 2) failing += GateHint.ONE_PERSON
 
-        // 3. Fully inside the oval (4% margin), in view space.
-        val rx = oval.rx * (1f - OVAL_MARGIN)
-        val ry = oval.ry * (1f - OVAL_MARGIN)
-        var outside = false
-        var worstFit = 0f
-        var minX = Float.MAX_VALUE
-        var maxX = -Float.MAX_VALUE
-        var minY = Float.MAX_VALUE
-        var maxY = -Float.MAX_VALUE
-        for (i in 0 until n) {
+        // Map once to screen space (aspect-fill + mirror, as the preview).
+        val n0 = n
+        if (vx.size < n0) { vx = FloatArray(n0); vy = FloatArray(n0) }
+        for (i in 0 until n0) {
             mapper.map(pts[i * 3], pts[i * 3 + 1], mapped)
-            val vx = mapped[0]
-            val vy = mapped[1]
-            if (vx < minX) minX = vx
-            if (vx > maxX) maxX = vx
-            if (vy < minY) minY = vy
-            if (vy > maxY) maxY = vy
-            val dx = (vx - oval.cx) / rx
-            val dy = (vy - oval.cy) / ry
-            val fit = dx * dx + dy * dy
-            if (fit > worstFit) worstFit = fit
-            if (fit > 1f) outside = true
+            vx[i] = mapped[0]
+            vy[i] = mapped[1]
         }
-        // A face as big as the oval (90% of its width or height) can't be
-        // centred into it: that is a distance problem, so the hint is
-        // "Move back a little", not "Move your face to the centre".
-        val tooBigForOval = (maxX - minX) > 2 * rx * FILLS_OVAL || (maxY - minY) > 2 * ry * FILLS_OVAL
-        if (outside && !tooBigForOval) failing += GateHint.CENTRE
 
-        // 4. Distance: eye distance / frame width.
-        val eyeDist = eyeDistance(pts, n)
-        val ratio = eyeDist / frame.imageWidth.coerceAtLeast(1)
+        // 3. Distance: eye ratio = eye distance / (oval width / 0.72), in screen space.
+        val eyeDistView = eyeDistance(vx, vy, n)
+        val ratio = eyeDistView / (2f * oval.rx / OVAL_WIDTH_OF_SCREEN)
         when {
-            (tooBigForOval && outside) || ratio > DISTANCE_MAX -> failing += GateHint.MOVE_BACK
+            ratio > DISTANCE_MAX -> failing += GateHint.MOVE_BACK
             ratio < DISTANCE_MIN -> failing += GateHint.MOVE_CLOSER
         }
+
+        // 4. In frame: the face silhouette within 1.15 x the oval radius.
+        var worstFit = 0f
+        for (idx in FACE_OVAL) {
+            if (idx >= n) continue
+            val dx = (vx[idx] - oval.cx) / oval.rx
+            val dy = (vy[idx] - oval.cy) / oval.ry
+            worstFit = max(worstFit, kotlin.math.sqrt(dx * dx + dy * dy))
+        }
+        if (worstFit > IN_FRAME_LIMIT) {
+            // Position vs size: a face centred where a well-placed face sits
+            // (low in the oval, which leaves room for hair) is too big, not off-centre.
+            val fcx = (vx[10] + vx[152] + vx[234] + vx[454]) / 4f
+            val fcy = (vy[10] + vy[152] + vy[234] + vy[454]) / 4f
+            val ex = kotlin.math.abs(fcx - oval.cx) / oval.rx
+            val ey = kotlin.math.abs(fcy - (oval.cy + EXPECTED_FACE_DROP * oval.ry)) / oval.ry
+            if (ex <= CENTRED_TOLERANCE && ey <= CENTRED_TOLERANCE) {
+                if (GateHint.MOVE_BACK !in failing) failing += GateHint.TOO_BIG
+            } else {
+                failing += GateHint.CENTRE
+            }
+        }
+        val eyeDist = eyeDistance(pts, n)
 
         // 5. Pose.
         frame.pose?.let { p ->
@@ -218,7 +226,7 @@ internal class QualityGate(
         if (!isStill(frame.timestampMs, pts, n, eyeDist)) failing += GateHint.HOLD_STILL
 
         val metrics = GateMetrics(
-            ovalFit = kotlin.math.sqrt(worstFit),
+            ovalFit = worstFit,
             eyeDistanceRatio = ratio,
             jitter = lastJitter,
             pose = frame.pose,
@@ -227,6 +235,15 @@ internal class QualityGate(
             sharpness = sharpnessHistory.takeIf { it.isNotEmpty() }?.sorted()?.get(sharpnessHistory.size / 2),
         )
         return GateResult(failing, tooDark, metrics)
+    }
+
+    /** Iris-centre distance on screen ([xs], [ys]), or the eye-corner midpoints without iris points. */
+    private fun eyeDistance(xs: FloatArray, ys: FloatArray, n: Int): Float {
+        return if (n >= 478) {
+            hypot(xs[LEFT_IRIS] - xs[RIGHT_IRIS], ys[LEFT_IRIS] - ys[RIGHT_IRIS])
+        } else {
+            hypot((xs[362] + xs[263]) / 2 - (xs[33] + xs[133]) / 2, (ys[362] + ys[263]) / 2 - (ys[33] + ys[133]) / 2)
+        }
     }
 
     /** Iris-centre distance in pixels, or the eye-corner midpoints without iris points. */
@@ -292,11 +309,16 @@ internal class QualityGate(
     companion object {
         const val MIN_LANDMARKS = 468
         const val FACE_FOUND_FRAMES = 3
-        const val OVAL_MARGIN = 0.04f
-        /** A face box this share of the (shrunk) oval is "too big", not "off centre". */
-        const val FILLS_OVAL = 0.9f
+        /** Silhouette landmarks may sit up to this many oval radii out (v1.2.2). */
+        const val IN_FRAME_LIMIT = 1.15f
+        /** A well-placed face centre sits this many radii below the oval centre (v1.2.1). */
+        const val EXPECTED_FACE_DROP = 0.25f
+        /** Within this share of rx / ry of the expected centre, a failing face is too big, not off-centre. */
+        const val CENTRED_TOLERANCE = 0.08f
+        /** The oval is this share of the screen width on a phone: eye ratio is screen-width relative. */
+        const val OVAL_WIDTH_OF_SCREEN = 0.72f
         const val DISTANCE_MIN = 0.17f
-        const val DISTANCE_MAX = 0.30f
+        const val DISTANCE_MAX = 0.31f
         const val MAX_YAW = 15.0
         const val MAX_PITCH = 15.0
         const val MAX_ROLL = 12.0
@@ -321,6 +343,12 @@ internal class QualityGate(
          * plainly soft. Same value on iOS and Web; to tune from session data.
          */
         const val MIN_SHARPNESS = 12.0
+
+        /** MediaPipe FACE_OVAL: the face silhouette ring. */
+        val FACE_OVAL = intArrayOf(
+            10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377,
+            152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109,
+        )
 
         /** Rigid anchors (as iOS and Web): nose tip, outer eye corners, chin, forehead. */
         val STABLE_POINTS = intArrayOf(1, 33, 263, 152, 10)

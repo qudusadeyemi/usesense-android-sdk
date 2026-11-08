@@ -191,7 +191,6 @@ class HostedPageActivity : AppCompatActivity() {
     private lateinit var hintDetail: TextView
     private lateinit var shutterButton: ImageButton
     private lateinit var hintGroup: LinearLayout
-    private lateinit var hintIcon: TextView
     private lateinit var uploadProgress: ProgressBar
     private var uploadProgressAnimator: ValueAnimator? = null
 
@@ -217,8 +216,22 @@ class HostedPageActivity : AppCompatActivity() {
     private var shutterKept = false
     private var scanCopyShown = false
     private var fillLightSince: Long? = null
-    private var defaultStatusBarColor: Int? = null
     private var lightStatusBarDefault: Boolean? = null
+    private var systemBars = androidx.core.graphics.Insets.NONE
+    private var captureFullBleed = false
+
+    /** Pad the root for the system bars; the capture screen keeps only the bottom (camera under the status bar). */
+    private fun applySystemBarPadding(root: View) {
+        val b = systemBars
+        root.setPadding(b.left, if (captureFullBleed) 0 else b.top, b.right, b.bottom)
+        (faceGuideCloseButton.layoutParams as? android.view.ViewGroup.MarginLayoutParams)?.let { lp ->
+            val top = (16 * resources.displayMetrics.density).toInt() + if (captureFullBleed) b.top else 0
+            if (lp.topMargin != top) {
+                lp.topMargin = top
+                faceGuideCloseButton.layoutParams = lp
+            }
+        }
+    }
     private var savedBrightness: Float? = null
     private val pointXs = FloatArray(MAX_LANDMARKS)
     private val pointYs = FloatArray(MAX_LANDMARKS)
@@ -336,6 +349,17 @@ class HostedPageActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_usesense_hosted)
+        // Draw edge to edge and pad by hand: the capture screen runs under the
+        // status bar (full-bleed camera), every other screen keeps clear of it.
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = Color.TRANSPARENT
+        val root = (findViewById<View>(android.R.id.content) as android.view.ViewGroup).getChildAt(0)
+        root.fitsSystemWindows = false
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root) { v, wi ->
+            systemBars = wi.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            applySystemBarPadding(v)
+            androidx.core.view.WindowInsetsCompat.CONSUMED
+        }
         bindViews()
 
         watchdog = CaptureWatchdog(mainScope) { _, error -> onWatchdogTimeout(error) }
@@ -467,7 +491,6 @@ class HostedPageActivity : AppCompatActivity() {
         hintDetail = findViewById(R.id.hostedHintDetail)
         shutterButton = findViewById(R.id.hostedShutterButton)
         hintGroup = findViewById(R.id.hostedHintGroup)
-        hintIcon = findViewById(R.id.hostedHintIcon)
         uploadProgress = findViewById(R.id.hostedUploadProgress)
         // The hint pill's centre sits at 74% of the screen height (shared spec).
         faceGuideOverlay.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> placeHint() }
@@ -1159,8 +1182,10 @@ class HostedPageActivity : AppCompatActivity() {
         analyzer.initialize { ok -> if (!ok) runOnUiThread { gateUnavailable = true } }
     }
 
+    /** About 3 s of banked capture (SPEC), or the server's shorter duration if it asks for less. */
     private fun scanTotalMs(sess: UseSenseSession): Long =
-        (sess.uploadConfig?.captureDurationMs ?: DEFAULT_SCAN_MS).toLong().coerceAtLeast(MIN_SCAN_MS)
+        (sess.uploadConfig?.captureDurationMs ?: DEFAULT_SCAN_MS).toLong()
+            .coerceAtMost(TARGET_SCAN_MS).coerceAtLeast(MIN_SCAN_MS)
 
     /** The oval guide: hints until every check passes, then the scan starts by itself. */
     private fun enterAlign(sess: UseSenseSession) {
@@ -1270,14 +1295,18 @@ class HostedPageActivity : AppCompatActivity() {
                     showShutter(sess)
                     return
                 }
-                val failing = fresh?.failing ?: listOf(GateHint.SHOW_FACE)
+                debugHooks?.forceHint?.let { name ->
+                    // Test rig: hold one instruction for the golden screenshot.
+                    renderHint(runCatching { GateHint.valueOf(name) }.getOrNull())
+                    scanView.tone = ContourScanView.Tone.WARNING
+                    return
+                }
+                // The fill light works silently: BRIGHTENING has no text.
+                val failing = (fresh?.failing ?: listOf(GateHint.SHOW_FACE)).filter { it != GateHint.BRIGHTENING }
                 if (hintScheduler.update(now, failing)) announce(hintScheduler.current)
                 renderHint(hintScheduler.current)
-                scanView.tone = when {
-                    hintScheduler.current != null -> ContourScanView.Tone.WARNING
-                    fresh?.allPass == true -> ContourScanView.Tone.READY
-                    else -> ContourScanView.Tone.NEUTRAL
-                }
+                // The stroke turns the warning colour while the instruction asks for an action.
+                scanView.tone = if (hintScheduler.current != null) ContourScanView.Tone.WARNING else ContourScanView.Tone.NEUTRAL
             }
             ScanStage.PASSIVE -> {
                 debugHooks?.forceProgress?.takeIf { debugHooks?.forceState.let { it != null && it != "pass" } }?.let { held ->
@@ -1317,7 +1346,7 @@ class HostedPageActivity : AppCompatActivity() {
                 }
                 scanView.progress = controller.progress
                 if (controller.state == ScanController.State.PAUSED) {
-                    val failing = fresh?.failing.orEmpty()
+                    val failing = fresh?.failing.orEmpty().filter { it != GateHint.BRIGHTENING }
                     if (hintScheduler.update(now, failing)) announce(hintScheduler.current)
                     scanView.tone = ContourScanView.Tone.WARNING
                     hintScheduler.current?.let { renderHint(it); scanCopyShown = false } ?: renderScanCopy(controller)
@@ -1414,8 +1443,7 @@ class HostedPageActivity : AppCompatActivity() {
                 "dropped=${scanController?.droppedWindows} aligningMs=${SystemClock.elapsedRealtime() - alignStartedAt}")
         }
         shutterButton.visibility = View.VISIBLE
-        val seconds = ((scanTotalMs(sess) + 999) / 1000).toInt()
-        showPill("\u25C9", getString(R.string.usesense_shutter_title), resources.getQuantityString(R.plurals.usesense_shutter_detail, seconds, seconds))
+        showGuidance(getString(R.string.usesense_shutter_title), null)
         scanView.tone = ContourScanView.Tone.NEUTRAL
         if (!shutterAnnounced) {
             shutterAnnounced = true
@@ -1423,72 +1451,77 @@ class HostedPageActivity : AppCompatActivity() {
         }
     }
 
+    /** During the scan the guidance is just "Hold still" (no counters or stage names, SPEC v1.1). */
+    @Suppress("UNUSED_PARAMETER")
     private fun renderScanCopy(controller: ScanController) {
-        val sess = session ?: return
-        val total = ((scanTotalMs(sess) + 999) / 1000).toInt()
-        val held = debugHooks?.takeIf { it.forceState != null }?.forceProgress
-        val done = (held?.let { it * scanTotalMs(sess) }?.toLong() ?: controller.bankedMs).div(1000).toInt().coerceAtMost(total)
-        showPill(ICON_STILL, getString(R.string.usesense_hint_hold_still), getString(R.string.usesense_scan_progress, done, total))
+        showGuidance(getString(R.string.usesense_hint_hold_still), null)
         if (!scanCopyShown) {
             scanCopyShown = true
             hintPill.announceForAccessibility(hintTitle.text)
         }
     }
 
-    private fun hintText(hint: GateHint): Pair<String, String?> = when (hint) {
+    /** Instruction and optional second line. Null for [GateHint.BRIGHTENING]: the fill light works silently. */
+    private fun hintText(hint: GateHint): Pair<String, String?>? = when (hint) {
         GateHint.SHOW_FACE -> getString(R.string.usesense_hint_show_face) to null
         GateHint.ONE_PERSON -> getString(R.string.usesense_hint_one_person) to null
         GateHint.CENTRE -> getString(R.string.usesense_hint_centre) to null
         GateHint.MOVE_CLOSER -> getString(R.string.usesense_hint_move_closer) to null
-        GateHint.MOVE_BACK -> getString(R.string.usesense_hint_move_back) to null
+        GateHint.MOVE_BACK, GateHint.TOO_BIG -> getString(R.string.usesense_hint_move_back) to null
         GateHint.LOOK_STRAIGHT -> getString(R.string.usesense_hint_look_straight) to null
-        GateHint.BRIGHTENING -> getString(R.string.usesense_hint_brightening) to
-            getString(R.string.usesense_hint_brightening_detail)
-        GateHint.FACE_LIGHT -> getString(R.string.usesense_hint_face_light) to null
-        GateHint.TOO_BRIGHT -> getString(R.string.usesense_hint_too_bright) to null
+        GateHint.BRIGHTENING -> null
+        GateHint.FACE_LIGHT -> getString(R.string.usesense_hint_face_light) to
+            getString(R.string.usesense_hint_face_light_detail)
+        GateHint.TOO_BRIGHT -> getString(R.string.usesense_hint_too_bright) to
+            getString(R.string.usesense_hint_too_bright_detail)
         GateHint.HOLD_STEADY -> getString(R.string.usesense_hint_hold_steady) to null
         GateHint.EYES_OPEN -> getString(R.string.usesense_hint_eyes_open) to null
         GateHint.HOLD_STILL -> getString(R.string.usesense_hint_hold_still) to null
     }
 
+    /** The align instruction: the hint, or "Hold still" when nothing needs doing. */
     private fun renderHint(hint: GateHint?) {
-        if (hint == null) {
-            showPill(ICON_STILL, getString(R.string.usesense_hint_hold_still), getString(R.string.usesense_scan_getting_ready))
+        val text = hint?.let(::hintText)
+        if (text == null) {
+            showGuidance(getString(R.string.usesense_hint_hold_still), null)
+        } else {
+            showGuidance(text.first, text.second)
+        }
+    }
+
+    /** Plain guidance text under the oval; a 200 ms crossfade when it changes. */
+    private fun showGuidance(title: CharSequence, detail: CharSequence?) {
+        hintPill.visibility = View.VISIBLE
+        val same = hintTitle.text.toString() == title.toString() &&
+            hintDetail.text.toString() == (detail?.toString() ?: "")
+        if (same) return
+        val apply = {
+            hintTitle.text = title
+            hintDetail.text = detail ?: ""
+            hintDetail.visibility = if (detail != null) View.VISIBLE else View.GONE
+        }
+        if (hintTitle.text.isNullOrEmpty()) {
+            apply()
             return
         }
-        val (title, detail) = hintText(hint)
-        showPill(hintIconFor(hint), title, detail)
+        hintPill.animate().cancel()
+        hintPill.animate().alpha(0f).setDuration(GUIDANCE_FADE_MS / 2).withEndAction {
+            apply()
+            hintPill.animate().alpha(1f).setDuration(GUIDANCE_FADE_MS / 2).start()
+        }.start()
     }
 
-    private fun showPill(icon: String, title: CharSequence, detail: CharSequence?) {
-        hintIcon.text = icon
-        hintTitle.text = title
-        hintDetail.text = detail ?: ""
-        hintDetail.visibility = if (detail != null) View.VISIBLE else View.GONE
-        hintPill.visibility = View.VISIBLE
-    }
-
-    private fun hintIconFor(hint: GateHint): String = when (hint) {
-        GateHint.SHOW_FACE, GateHint.ONE_PERSON -> "\u263A"
-        GateHint.CENTRE -> "\u2194"
-        GateHint.MOVE_CLOSER, GateHint.MOVE_BACK -> "\u2922"
-        GateHint.LOOK_STRAIGHT -> "\u25CE"
-        GateHint.BRIGHTENING, GateHint.FACE_LIGHT, GateHint.TOO_BRIGHT -> "\u2600"
-        GateHint.HOLD_STEADY, GateHint.HOLD_STILL -> ICON_STILL
-        GateHint.EYES_OPEN -> "\u25C9"
-    }
-
-    /** Centre the hint pill at [HINT_CENTRE_OF_H] of the overlay's height. */
+    /** Put the guidance's top edge 28 dp below the oval's bottom (SPEC v1.1). */
     private fun placeHint() {
         val h = faceGuideOverlay.height
         if (h == 0) return
-        hintGroup.y = h * HINT_CENTRE_OF_H - hintPill.height / 2f - hintPill.top
+        val ovalBottom = h * (ContourScanView.OVAL_CY + ContourScanView.OVAL_RY_OF_H)
+        hintGroup.y = ovalBottom + GUIDANCE_GAP_DP * resources.displayMetrics.density - hintPill.top
     }
 
     /** Spoken hint (TalkBack). Called only when the scheduler shows a new one, so it shares its 1.2 s limit. */
     private fun announce(hint: GateHint?) {
-        hint ?: return
-        val (title, detail) = hintText(hint)
+        val (title, detail) = hint?.let(::hintText) ?: return
         hintPill.announceForAccessibility(listOfNotNull(title, detail).joinToString(". "))
     }
 
@@ -2244,20 +2277,15 @@ class HostedPageActivity : AppCompatActivity() {
             PageStep.RESULT -> resultScreen.visibility = View.VISIBLE
         }
 
-        // The camera runs edge to edge: a dark status bar over it, the app's own elsewhere.
-        if (defaultStatusBarColor == null) defaultStatusBarColor = window.statusBarColor
         val insets = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
-        // The root pads for the status bar (fitsSystemWindows); black behind it in capture.
-        (findViewById<View>(android.R.id.content) as? android.view.ViewGroup)?.getChildAt(0)
-            ?.setBackgroundColor(if (isCaptureMode) Color.BLACK else Color.WHITE)
-        if (isCaptureMode) {
-            window.statusBarColor = Color.BLACK
-            if (lightStatusBarDefault == null) lightStatusBarDefault = insets.isAppearanceLightStatusBars
-            insets.isAppearanceLightStatusBars = false
-        } else {
-            defaultStatusBarColor?.let { window.statusBarColor = it }
-            lightStatusBarDefault?.let { insets.isAppearanceLightStatusBars = it }
+        // Capture runs under the status bar (light icons over the camera); other screens are padded.
+        captureFullBleed = isCaptureMode
+        (findViewById<View>(android.R.id.content) as? android.view.ViewGroup)?.getChildAt(0)?.let { root ->
+            root.setBackgroundColor(if (isCaptureMode) Color.BLACK else Color.WHITE)
+            applySystemBarPadding(root)
         }
+        if (lightStatusBarDefault == null) lightStatusBarDefault = insets.isAppearanceLightStatusBars
+        insets.isAppearanceLightStatusBars = if (isCaptureMode) false else (lightStatusBarDefault ?: true)
 
         // Section 11.8: Hide branded header/footer during capture, show capture footer
         headerBar.visibility = if (isCaptureMode || !hasHeader) View.GONE else View.VISIBLE
@@ -2327,9 +2355,9 @@ class HostedPageActivity : AppCompatActivity() {
         private const val STEP_UP_BRIEF_MS = 1500L
         private const val COUNTDOWN_MS = 3000L
 
-        private const val ICON_STILL = "\u25CE"
+        private const val GUIDANCE_FADE_MS = 200L
+        private const val GUIDANCE_GAP_DP = 28f
         private const val GATE_TAG = "UseSenseGate"
-        private const val HINT_CENTRE_OF_H = 0.74f
 
         /** Share of the upload sheet's bar that the upload itself fills. */
         private const val UPLOAD_SHARE = 0.7f
@@ -2341,6 +2369,8 @@ class HostedPageActivity : AppCompatActivity() {
         /** Scan length when the server sends none (it used to be the passive capture's length too). */
         private const val DEFAULT_SCAN_MS = 4500
         private const val MIN_SCAN_MS = 1500L
+        /** The passive scan's target length (shared spec: "about 3 s", as on web). */
+        private const val TARGET_SCAN_MS = 3_000L
         /** Past this, a gate still loading counts as unavailable: offer the shutter. */
         private const val GATE_INIT_TIMEOUT_MS = 8_000L
         /** A gate result older than this is ignored (the gate thread stalled). */
