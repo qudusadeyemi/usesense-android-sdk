@@ -55,6 +55,7 @@ import com.usesense.sdk.capture.scan.LiveFaceAnalyzer
 import com.usesense.sdk.capture.scan.PreviewMapper
 import com.usesense.sdk.capture.scan.QualityGate
 import com.usesense.sdk.capture.scan.ScanColors
+import com.usesense.sdk.capture.scan.UploadBar
 import com.usesense.sdk.capture.scan.ScanController
 import com.usesense.sdk.challenge.*
 import com.usesense.sdk.internal.Bounded
@@ -196,7 +197,16 @@ class HostedPageActivity : AppCompatActivity() {
     private lateinit var shutterButton: ImageButton
     private lateinit var hintGroup: LinearLayout
     private lateinit var uploadProgress: ProgressBar
-    private var uploadProgressAnimator: ValueAnimator? = null
+    /** Time-driven upload bar (iOS parity); [uploadBarTicker] redraws it at ~30 fps. */
+    private val uploadBar = UploadBar()
+    private val uploadBarTicker = object : Runnable {
+        override fun run() {
+            renderUploadBar()
+            if (uploadBar.stage != UploadBar.Stage.DONE && uploadOverlay.visibility == View.VISIBLE) {
+                handler.postDelayed(this, UPLOAD_BAR_FRAME_MS)
+            }
+        }
+    }
 
     /** Where the capture screen is in the scan flow. */
     private enum class ScanStage { IDLE, ALIGN, PASSIVE, CHALLENGE }
@@ -1442,7 +1452,9 @@ class HostedPageActivity : AppCompatActivity() {
             stopScanLoop()
             setProcessingCopy(FinalizationPhase.UPLOADING)
             setStep(PageStep.FINALIZING)
-            uploadProgress.progress = ((debugHooks?.forceProgress ?: 0.6f) * 1000).toInt()
+            // Held still for the golden screenshot.
+            handler.removeCallbacks(uploadBarTicker)
+            showUploadBar(debugHooks?.forceProgress ?: DEBUG_UPLOAD_PROGRESS)
         }
     }
 
@@ -1838,29 +1850,33 @@ class HostedPageActivity : AppCompatActivity() {
 
     /**
      * The upload sheet: one title, one bar for upload and checking together.
-     * Upload fills the first [UPLOAD_SHARE] of the bar; checking then eases
-     * toward the end without reaching it until the result arrives.
+     * The bar follows time, not bytes ([UploadBar], as iOS): sending, then
+     * checking once the upload is accepted, so it keeps moving while the
+     * server works and never reads as stuck.
      */
     private fun setProcessingCopy(phase: FinalizationPhase) {
         uploadOverlayTitle.text = getString(R.string.usesense_upload_title)
         uploadOverlaySubtitle.text = getString(R.string.usesense_upload_detail)
         uploadProgress.progressTintList = ColorStateList.valueOf(ScanColors.resolve(resolvedBranding.appearance).ring)
+        if (debugHooks?.forceState == "upload") return
+        val now = SystemClock.elapsedRealtime()
         when (phase) {
-            FinalizationPhase.PREPARING -> setUploadProgress(0.05f)
-            FinalizationPhase.UPLOADING -> Unit
-            FinalizationPhase.COMPLETING -> setUploadProgress(0.97f, durationMs = 4_000L)
+            FinalizationPhase.PREPARING, FinalizationPhase.UPLOADING -> uploadBar.sending(now)
+            FinalizationPhase.COMPLETING -> uploadBar.checking(now)
         }
+        handler.removeCallbacks(uploadBarTicker)
+        handler.post(uploadBarTicker)
     }
 
-    private fun setUploadProgress(fraction: Float, durationMs: Long = 250L) {
-        uploadProgressAnimator?.cancel()
-        val target = (fraction.coerceIn(0f, 1f) * 1000).toInt()
-        if (target <= uploadProgress.progress) return
-        uploadProgressAnimator = ValueAnimator.ofInt(uploadProgress.progress, target).apply {
-            duration = durationMs
-            interpolator = android.view.animation.DecelerateInterpolator()
-            addUpdateListener { uploadProgress.progress = it.animatedValue as Int }
-            start()
+    private fun renderUploadBar() = showUploadBar(uploadBar.value(SystemClock.elapsedRealtime()))
+
+    private fun showUploadBar(value: Float) {
+        uploadProgress.progress = (value.coerceIn(0f, 1f) * 1000).toInt()
+        val percent = UploadBar.accessiblePercent(value)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            uploadProgress.stateDescription = "$percent%"
+        } else {
+            uploadProgress.contentDescription = "$percent%"
         }
     }
 
@@ -1908,12 +1924,12 @@ class HostedPageActivity : AppCompatActivity() {
                         }
                         is FinalizationUpdate.Progress -> {
                             watchdog.onProgress()
-                            // Progress arrives on the network thread.
-                            val sent = update.bytesSent.toFloat() / update.bytesTotal.coerceAtLeast(1)
-                            uploadProgress.post { setUploadProgress(0.05f + sent * (UPLOAD_SHARE - 0.05f)) }
+                            // The bar follows time, not bytes (UploadBar); bytes only feed the watchdog.
                         }
                         is FinalizationUpdate.Result -> {
                             watchdog.disarm()
+                            uploadBar.done()
+                            renderUploadBar()
                             finishHostedFinalization(update.result)
                         }
                         is FinalizationUpdate.StepUpRequired -> {
@@ -2283,8 +2299,10 @@ class HostedPageActivity : AppCompatActivity() {
                 captureScreen.visibility = View.VISIBLE
                 uploadOverlay.visibility = View.GONE
                 setPreviewBlurred(false)
-                uploadProgressAnimator?.cancel()
-                uploadProgress.progress = 0
+                // Back to align: the bar starts over.
+                handler.removeCallbacks(uploadBarTicker)
+                uploadBar.reset()
+                showUploadBar(0f)
             }
             PageStep.FINALIZING -> {
                 // Keep capture screen visible — show dark overlay on camera
@@ -2390,7 +2408,8 @@ class HostedPageActivity : AppCompatActivity() {
         private const val GATE_TAG = "UseSenseGate"
 
         /** Share of the upload sheet's bar that the upload itself fills. */
-        private const val UPLOAD_SHARE = 0.7f
+        private const val UPLOAD_BAR_FRAME_MS = 33L
+        private const val DEBUG_UPLOAD_PROGRESS = 0.64f
 
         /** Face mesh points (468 + 10 iris). */
         private const val MAX_LANDMARKS = 478

@@ -55,7 +55,7 @@
     <string name="usesense_blocked_detail">Please try again later or contact support.</string>
 
     <!-- Section 13.3: Camera Error Recovery -->
-    <string name="usesense_camera_error_title">Camera Access Required</string>
+    <string name="usesense_camera_error_title">Camera access needed</string>
     <string name="usesense_camera_denied_message">Camera access was denied. Please allow camera access and try again.</string>
     <string name="usesense_camera_unavailable_message">Could not start the camera. Please try again.</string>
     <string name="usesense_camera_not_found_message">No camera found on this device.</string>
@@ -205,5 +205,5 @@
     <string name="usesense_capture_help_body">Look straight at the screen with a neutral face. Face the light; your screen will brighten to help. The scan starts by itself when your face is in the oval and still.</string>
     <string name="usesense_ok">OK</string>
     <string name="usesense_upload_title">Checking it\'s you</string>
-    <string name="usesense_upload_detail">Usually 3\u20135 seconds</string>
+    <string name="usesense_upload_detail">Usually under 10 seconds</string>
 </resources>
