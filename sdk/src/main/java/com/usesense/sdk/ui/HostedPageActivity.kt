@@ -184,7 +184,9 @@ class HostedPageActivity : AppCompatActivity() {
     private lateinit var uploadOverlaySpinner: ProgressBar
 
     // Scan overlay (LiveSense capture redesign): oval, hint, ring, contours, shutter
-    private lateinit var faceGuideCloseButton: TextView
+    private lateinit var faceGuideCloseButton: View
+    private lateinit var captureTopBar: FrameLayout
+    private lateinit var helpButton: View
     private lateinit var scanView: ContourScanView
     private lateinit var hintPill: LinearLayout
     private lateinit var hintTitle: TextView
@@ -212,6 +214,7 @@ class HostedPageActivity : AppCompatActivity() {
     /** session.startCapture() runs once per attempt; a dropped window restarts the buffer instead. */
     private var sessionCaptureStarted = false
     private var shutterAnnounced = false
+    private var helpOpen = false
     /** The shutter was offered while the gate was loading; it stays once shown. */
     private var shutterKept = false
     private var scanCopyShown = false
@@ -224,12 +227,9 @@ class HostedPageActivity : AppCompatActivity() {
     private fun applySystemBarPadding(root: View) {
         val b = systemBars
         root.setPadding(b.left, if (captureFullBleed) 0 else b.top, b.right, b.bottom)
-        (faceGuideCloseButton.layoutParams as? android.view.ViewGroup.MarginLayoutParams)?.let { lp ->
-            val top = (16 * resources.displayMetrics.density).toInt() + if (captureFullBleed) b.top else 0
-            if (lp.topMargin != top) {
-                lp.topMargin = top
-                faceGuideCloseButton.layoutParams = lp
-            }
+        val top = (16 * resources.displayMetrics.density).toInt() + if (captureFullBleed) b.top else 0
+        if (captureTopBar.paddingTop != top) {
+            captureTopBar.setPadding(captureTopBar.paddingLeft, top, captureTopBar.paddingRight, 0)
         }
     }
     private var savedBrightness: Float? = null
@@ -485,6 +485,25 @@ class HostedPageActivity : AppCompatActivity() {
         uploadOverlaySubtitle = findViewById(R.id.hostedUploadOverlaySubtitle)
         uploadOverlaySpinner = findViewById(R.id.hostedUploadOverlaySpinner)
         faceGuideCloseButton = findViewById(R.id.hostedFaceGuideCloseButton)
+        captureTopBar = findViewById(R.id.hostedCaptureTopBar)
+        helpButton = findViewById(R.id.hostedHelpButton)
+        faceGuideCloseButton.setOnClickListener {
+            // As iOS: back leaves the capture and cancels it (also from the upload sheet).
+            abortAttempt()
+            callbackGate.cancel()
+            finish()
+        }
+        helpButton.setOnClickListener {
+            // As iOS: the tips on align and scan; nothing while the upload runs.
+            if (uploadOverlay.visibility == View.VISIBLE) return@setOnClickListener
+            helpOpen = true
+            AlertDialog.Builder(this)
+                .setTitle(R.string.usesense_capture_help_title)
+                .setMessage(R.string.usesense_capture_help_body)
+                .setPositiveButton(R.string.usesense_ok, null)
+                .setOnDismissListener { helpOpen = false }
+                .show()
+        }
         scanView = findViewById(R.id.hostedScanView)
         hintPill = findViewById(R.id.hostedHintPill)
         hintTitle = findViewById(R.id.hostedHintTitle)
@@ -1209,12 +1228,7 @@ class HostedPageActivity : AppCompatActivity() {
         renderHint(null)
         shutterButton.visibility = View.GONE
 
-        faceGuideCloseButton.setOnClickListener {
-            // As iOS: closing the capture cancels it.
-            abortAttempt()
-            callbackGate.cancel()
-            finish()
-        }
+        captureTopBar.visibility = View.VISIBLE
         shutterButton.setOnClickListener { startScan(sess, manual = true) }
 
         liveAnalyzer?.active = true
@@ -1264,7 +1278,8 @@ class HostedPageActivity : AppCompatActivity() {
             if (forced != "align" && pts != null) startScan(sess, manual = true)
             return
         }
-        if (scanStage == ScanStage.ALIGN && result.allPass) startScan(sess, manual = false)
+        // No auto start while the help is open: the subject is reading, not posing.
+        if (scanStage == ScanStage.ALIGN && result.allPass && !helpOpen) startScan(sess, manual = false)
     }
 
     /** The scan clock: hints, shutter, ring, pause/resume/drop. Runs every [SCAN_TICK_MS]. */
@@ -1377,6 +1392,7 @@ class HostedPageActivity : AppCompatActivity() {
             scanStage = ScanStage.CHALLENGE
             stopScanLoop()
             faceGuideOverlay.visibility = View.GONE
+            captureTopBar.visibility = View.GONE
             watchdog.arm(WatchdogPhase.CAPTURE)
             cameraLive.whenLive {
                 sess.startCapture()
@@ -2262,8 +2278,9 @@ class HostedPageActivity : AppCompatActivity() {
                 // Keep capture screen visible — show dark overlay on camera
                 captureScreen.visibility = View.VISIBLE
                 uploadOverlay.visibility = View.VISIBLE
-                // The face blurs out for privacy behind the sheet.
+                // The face blurs out for privacy behind the sheet; back and help stay (as iOS).
                 faceGuideOverlay.visibility = View.GONE
+                captureTopBar.visibility = View.VISIBLE
                 setPreviewBlurred(true)
                 // Nothing from the capture shows through under the overlay
                 // ("Hold still" used to sit below it); the footer stays.
@@ -2316,6 +2333,7 @@ class HostedPageActivity : AppCompatActivity() {
         qualityBanner.visibility = View.GONE
         hintPill.visibility = View.INVISIBLE
         shutterButton.visibility = View.GONE
+        captureTopBar.visibility = View.GONE
         setPreviewBlurred(false)
     }
 

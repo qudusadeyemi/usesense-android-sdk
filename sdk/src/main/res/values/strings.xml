@@ -199,6 +199,11 @@
     <string name="usesense_shutter_title">Tap the button when you\'re ready</string>
     <string name="usesense_shutter_button">Start scan</string>
     <string name="usesense_scan_complete">Scan complete</string>
+    <string name="usesense_capture_back">Back</string>
+    <string name="usesense_capture_help">Help</string>
+    <string name="usesense_capture_help_title">Quick face scan</string>
+    <string name="usesense_capture_help_body">Look straight at the screen with a neutral face. Face the light; your screen will brighten to help. The scan starts by itself when your face is in the oval and still.</string>
+    <string name="usesense_ok">OK</string>
     <string name="usesense_upload_title">Checking it\'s you</string>
     <string name="usesense_upload_detail">Usually 3\u20135 seconds</string>
 </resources>

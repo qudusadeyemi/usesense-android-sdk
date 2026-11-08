@@ -558,21 +558,6 @@
                             android:layout_height="match_parent"
                             android:importantForAccessibility="no" />
 
-                        <!-- Back: leaves the capture (top-left, 32dp, as the shared spec). -->
-                        <TextView
-                            android:id="@+id/hostedFaceGuideCloseButton"
-                            android:layout_width="32dp"
-                            android:layout_height="32dp"
-                            android:layout_gravity="top|start"
-                            android:layout_marginTop="16dp"
-                            android:layout_marginStart="16dp"
-                            android:background="@drawable/usesense_scan_button_bg"
-                            android:contentDescription="@string/usesense_close"
-                            android:gravity="center"
-                            android:text="\u2190"
-                            android:textColor="@android:color/white"
-                            android:textSize="17sp" />
-
                         <!-- Guidance: plain centred text under the oval (SPEC v1.1), and the
                              shutter. HostedPageActivity.placeHint puts its top 28dp below the oval. -->
                         <LinearLayout
@@ -802,6 +787,40 @@
                                 android:textColor="#FFA3A9B8"
                                 android:text="@string/usesense_upload_detail" />
                         </LinearLayout>
+                    </FrameLayout>
+
+                    <!-- Capture top bar: back (left) and help (right), 32dp circles 16dp
+                         from the sides (shared spec). Above the upload sheet, as iOS. -->
+                    <FrameLayout
+                        android:id="@+id/hostedCaptureTopBar"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="top"
+                        android:paddingHorizontal="16dp"
+                        android:paddingTop="16dp"
+                        android:visibility="gone">
+
+                        <ImageButton
+                            android:id="@+id/hostedFaceGuideCloseButton"
+                            android:layout_width="32dp"
+                            android:layout_height="32dp"
+                            android:layout_gravity="start"
+                            android:background="@drawable/usesense_scan_button_bg"
+                            android:contentDescription="@string/usesense_capture_back"
+                            android:src="@drawable/usesense_ic_arrow_back" />
+
+                        <TextView
+                            android:id="@+id/hostedHelpButton"
+                            android:layout_width="32dp"
+                            android:layout_height="32dp"
+                            android:layout_gravity="end"
+                            android:background="@drawable/usesense_scan_button_bg"
+                            android:contentDescription="@string/usesense_capture_help"
+                            android:gravity="center"
+                            android:text="\?"
+                            android:textColor="@android:color/white"
+                            android:textSize="16sp"
+                            android:textStyle="bold" />
                     </FrameLayout>
                 </FrameLayout>
 
