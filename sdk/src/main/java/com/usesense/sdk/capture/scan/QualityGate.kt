@@ -62,14 +62,20 @@ internal fun interface PointMapper {
 }
 
 internal data class GateResult(
-    /** One hint per failing check, highest priority first. Empty when every check passes. */
+    /**
+     * One hint per failing check, highest priority first. Light hints are
+     * advice only: they never block the scan (a darker face in ordinary room
+     * light reads under the luma floor, and must not be locked out).
+     */
     val failing: List<GateHint>,
     /** The face is too dark: the screen fill light should come on. */
     val faceTooDark: Boolean,
     /** The measured values, for the debug log and threshold tuning. */
     val metrics: GateMetrics? = null,
 ) {
-    val allPass: Boolean get() = failing.isEmpty()
+    /** The failures that hold the scan: everything except light. */
+    val blocking: List<GateHint> get() = failing.filter { it.check != GateCheck.LIGHT }
+    val allPass: Boolean get() = blocking.isEmpty()
     val top: GateHint? get() = failing.firstOrNull()
 }
 
@@ -118,12 +124,16 @@ internal class QualityGate(
      * @param fillLightOnForMs how long the screen fill light has been on, or
      *   null when it is off. Decides between "Brightening your screen" and
      *   "Face a light".
+     * @param scanning the scan is running: the distance band widens by
+     *   [DISTANCE_HOLD_MARGIN] each side, so a face sitting on a band edge
+     *   doesn't flicker in and out and drop the scan.
      */
     fun evaluate(
         frame: GateFrame,
         mapper: PointMapper,
         oval: OvalSpec,
         fillLightOnForMs: Long? = null,
+        scanning: Boolean = false,
     ): GateResult {
         val pts = frame.points
         val n = frame.landmarkCount
@@ -153,9 +163,10 @@ internal class QualityGate(
         // 3. Distance: eye ratio = eye distance / (oval width / 0.72), in screen space.
         val eyeDistView = eyeDistance(vx, vy, n)
         val ratio = eyeDistView / (2f * oval.rx / OVAL_WIDTH_OF_SCREEN)
+        val margin = if (scanning) DISTANCE_HOLD_MARGIN else 0f
         when {
-            ratio > DISTANCE_MAX -> failing += GateHint.MOVE_BACK
-            ratio < DISTANCE_MIN -> failing += GateHint.MOVE_CLOSER
+            ratio > DISTANCE_MAX + margin -> failing += GateHint.MOVE_BACK
+            ratio < DISTANCE_MIN - margin -> failing += GateHint.MOVE_CLOSER
         }
 
         // 4. In frame: the face silhouette within 1.15 x the oval radius.
@@ -188,9 +199,9 @@ internal class QualityGate(
             }
         }
 
-        // 6. Light, on the face only.
+        // 6. Light, on the face only. Advice, never a block: it turns the
+        // fill light on and gives a hint, but the scan goes ahead.
         val region = frame.faceRegion
-        var lightOk = true
         if (region != null) {
             val shadowRatio = region.clippedRatio - region.highlightRatio
             val dark = region.meanLuma < LUMA_MIN ||
@@ -198,17 +209,15 @@ internal class QualityGate(
             val bright = !dark && (region.meanLuma > LUMA_MAX || region.clippedRatio >= CLIPPED_MAX)
             if (dark) {
                 tooDark = true
-                lightOk = false
                 val litLongEnough = fillLightOnForMs != null && fillLightOnForMs >= FILL_LIGHT_SETTLE_MS
                 failing += if (litLongEnough) GateHint.FACE_LIGHT else GateHint.BRIGHTENING
             } else if (bright) {
-                lightOk = false
                 failing += GateHint.TOO_BRIGHT
             }
         }
 
-        // 7. Sharpness. Skipped in bad light, where edges vanish anyway.
-        if (region != null && lightOk) {
+        // 7. Sharpness.
+        if (region != null) {
             sharpnessHistory.addLast(region.sharpness)
             while (sharpnessHistory.size > SHARPNESS_FRAMES) sharpnessHistory.removeFirst()
             val median = sharpnessHistory.sorted()[sharpnessHistory.size / 2]
@@ -319,6 +328,8 @@ internal class QualityGate(
         const val OVAL_WIDTH_OF_SCREEN = 0.72f
         const val DISTANCE_MIN = 0.17f
         const val DISTANCE_MAX = 0.32f
+        /** Extra room each side of the distance band once the scan runs (hysteresis). */
+        const val DISTANCE_HOLD_MARGIN = 0.02f
         const val MAX_YAW = 15.0
         const val MAX_PITCH = 15.0
         const val MAX_ROLL = 12.0

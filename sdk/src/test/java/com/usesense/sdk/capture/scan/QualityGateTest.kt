@@ -157,6 +157,9 @@ class QualityGateTest {
         assertTrue(GateHint.BRIGHTENING in r2.failing)
         val r3 = gate.evaluate(frame(700, region = dark), identity, oval, fillLightOnForMs = 1600)
         assertTrue(GateHint.FACE_LIGHT in r3.failing)
+        // Light is advice only: a dark face still passes the gate.
+        assertTrue(r3.allPass)
+        assertTrue(r3.blocking.isEmpty())
     }
 
     @Test fun `blown highlights fail light as too bright`() {
@@ -214,5 +217,16 @@ class QualityGateTest {
             identity, oval,
         )
         assertEquals(listOf(GateCheck.ONE_PERSON, GateCheck.POSE, GateCheck.LIGHT), r.failing.map { it.check }.distinct())
+    }
+
+    @Test fun `distance band holds a little wider once scanning`() {
+        val gate = QualityGate()
+        warm(gate)
+        // 120 / 361 = 0.332: outside 0.32 to start, inside 0.34 while scanning.
+        val edge = face(eyeDist = 120f)
+        assertTrue(GateHint.MOVE_BACK in gate.evaluate(frame(500, pts = edge), identity, oval).failing)
+        assertFalse(GateHint.MOVE_BACK in gate.evaluate(frame(600, pts = edge), identity, oval, scanning = true).failing)
+        // 130 / 361 = 0.36 still fails while scanning.
+        assertTrue(GateHint.MOVE_BACK in gate.evaluate(frame(700, pts = face(eyeDist = 130f)), identity, oval, scanning = true).failing)
     }
 }

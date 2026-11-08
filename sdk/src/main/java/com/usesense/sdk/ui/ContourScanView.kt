@@ -23,7 +23,7 @@ import com.usesense.sdk.capture.scan.ScanColors
  *  - scan: the camera dimmed 12%, horizontal contour lines across the whole
  *    width lifted by the face depth field, and the progress ring 6 dp outside
  *    the oval;
- *  - fill light: a warm white border round the screen while the screen lights the face.
+ *  - fill light: a warm white veil over the whole screen while the screen lights the face.
  *
  * Canvas only. Units follow the spec's px as dp.
  */
@@ -60,7 +60,7 @@ internal class ContourScanView @JvmOverloads constructor(
             kick()
         }
 
-    /** Screen fill light: a warm white border. */
+    /** Screen fill light: a warm white veil over the whole screen. */
     var fillLight: Boolean = false
         set(value) { if (field != value) { field = value; kick() } }
 
@@ -99,7 +99,7 @@ internal class ContourScanView @JvmOverloads constructor(
         strokeWidth = 1f * dp
         strokeCap = Paint.Cap.ROUND
     }
-    private val fillLightPaint = Paint().apply { style = Paint.Style.STROKE }
+    private val fillLightPaint = Paint()
 
     /** Per-colour-bucket segment buffers for one line (x0, y0, x1, y1 ...). */
     private var buckets = Array(BUCKETS) { FloatArray(0) }
@@ -166,6 +166,13 @@ internal class ContourScanView @JvmOverloads constructor(
             shownFill = fillTarget
         }
 
+        // Fill light: a warm white veil over the whole screen, under the guide,
+        // with the screen at full brightness. A border made the camera look inset.
+        if (shownFill > 0.01f) {
+            fillLightPaint.color = Color.argb((shownFill * FILL_LIGHT_ALPHA * 255).toInt(), 255, 244, 226)
+            canvas.drawRect(0f, 0f, w, h, fillLightPaint)
+        }
+
         if (scanning) {
             canvas.drawRect(0f, 0f, w, h, dimPaint)
             if (depthGrid.hasFace) {
@@ -181,13 +188,6 @@ internal class ContourScanView @JvmOverloads constructor(
                 Tone.NEUTRAL -> Color.argb(230, 255, 255, 255)
             }
             canvas.drawOval(ovalRect, guideStroke)
-        }
-
-        if (shownFill > 0.01f) {
-            val border = FILL_LIGHT_BORDER_DP * dp
-            fillLightPaint.strokeWidth = border * 2
-            fillLightPaint.color = Color.argb((shownFill * 245).toInt(), 255, 244, 226)
-            canvas.drawRect(0f, 0f, w, h, fillLightPaint)
         }
 
         if (animating) postInvalidateOnAnimation()
@@ -272,7 +272,8 @@ internal class ContourScanView @JvmOverloads constructor(
         const val PEAK_ALPHA = 0.95f
         const val SWEEP_MS = 520f
         const val LINE_FADE_MS = 140f
-        const val FILL_LIGHT_BORDER_DP = 28f
+        /** Veil opacity: lights the face while the camera still shows through. */
+        const val FILL_LIGHT_ALPHA = 0.38f
         private const val BUCKETS = 8
 
         fun ovalFor(w: Float, h: Float): RectF {

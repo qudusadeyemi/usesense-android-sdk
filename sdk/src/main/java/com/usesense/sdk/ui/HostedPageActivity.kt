@@ -1245,7 +1245,7 @@ class HostedPageActivity : AppCompatActivity() {
         val oval = scanView.ovalSpec() ?: return
         val now = SystemClock.elapsedRealtime()
         val mapper = PreviewMapper(frame.imageWidth, frame.imageHeight, scanView.width.toFloat(), scanView.height.toFloat())
-        val result = qualityGate.evaluate(frame, mapper, oval, fillLightSince?.let { now - it })
+        val result = qualityGate.evaluate(frame, mapper, oval, fillLightSince?.let { now - it }, scanning = scanStage == ScanStage.PASSIVE)
         lastGate = result
         lastGateAt = now
         if (now - lastGateLogAt >= 1000 && Log.isLoggable(GATE_TAG, Log.DEBUG)) {
@@ -1363,7 +1363,8 @@ class HostedPageActivity : AppCompatActivity() {
                 }
                 scanView.progress = controller.progress
                 if (controller.state == ScanController.State.PAUSED) {
-                    val failing = fresh?.failing.orEmpty().filter { it != GateHint.BRIGHTENING }
+                    // Paused for a blocking check: say that one, not the light advice.
+                    val failing = fresh?.blocking.orEmpty()
                     if (hintScheduler.update(now, failing)) announce(hintScheduler.current)
                     scanView.tone = ContourScanView.Tone.WARNING
                     hintScheduler.current?.let { renderHint(it); scanCopyShown = false } ?: renderScanCopy(controller)
