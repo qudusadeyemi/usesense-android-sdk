@@ -50,8 +50,10 @@ internal class FaceMeshManager(private val context: Context) {
                 .setBaseOptions(baseOptions)
                 .setRunningMode(com.google.mediapipe.tasks.vision.core.RunningMode.IMAGE)
                 .setNumFaces(1)
-                .setOutputFaceBlendshapes(false)
-                .setOutputFacialTransformationMatrixes(true)
+                // Same outputs as the quality gate's landmarker: MediaPipe keeps
+                // the output stream positions in static fields (FaceLandmarkerOutputs).
+                .setOutputFaceBlendshapes(FaceLandmarkerOutputs.BLENDSHAPES)
+                .setOutputFacialTransformationMatrixes(FaceLandmarkerOutputs.TRANSFORMATION_MATRICES)
                 .build()
 
             faceLandmarker = FaceLandmarker.createFromOptions(context, options)

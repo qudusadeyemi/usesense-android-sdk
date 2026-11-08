@@ -11,6 +11,7 @@ import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker
 import com.usesense.sdk.capture.ImageQualityAnalyzer
+import com.usesense.sdk.liveness.FaceLandmarkerOutputs
 import com.usesense.sdk.liveness.MediaPipeModelInfo
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -64,8 +65,10 @@ internal class LiveFaceAnalyzer(
                     .setMinFaceDetectionConfidence(0.5f)
                     .setMinFacePresenceConfidence(0.5f)
                     .setMinTrackingConfidence(0.5f)
-                    .setOutputFaceBlendshapes(true)
-                    .setOutputFacialTransformationMatrixes(true)
+                    // Must match the session mesh (FaceLandmarkerOutputs): MediaPipe
+                    // keeps the output stream positions in static fields.
+                    .setOutputFaceBlendshapes(FaceLandmarkerOutputs.BLENDSHAPES)
+                    .setOutputFacialTransformationMatrixes(FaceLandmarkerOutputs.TRANSFORMATION_MATRICES)
                     .build()
                 if (!released) landmarker = FaceLandmarker.createFromOptions(context, options)
                 landmarker != null
