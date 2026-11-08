@@ -6,6 +6,36 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Guided face capture (LiveSense capture redesign, Phase 1).** Every session
+  now opens on the oval guide, and capture starts by itself once the face is
+  found, alone, inside the oval, at the right distance, facing the screen,
+  lit, sharp, eyes open and still. Checks run on a live MediaPipe face mesh and
+  on the face area only (a bright window behind the subject no longer hides a
+  dark face). One hint at a time, after 400 ms of failure and for at least
+  1.2 s, also spoken by TalkBack; a haptic tick when every check passes and
+  when the scan completes.
+- **Pause instead of restart.** Moving pauses the progress ring and resumes it
+  when still; banked frames are kept unless the pause lasts over 1.5 s.
+- **Screen fill light.** A face that is too dark turns the screen to full
+  brightness with a warm white border before any "too dark" hint.
+- **Shutter fallback** after 20 s or 3 dropped scan windows. It starts the same
+  scan with the same quality bar.
+- **Contour scan**: lines across the screen lifted by the face mesh depth and a
+  head dome, a progress ring round the oval, and a blurred camera behind the
+  new "Checking it's you" upload sheet.
+- `FlowAppearance.capture` (`ring`, `contourStart`, `contourEnd`, `warning`) with
+  Sense defaults; a colour below 3:1 contrast on the camera falls back.
+- `UseSenseConfig.guidedCaptureEnabled` (default `true`); `false` starts
+  capture from the shutter with no gate.
+- Debug builds only: a fake camera that plays a video through the capture
+  pipeline, for screenshots against the shared capture test kit.
+
+Nothing sent to the server changes: same frames format, metadata and scoring.
+Server challenges (follow the dot, head turn, speak phrase) still run when the
+session asks for one; the gate only decides when they start.
+
 ## [4.11.0] - 2026-11-07
 
 Tested on a Samsung Galaxy A03 (Android 13) in a Flutter release build (R8),

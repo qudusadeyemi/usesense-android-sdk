@@ -82,6 +82,8 @@ internal class FaceMeshManager(private val context: Context) {
         bitmap: Bitmap,
         frameIndex: Int,
         timestampMs: Long,
+        /** Checked under the data lock before the result is kept (a dropped scan window says no). */
+        keep: () -> Boolean = { true },
     ): FrameMeshData? = withContext(Dispatchers.Default) {
         val landmarker = faceLandmarker ?: return@withContext null
 
@@ -94,6 +96,10 @@ internal class FaceMeshManager(private val context: Context) {
             val landmarks = result.faceLandmarks()[0]
             if (landmarks.size < 468) return@withContext null
 
+            // The upload keeps today's estimate (it feeds the binding proof,
+            // the 3DMM fit and the suspicion engine). The quality gate uses the
+            // matrix (HeadPoseMath); moving the wire to it is a Phase 2 change,
+            // done on all SDKs together.
             val headPose = extractHeadPose(landmarks)
             val leftEAR = computeEAR(landmarks, LEFT_EYE_INDICES)
             val rightEAR = computeEAR(landmarks, RIGHT_EYE_INDICES)
@@ -114,6 +120,7 @@ internal class FaceMeshManager(private val context: Context) {
             )
 
             synchronized(_frameMeshData) {
+                if (!keep()) return@withContext null
                 _frameMeshData.add(data)
             }
             data
@@ -212,7 +219,7 @@ internal class FaceMeshManager(private val context: Context) {
     }
 
     fun reset() {
-        _frameMeshData.clear()
+        synchronized(_frameMeshData) { _frameMeshData.clear() }
     }
 
     fun release() {

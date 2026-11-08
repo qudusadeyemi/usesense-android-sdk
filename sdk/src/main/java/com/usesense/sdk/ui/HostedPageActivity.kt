@@ -13,11 +13,17 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.graphics.RenderEffect
+import android.graphics.Shader
+import android.view.HapticFeedbackConstants
 import android.view.View
+import android.view.WindowManager
 import android.view.animation.OvershootInterpolator
 import android.view.animation.PathInterpolator
 import android.widget.*
@@ -41,10 +47,20 @@ import com.usesense.sdk.api.UseSenseApiClient
 import com.usesense.sdk.api.models.*
 import com.usesense.sdk.capture.FrameCaptureManager
 import com.usesense.sdk.capture.ImageQualityAnalyzer
+import com.usesense.sdk.capture.scan.GateFrame
+import com.usesense.sdk.capture.scan.GateHint
+import com.usesense.sdk.capture.scan.GateResult
+import com.usesense.sdk.capture.scan.HintScheduler
+import com.usesense.sdk.capture.scan.LiveFaceAnalyzer
+import com.usesense.sdk.capture.scan.PreviewMapper
+import com.usesense.sdk.capture.scan.QualityGate
+import com.usesense.sdk.capture.scan.ScanColors
+import com.usesense.sdk.capture.scan.ScanController
 import com.usesense.sdk.challenge.*
 import com.usesense.sdk.internal.Bounded
 import com.usesense.sdk.internal.CapturePhase
 import com.usesense.sdk.internal.CaptureWatchdog
+import com.usesense.sdk.internal.DebugCaptureHooks
 import com.usesense.sdk.internal.SessionState
 import com.usesense.sdk.internal.WatchdogPhase
 import com.usesense.sdk.internal.boundedCall
@@ -142,7 +158,6 @@ class HostedPageActivity : AppCompatActivity() {
     private lateinit var phaseBadge: TextView
     private lateinit var qualityIndicator: QualityIndicatorView
     private lateinit var faceGuideOverlay: FrameLayout
-    private lateinit var faceGuideReadyButton: MaterialButton
     private lateinit var countdownOverlay: FrameLayout
     private lateinit var countdownCircle: FrameLayout
     private lateinit var countdownNumber: TextView
@@ -168,10 +183,55 @@ class HostedPageActivity : AppCompatActivity() {
     private lateinit var uploadOverlaySubtitle: TextView
     private lateinit var uploadOverlaySpinner: ProgressBar
 
-    // Face guide extras (as iOS FaceGuideOverlay): close button, live quality
+    // Scan overlay (LiveSense capture redesign): oval, hint, ring, contours, shutter
     private lateinit var faceGuideCloseButton: TextView
-    private lateinit var faceGuideQuality: QualityIndicatorView
-    private lateinit var faceGuideQualityDot: QualityIndicatorView
+    private lateinit var scanView: ContourScanView
+    private lateinit var hintPill: LinearLayout
+    private lateinit var hintTitle: TextView
+    private lateinit var hintDetail: TextView
+    private lateinit var shutterButton: ImageButton
+    private lateinit var hintGroup: LinearLayout
+    private lateinit var hintIcon: TextView
+    private lateinit var uploadProgress: ProgressBar
+    private var uploadProgressAnimator: ValueAnimator? = null
+
+    /** Where the capture screen is in the scan flow. */
+    private enum class ScanStage { IDLE, ALIGN, PASSIVE, CHALLENGE }
+    private var scanStage = ScanStage.IDLE
+
+    /** The quality gate's live face mesh (display and gating only; uploads nothing). */
+    private var liveAnalyzer: LiveFaceAnalyzer? = null
+    private val qualityGate = QualityGate()
+    private val hintScheduler = HintScheduler()
+    private var scanController: ScanController? = null
+    private var lastGate: GateResult? = null
+    private var lastGateAt = 0L
+    private var lastGateLogAt = 0L
+    private var alignStartedAt = 0L
+    /** No mesh gate on this device (MediaPipe missing or too slow to load): shutter only. */
+    private var gateUnavailable = false
+    /** session.startCapture() runs once per attempt; a dropped window restarts the buffer instead. */
+    private var sessionCaptureStarted = false
+    private var shutterAnnounced = false
+    /** The shutter was offered while the gate was loading; it stays once shown. */
+    private var shutterKept = false
+    private var scanCopyShown = false
+    private var fillLightSince: Long? = null
+    private var defaultStatusBarColor: Int? = null
+    private var lightStatusBarDefault: Boolean? = null
+    private var savedBrightness: Float? = null
+    private val pointXs = FloatArray(MAX_LANDMARKS)
+    private val pointYs = FloatArray(MAX_LANDMARKS)
+    private val pointZs = FloatArray(MAX_LANDMARKS)
+    private val mapped = FloatArray(2)
+    private val scanTicker = object : Runnable {
+        override fun run() {
+            onScanTick()
+            if (scanStage == ScanStage.ALIGN || scanStage == ScanStage.PASSIVE) {
+                handler.postDelayed(this, SCAN_TICK_MS)
+            }
+        }
+    }
 
     // Capture footer (Section 11.8)
     private lateinit var captureFooterText: TextView
@@ -376,7 +436,6 @@ class HostedPageActivity : AppCompatActivity() {
         phaseBadge = findViewById(R.id.hostedPhaseBadge)
         qualityIndicator = findViewById(R.id.hostedQualityIndicator)
         faceGuideOverlay = findViewById(R.id.hostedFaceGuideOverlay)
-        faceGuideReadyButton = findViewById(R.id.hostedFaceGuideReadyButton)
         countdownOverlay = findViewById(R.id.hostedCountdownOverlay)
         countdownCircle = findViewById(R.id.hostedCountdownCircle)
         countdownNumber = findViewById(R.id.hostedCountdownNumber)
@@ -402,9 +461,17 @@ class HostedPageActivity : AppCompatActivity() {
         uploadOverlaySubtitle = findViewById(R.id.hostedUploadOverlaySubtitle)
         uploadOverlaySpinner = findViewById(R.id.hostedUploadOverlaySpinner)
         faceGuideCloseButton = findViewById(R.id.hostedFaceGuideCloseButton)
-        faceGuideQuality = findViewById(R.id.hostedFaceGuideQuality)
-        faceGuideQualityDot = findViewById<QualityIndicatorView>(R.id.hostedFaceGuideQualityDot)
-            .apply { mode = QualityIndicatorView.Mode.COMPACT }
+        scanView = findViewById(R.id.hostedScanView)
+        hintPill = findViewById(R.id.hostedHintPill)
+        hintTitle = findViewById(R.id.hostedHintTitle)
+        hintDetail = findViewById(R.id.hostedHintDetail)
+        shutterButton = findViewById(R.id.hostedShutterButton)
+        hintGroup = findViewById(R.id.hostedHintGroup)
+        hintIcon = findViewById(R.id.hostedHintIcon)
+        uploadProgress = findViewById(R.id.hostedUploadProgress)
+        // The hint pill's centre sits at 74% of the screen height (shared spec).
+        faceGuideOverlay.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> placeHint() }
+        hintPill.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> placeHint() }
 
         // Capture footer
         captureFooterText = findViewById(R.id.captureFooterText)
@@ -549,8 +616,6 @@ class HostedPageActivity : AppCompatActivity() {
         permissionIcon.imageTintList = tint
         permissionButton.backgroundTintList = tint
         permissionButton.setTextColor(brandForeground())
-        faceGuideReadyButton.backgroundTintList = tint
-        faceGuideReadyButton.setTextColor(brandForeground())
 
         instructionsIcon.background = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
@@ -928,7 +993,22 @@ class HostedPageActivity : AppCompatActivity() {
         frameCaptureManager = sess.initCapture()
         challengePresenter = sess.createChallengePresenter()
 
-        // The face guide carries its own copy (as iOS); no second line under the camera.
+        // A fresh attempt: fresh scan clock, gate history and hints.
+        scanController = null
+        sessionCaptureStarted = false
+        gateUnavailable = false
+        shutterKept = false
+        shutterAnnounced = false
+        qualityGate.reset()
+        hintScheduler.reset()
+        if (pendingConfig?.guidedCaptureEnabled != false) {
+            ensureLiveAnalyzer()
+        } else {
+            // Guided capture off: manual start from the shutter, no gate.
+            gateUnavailable = true
+        }
+
+        // The scan overlay carries its own copy; no second line under the camera.
         showCaptureText(false)
 
         startCamera()
@@ -940,6 +1020,7 @@ class HostedPageActivity : AppCompatActivity() {
         // finish, upload and settle within the watchdog's budget.
         watchdog.arm(WatchdogPhase.CAMERA)
         cameraLive.reset()
+        if (startFakeCamera(sess)) return
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
             if (session !== sess || isFinishing) return@addListener
@@ -979,6 +1060,8 @@ class HostedPageActivity : AppCompatActivity() {
                         if (cameraLive.markFrame()) {
                             runOnUiThread { if (session === sess && !isFinishing) cameraLive.onLive() }
                         }
+                        // The quality gate takes a small copy when it is free.
+                        liveAnalyzer?.offer(imageProxy)
                         // Quality first: the frame-capture analyzer closes the
                         // ImageProxy, after which its image is gone. Run after it,
                         // the quality check never saw a frame (no indicator, no
@@ -996,8 +1079,9 @@ class HostedPageActivity : AppCompatActivity() {
                                 @OptIn(androidx.camera.core.ExperimentalGetImage::class)
                                 val mediaImage = imageProxy.image
                                 if (mediaImage != null) {
+                                    // Whole-frame report for the public event only; the
+                                    // on-screen guidance comes from the face-area gate.
                                     val report = qualityAnalyzer.analyze(mediaImage)
-                                    runOnUiThread { updateQualityUI(report) }
                                     eventEmitter.emit(EventType.IMAGE_QUALITY_CHECK, mapOf(
                                         "score" to report.overallScore,
                                         "acceptable" to report.isAcceptable,
@@ -1026,27 +1110,12 @@ class HostedPageActivity : AppCompatActivity() {
                 } else "640x480"
                 sess.setCaptureInfo("front", resolution)
 
-                val requiresStepup = sess.policy?.requiresStepup == true
-
-                // iOS shows the face guide before every capture; the hosted
-                // page only did on step-up.
-                if (requiresStepup || usesSdkCaptureSequence) {
-                    // The face guide waits for the subject's tap: not supervised.
-                    watchdog.disarm()
-                    showFaceGuide()
-                } else {
-                    // The camera watchdog keeps running until frames flow.
-                    cameraLive.whenLive {
-                        watchdog.enter(WatchdogPhase.CAPTURE)
-                        sess.startCapture()
-                        eventEmitter.emit(EventType.CAPTURE_STARTED)
-                        if (sess.requiresAudio) {
-                            sess.startAudioRecording()
-                            eventEmitter.emit(EventType.AUDIO_RECORD_STARTED)
-                        }
-                        startBaselinePhase()
-                    }
-                }
+                // Every session aligns first: the oval guide and the quality
+                // gate, then capture starts by itself once every check passes
+                // (or from the shutter). Aligning waits on the subject, so it
+                // is not supervised by the watchdog.
+                watchdog.disarm()
+                enterAlign(sess)
             } catch (e: Exception) {
                 watchdog.disarm()
                 showCameraError(getString(R.string.usesense_camera_unavailable_message))
@@ -1054,55 +1123,235 @@ class HostedPageActivity : AppCompatActivity() {
         }, ContextCompat.getMainExecutor(this))
     }
 
-    private fun updateQualityUI(report: ImageQualityAnalyzer.ImageQualityReport) {
-        // A report posted just before processing started must not show its
-        // guidance through the processing overlay.
-        if (uploadOverlay.visibility == View.VISIBLE || captureScreen.visibility != View.VISIBLE) return
-        qualityIndicator.updateQuality(report)
-        qualityBanner.updateQuality(report)
-        qualityIndicator.visibility = View.VISIBLE
-        // As iOS: the dot always, the message only when quality is not good
-        // (the FULL view hides itself when good).
-        faceGuideQuality.updateQuality(report)
-        faceGuideQualityDot.updateQuality(report)
-        faceGuideQualityDot.visibility = View.VISIBLE
-        qualityBanner.visibility = if (report.isAcceptable) View.GONE else View.VISIBLE
+    // ─── Debug test rig (debug builds only; see DebugCaptureHooks) ───────
 
-        val bg = videoContainer.background
-        if (bg is GradientDrawable) {
-            val dp = resources.displayMetrics.density
-            val strokeWidth = (3 * dp).toInt()
-            val borderColor = when {
-                report.overallScore >= 65 -> Color.TRANSPARENT
-                report.overallScore >= 40 -> Color.parseColor("#807C5CFC") // LiveSense Purple 50%
-                else -> Color.parseColor("#994F7CFF") // DeepSense Blue 60%
-            }
-            bg.setStroke(if (borderColor == Color.TRANSPARENT) 0 else strokeWidth, borderColor)
+    private val debugHooks: DebugCaptureHooks? by lazy { DebugCaptureHooks.load(this) }
+    private var fakePreview: ImageView? = null
+
+    /** Feed the pipeline from the debug fake camera instead of CameraX. False when not in use. */
+    private fun startFakeCamera(sess: UseSenseSession): Boolean {
+        val hooks = debugHooks ?: return false
+        val preview = fakePreview ?: ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            scaleX = -1f // mirrored, as the front-camera preview
+            videoContainer.addView(this, 1, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        }.also { fakePreview = it }
+        preview.visibility = View.VISIBLE
+        scanView.frozen = hooks.frozen
+        sess.setCaptureInfo("front", "fake")
+        hooks.start { frame ->
+            if (cameraLive.markFrame()) runOnUiThread { if (session === sess && !isFinishing) cameraLive.onLive() }
+            liveAnalyzer?.offerBitmap(frame)
+            frameCaptureManager?.submitBitmap(frame)
+            runOnUiThread { if (!isFinishing) preview.setImageBitmap(frame) }
         }
+        watchdog.disarm()
+        enterAlign(sess)
+        return true
     }
 
-    // ─── Capture Phases ──────────────────────────────────────────────────
+    // ─── Scan: align, quality gate, passive scan ─────────────────────────
 
-    private fun showFaceGuide() {
-        val sess = session ?: return
+    private fun ensureLiveAnalyzer() {
+        val analyzer = liveAnalyzer ?: LiveFaceAnalyzer(applicationContext) { frame ->
+            runOnUiThread { if (!isFinishing && !isDestroyed) onGateFrame(frame) }
+        }.also { liveAnalyzer = it }
+        analyzer.initialize { ok -> if (!ok) runOnUiThread { gateUnavailable = true } }
+    }
+
+    private fun scanTotalMs(sess: UseSenseSession): Long =
+        (sess.uploadConfig?.captureDurationMs ?: DEFAULT_SCAN_MS).toLong().coerceAtLeast(MIN_SCAN_MS)
+
+    /** The oval guide: hints until every check passes, then the scan starts by itself. */
+    private fun enterAlign(sess: UseSenseSession) {
         sess.setCapturePhase(CapturePhase.FACE_GUIDE)
+        scanStage = ScanStage.ALIGN
+        val now = SystemClock.elapsedRealtime()
+        alignStartedAt = now
+        val controller = scanController ?: ScanController(scanTotalMs(sess)).also { scanController = it }
+        controller.beginAlign(now)
+
+        challengeOverlay.visibility = View.GONE
         faceGuideOverlay.visibility = View.VISIBLE
         showCaptureText(false)
+        scanView.colors = ScanColors.resolve(resolvedBranding.appearance)
+        scanView.tone = ContourScanView.Tone.NEUTRAL
+        scanView.scanning = false
+        scanView.paused = false
+        scanView.resetProgress()
+        hintScheduler.reset()
+        scanCopyShown = false
+        renderHint(null)
+        shutterButton.visibility = View.GONE
+
         faceGuideCloseButton.setOnClickListener {
             // As iOS: closing the capture cancels it.
             abortAttempt()
             callbackGate.cancel()
             finish()
         }
+        shutterButton.setOnClickListener { startScan(sess, manual = true) }
 
-        faceGuideReadyButton.isEnabled = true
-        faceGuideReadyButton.setOnClickListener {
-            if (!faceGuideReadyButton.isEnabled) return@setOnClickListener
-            faceGuideReadyButton.isEnabled = false
+        liveAnalyzer?.active = true
+        handler.removeCallbacks(scanTicker)
+        handler.post(scanTicker)
+    }
+
+    /** A gate frame from the live mesh (main thread). */
+    private fun onGateFrame(frame: GateFrame) {
+        if (scanStage != ScanStage.ALIGN && scanStage != ScanStage.PASSIVE) return
+        val sess = session ?: return
+        val oval = scanView.ovalSpec() ?: return
+        val now = SystemClock.elapsedRealtime()
+        val mapper = PreviewMapper(frame.imageWidth, frame.imageHeight, scanView.width.toFloat(), scanView.height.toFloat())
+        val result = qualityGate.evaluate(frame, mapper, oval, fillLightSince?.let { now - it })
+        lastGate = result
+        lastGateAt = now
+        if (now - lastGateLogAt >= 1000 && Log.isLoggable(GATE_TAG, Log.DEBUG)) {
+            // adb shell setprop log.tag.UseSenseGate DEBUG
+            lastGateLogAt = now
+            Log.d(GATE_TAG, "faces=${frame.faceCount} failing=${result.failing} ${result.metrics ?: ""}")
+        }
+        if (result.faceTooDark) turnOnFillLight()
+
+        val pts = frame.points
+        val n = minOf(frame.landmarkCount, MAX_LANDMARKS)
+        if (pts != null && n > 0) {
+            for (i in 0 until n) {
+                mapper.map(pts[i * 3], pts[i * 3 + 1], mapped)
+                pointXs[i] = mapped[0]
+                pointYs[i] = mapped[1]
+                pointZs[i] = pts[i * 3 + 2]
+            }
+            scanView.updateFace(pointXs, pointYs, pointZs, n)
+        } else {
+            scanView.clearFace()
+        }
+
+        val forced = debugHooks?.forceState
+        if (forced == "pass") {
+            // Test rig: the whole flow with every check treated as passing.
+            if (scanStage == ScanStage.ALIGN && pts != null) startScan(sess, manual = false)
+            return
+        }
+        if (scanStage == ScanStage.ALIGN && forced != null) {
+            // Test rig: go to the forced state on the first face, gate or not.
+            if (forced != "align" && pts != null) startScan(sess, manual = true)
+            return
+        }
+        if (scanStage == ScanStage.ALIGN && result.allPass) startScan(sess, manual = false)
+    }
+
+    /** The scan clock: hints, shutter, ring, pause/resume/drop. Runs every [SCAN_TICK_MS]. */
+    private fun onScanTick() {
+        val sess = session ?: return
+        val controller = scanController ?: return
+        val now = SystemClock.elapsedRealtime()
+        val analyzer = liveAnalyzer
+        // A gate still loading after GATE_INIT_TIMEOUT_MS offers the shutter;
+        // if it loads later, the shutter stays as a fallback but auto start
+        // and hints come back.
+        val slowGate = analyzer != null && analyzer.initState == LiveFaceAnalyzer.InitState.PENDING &&
+            now - alignStartedAt > GATE_INIT_TIMEOUT_MS
+        if (analyzer?.initState == LiveFaceAnalyzer.InitState.READY && gateUnavailable && pendingConfig?.guidedCaptureEnabled != false) {
+            gateUnavailable = false
+            shutterKept = true
+        }
+        // A gate that stopped answering must not hold the scan forever: the
+        // server, not this gate, decides liveness.
+        val fresh = lastGate?.takeIf { now - lastGateAt < GATE_STALE_MS }
+
+        when (scanStage) {
+            ScanStage.ALIGN -> {
+                val rigHoldsAlign = debugHooks?.forceState == "align"
+                if (!rigHoldsAlign && (gateUnavailable || slowGate || shutterKept || controller.shutterAvailable(now))) {
+                    // The shutter copy replaces gate hints; a working gate still
+                    // starts the scan by itself (onGateFrame).
+                    showShutter(sess)
+                    return
+                }
+                val failing = fresh?.failing ?: listOf(GateHint.SHOW_FACE)
+                if (hintScheduler.update(now, failing)) announce(hintScheduler.current)
+                renderHint(hintScheduler.current)
+                scanView.tone = when {
+                    hintScheduler.current != null -> ContourScanView.Tone.WARNING
+                    fresh?.allPass == true -> ContourScanView.Tone.READY
+                    else -> ContourScanView.Tone.NEUTRAL
+                }
+            }
+            ScanStage.PASSIVE -> {
+                debugHooks?.forceProgress?.takeIf { debugHooks?.forceState.let { it != null && it != "pass" } }?.let { held ->
+                    // Test rig: hold the ring for the golden screenshot.
+                    scanView.paused = false
+                    scanView.tone = ContourScanView.Tone.READY
+                    scanView.progress = held
+                    renderScanCopy(controller)
+                    return
+                }
+                val pass = gateUnavailable || debugHooks?.forceState == "pass" || fresh?.allPass ?: true
+                when (controller.tick(now, pass)) {
+                    ScanController.Event.PAUSED -> {
+                        sess.pauseCapture()
+                        scanView.paused = true
+                    }
+                    ScanController.Event.RESUMED -> {
+                        sess.resumeCapture()
+                        scanView.paused = false
+                    }
+                    ScanController.Event.DROPPED -> {
+                        // Paused too long: start the window over from align.
+                        sess.restartCaptureWindow()
+                        watchdog.disarm()
+                        enterAlign(sess)
+                        return
+                    }
+                    ScanController.Event.COMPLETED -> {
+                        scanView.progress = 1f
+                        finishPassiveScan()
+                        return
+                    }
+                    null -> Unit
+                }
+                if (controller.bankedMs >= BASELINE_MS && sess.capturePhase == CapturePhase.BASELINE) {
+                    sess.setCapturePhase(CapturePhase.CHALLENGE)
+                }
+                scanView.progress = controller.progress
+                if (controller.state == ScanController.State.PAUSED) {
+                    val failing = fresh?.failing.orEmpty()
+                    if (hintScheduler.update(now, failing)) announce(hintScheduler.current)
+                    scanView.tone = ContourScanView.Tone.WARNING
+                    hintScheduler.current?.let { renderHint(it); scanCopyShown = false } ?: renderScanCopy(controller)
+                } else {
+                    hintScheduler.update(now, emptyList())
+                    scanView.tone = ContourScanView.Tone.READY
+                    renderScanCopy(controller)
+                }
+            }
+            else -> Unit
+        }
+    }
+
+    /**
+     * Start the scan: by itself when every check passes, or from the shutter.
+     * A server challenge runs as before; a passive session scans with the ring.
+     */
+    private fun startScan(sess: UseSenseSession, manual: Boolean) {
+        if (scanStage != ScanStage.ALIGN) return
+        val controller = scanController ?: return
+        val now = SystemClock.elapsedRealtime()
+        if (!manual) haptic()
+        shutterButton.visibility = View.GONE
+        hintScheduler.reset()
+
+        val challengeFlow = challengePresenter != null || sess.policy?.requiresStepup == true
+        if (challengeFlow) {
+            scanStage = ScanStage.CHALLENGE
+            stopScanLoop()
             faceGuideOverlay.visibility = View.GONE
             watchdog.arm(WatchdogPhase.CAPTURE)
             cameraLive.whenLive {
                 sess.startCapture()
+                sessionCaptureStarted = true
                 eventEmitter.emit(EventType.CAPTURE_STARTED)
                 if (sess.requiresAudio) {
                     sess.startAudioRecording()
@@ -1110,6 +1359,184 @@ class HostedPageActivity : AppCompatActivity() {
                 }
                 startBaselinePhase()
             }
+            return
+        }
+
+        scanStage = ScanStage.PASSIVE
+        watchdog.arm(WatchdogPhase.CAPTURE)
+        if (!sessionCaptureStarted) {
+            sess.startCapture()
+            sessionCaptureStarted = true
+            eventEmitter.emit(EventType.CAPTURE_STARTED)
+            if (sess.requiresAudio) {
+                sess.startAudioRecording()
+                eventEmitter.emit(EventType.AUDIO_RECORD_STARTED)
+            }
+        } else {
+            sess.resumeCapture()
+        }
+        sess.setCapturePhase(CapturePhase.BASELINE)
+        ++captureRound
+        controller.start(now, manual)
+        scanView.resetProgress()
+        scanView.scanning = true
+        scanView.paused = false
+        scanView.tone = ContourScanView.Tone.READY
+        scanCopyShown = false
+        renderScanCopy(controller)
+        if (debugHooks?.forceState == "upload") {
+            // Test rig: the upload sheet over the blurred camera, no network.
+            stopScanLoop()
+            setProcessingCopy(FinalizationPhase.UPLOADING)
+            setStep(PageStep.FINALIZING)
+            uploadProgress.progress = ((debugHooks?.forceProgress ?: 0.6f) * 1000).toInt()
+        }
+    }
+
+    private fun finishPassiveScan() {
+        haptic()
+        stopScanLoop()
+        restoreFillLight()
+        hintPill.announceForAccessibility(getString(R.string.usesense_scan_complete))
+        onCaptureComplete(captureRound)
+    }
+
+    private fun stopScanLoop() {
+        handler.removeCallbacks(scanTicker)
+        liveAnalyzer?.active = false
+        lastGate = null
+        if (scanStage == ScanStage.ALIGN || scanStage == ScanStage.PASSIVE) scanStage = ScanStage.IDLE
+    }
+
+    private fun showShutter(sess: UseSenseSession) {
+        if (shutterButton.visibility != View.VISIBLE) {
+            Log.i(TAG, "Shutter offered: gateUnavailable=$gateUnavailable gate=${liveAnalyzer?.initState} " +
+                "dropped=${scanController?.droppedWindows} aligningMs=${SystemClock.elapsedRealtime() - alignStartedAt}")
+        }
+        shutterButton.visibility = View.VISIBLE
+        val seconds = ((scanTotalMs(sess) + 999) / 1000).toInt()
+        showPill("\u25C9", getString(R.string.usesense_shutter_title), resources.getQuantityString(R.plurals.usesense_shutter_detail, seconds, seconds))
+        scanView.tone = ContourScanView.Tone.NEUTRAL
+        if (!shutterAnnounced) {
+            shutterAnnounced = true
+            hintPill.announceForAccessibility(hintTitle.text)
+        }
+    }
+
+    private fun renderScanCopy(controller: ScanController) {
+        val sess = session ?: return
+        val total = ((scanTotalMs(sess) + 999) / 1000).toInt()
+        val held = debugHooks?.takeIf { it.forceState != null }?.forceProgress
+        val done = (held?.let { it * scanTotalMs(sess) }?.toLong() ?: controller.bankedMs).div(1000).toInt().coerceAtMost(total)
+        showPill(ICON_STILL, getString(R.string.usesense_hint_hold_still), getString(R.string.usesense_scan_progress, done, total))
+        if (!scanCopyShown) {
+            scanCopyShown = true
+            hintPill.announceForAccessibility(hintTitle.text)
+        }
+    }
+
+    private fun hintText(hint: GateHint): Pair<String, String?> = when (hint) {
+        GateHint.SHOW_FACE -> getString(R.string.usesense_hint_show_face) to null
+        GateHint.ONE_PERSON -> getString(R.string.usesense_hint_one_person) to null
+        GateHint.CENTRE -> getString(R.string.usesense_hint_centre) to null
+        GateHint.MOVE_CLOSER -> getString(R.string.usesense_hint_move_closer) to null
+        GateHint.MOVE_BACK -> getString(R.string.usesense_hint_move_back) to null
+        GateHint.LOOK_STRAIGHT -> getString(R.string.usesense_hint_look_straight) to null
+        GateHint.BRIGHTENING -> getString(R.string.usesense_hint_brightening) to
+            getString(R.string.usesense_hint_brightening_detail)
+        GateHint.FACE_LIGHT -> getString(R.string.usesense_hint_face_light) to null
+        GateHint.TOO_BRIGHT -> getString(R.string.usesense_hint_too_bright) to null
+        GateHint.HOLD_STEADY -> getString(R.string.usesense_hint_hold_steady) to null
+        GateHint.EYES_OPEN -> getString(R.string.usesense_hint_eyes_open) to null
+        GateHint.HOLD_STILL -> getString(R.string.usesense_hint_hold_still) to null
+    }
+
+    private fun renderHint(hint: GateHint?) {
+        if (hint == null) {
+            showPill(ICON_STILL, getString(R.string.usesense_hint_hold_still), getString(R.string.usesense_scan_getting_ready))
+            return
+        }
+        val (title, detail) = hintText(hint)
+        showPill(hintIconFor(hint), title, detail)
+    }
+
+    private fun showPill(icon: String, title: CharSequence, detail: CharSequence?) {
+        hintIcon.text = icon
+        hintTitle.text = title
+        hintDetail.text = detail ?: ""
+        hintDetail.visibility = if (detail != null) View.VISIBLE else View.GONE
+        hintPill.visibility = View.VISIBLE
+    }
+
+    private fun hintIconFor(hint: GateHint): String = when (hint) {
+        GateHint.SHOW_FACE, GateHint.ONE_PERSON -> "\u263A"
+        GateHint.CENTRE -> "\u2194"
+        GateHint.MOVE_CLOSER, GateHint.MOVE_BACK -> "\u2922"
+        GateHint.LOOK_STRAIGHT -> "\u25CE"
+        GateHint.BRIGHTENING, GateHint.FACE_LIGHT, GateHint.TOO_BRIGHT -> "\u2600"
+        GateHint.HOLD_STEADY, GateHint.HOLD_STILL -> ICON_STILL
+        GateHint.EYES_OPEN -> "\u25C9"
+    }
+
+    /** Centre the hint pill at [HINT_CENTRE_OF_H] of the overlay's height. */
+    private fun placeHint() {
+        val h = faceGuideOverlay.height
+        if (h == 0) return
+        hintGroup.y = h * HINT_CENTRE_OF_H - hintPill.height / 2f - hintPill.top
+    }
+
+    /** Spoken hint (TalkBack). Called only when the scheduler shows a new one, so it shares its 1.2 s limit. */
+    private fun announce(hint: GateHint?) {
+        hint ?: return
+        val (title, detail) = hintText(hint)
+        hintPill.announceForAccessibility(listOfNotNull(title, detail).joinToString(". "))
+    }
+
+    private fun haptic() {
+        val effect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            HapticFeedbackConstants.CONFIRM
+        } else {
+            HapticFeedbackConstants.VIRTUAL_KEY
+        }
+        scanView.performHapticFeedback(effect)
+    }
+
+    /** Too dark: the screen becomes the fill light (full brightness, warm white surround). */
+    private fun turnOnFillLight() {
+        if (fillLightSince != null) return
+        fillLightSince = SystemClock.elapsedRealtime()
+        val lp = window.attributes
+        savedBrightness = lp.screenBrightness
+        lp.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_FULL
+        window.attributes = lp
+        scanView.fillLight = true
+    }
+
+    private fun restoreFillLight() {
+        if (fillLightSince == null) return
+        fillLightSince = null
+        val lp = window.attributes
+        lp.screenBrightness = savedBrightness ?: WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+        window.attributes = lp
+        savedBrightness = null
+        scanView.fillLight = false
+    }
+
+    /** The face blurs out behind the processing sheet (Android 12+; older versions keep the opaque sheet). */
+    private fun setPreviewBlurred(blurred: Boolean) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            // No blur before Android 12: a near-opaque sheet hides the face instead.
+            uploadOverlay.setBackgroundColor(Color.parseColor(if (blurred) "#E60D0F14" else "#400D0F14"))
+            return
+        }
+        if (blurred) {
+            val r = 14f * resources.displayMetrics.density
+            val blur = RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP)
+            cameraPreview.setRenderEffect(blur)
+            fakePreview?.setRenderEffect(blur)
+        } else {
+            cameraPreview.setRenderEffect(null)
+            fakePreview?.setRenderEffect(null)
         }
     }
 
@@ -1321,6 +1748,8 @@ class HostedPageActivity : AppCompatActivity() {
         }
         completedRound = round
         val sess = session ?: return
+        stopScanLoop()
+        restoreFillLight()
         if (stepUpRoundActive) {
             stepUpRoundActive = false
             finishStepUpRound(sess)
@@ -1346,13 +1775,31 @@ class HostedPageActivity : AppCompatActivity() {
         startFinalization(sess)
     }
 
+    /**
+     * The upload sheet: one title, one bar for upload and checking together.
+     * Upload fills the first [UPLOAD_SHARE] of the bar; checking then eases
+     * toward the end without reaching it until the result arrives.
+     */
     private fun setProcessingCopy(phase: FinalizationPhase) {
-        if (phase == FinalizationPhase.COMPLETING) {
-            uploadOverlayTitle.text = getString(R.string.usesense_completing_title)
-            uploadOverlaySubtitle.text = getString(R.string.usesense_completing_body)
-        } else {
-            uploadOverlayTitle.text = getString(R.string.usesense_processing_title)
-            uploadOverlaySubtitle.text = getString(R.string.usesense_processing_body)
+        uploadOverlayTitle.text = getString(R.string.usesense_upload_title)
+        uploadOverlaySubtitle.text = getString(R.string.usesense_upload_detail)
+        uploadProgress.progressTintList = ColorStateList.valueOf(ScanColors.resolve(resolvedBranding.appearance).ring)
+        when (phase) {
+            FinalizationPhase.PREPARING -> setUploadProgress(0.05f)
+            FinalizationPhase.UPLOADING -> Unit
+            FinalizationPhase.COMPLETING -> setUploadProgress(0.97f, durationMs = 4_000L)
+        }
+    }
+
+    private fun setUploadProgress(fraction: Float, durationMs: Long = 250L) {
+        uploadProgressAnimator?.cancel()
+        val target = (fraction.coerceIn(0f, 1f) * 1000).toInt()
+        if (target <= uploadProgress.progress) return
+        uploadProgressAnimator = ValueAnimator.ofInt(uploadProgress.progress, target).apply {
+            duration = durationMs
+            interpolator = android.view.animation.DecelerateInterpolator()
+            addUpdateListener { uploadProgress.progress = it.animatedValue as Int }
+            start()
         }
     }
 
@@ -1400,6 +1847,9 @@ class HostedPageActivity : AppCompatActivity() {
                         }
                         is FinalizationUpdate.Progress -> {
                             watchdog.onProgress()
+                            // Progress arrives on the network thread.
+                            val sent = update.bytesSent.toFloat() / update.bytesTotal.coerceAtLeast(1)
+                            uploadProgress.post { setUploadProgress(0.05f + sent * (UPLOAD_SHARE - 0.05f)) }
                         }
                         is FinalizationUpdate.Result -> {
                             watchdog.disarm()
@@ -1456,7 +1906,7 @@ class HostedPageActivity : AppCompatActivity() {
         finalizationJob?.cancel()
         finalizationJob = mainScope.launch {
             setStep(PageStep.FINALIZING)
-            uploadOverlaySubtitle.text = "Uploading securely"
+            setProcessingCopy(FinalizationPhase.UPLOADING)
             sess.uploadStepUpRound().fold(
                 onSuccess = { startFinalization(sess, FinalizationPhase.COMPLETING) },
                 onFailure = { e ->
@@ -1601,6 +2051,9 @@ class HostedPageActivity : AppCompatActivity() {
      * wedged native call cannot hold the UI.
      */
     private fun abortAttempt() {
+        stopScanLoop()
+        scanStage = ScanStage.IDLE
+        restoreFillLight()
         watchdog.disarm()
         finalizationJob?.cancel()
         finalizationJob = null
@@ -1768,11 +2221,17 @@ class HostedPageActivity : AppCompatActivity() {
             PageStep.CAPTURE -> {
                 captureScreen.visibility = View.VISIBLE
                 uploadOverlay.visibility = View.GONE
+                setPreviewBlurred(false)
+                uploadProgressAnimator?.cancel()
+                uploadProgress.progress = 0
             }
             PageStep.FINALIZING -> {
                 // Keep capture screen visible — show dark overlay on camera
                 captureScreen.visibility = View.VISIBLE
                 uploadOverlay.visibility = View.VISIBLE
+                // The face blurs out for privacy behind the sheet.
+                faceGuideOverlay.visibility = View.GONE
+                setPreviewBlurred(true)
                 // Nothing from the capture shows through under the overlay
                 // ("Hold still" used to sit below it); the footer stays.
                 showCaptureText(false)
@@ -1783,6 +2242,21 @@ class HostedPageActivity : AppCompatActivity() {
                 qualityBanner.visibility = View.GONE
             }
             PageStep.RESULT -> resultScreen.visibility = View.VISIBLE
+        }
+
+        // The camera runs edge to edge: a dark status bar over it, the app's own elsewhere.
+        if (defaultStatusBarColor == null) defaultStatusBarColor = window.statusBarColor
+        val insets = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+        // The root pads for the status bar (fitsSystemWindows); black behind it in capture.
+        (findViewById<View>(android.R.id.content) as? android.view.ViewGroup)?.getChildAt(0)
+            ?.setBackgroundColor(if (isCaptureMode) Color.BLACK else Color.WHITE)
+        if (isCaptureMode) {
+            window.statusBarColor = Color.BLACK
+            if (lightStatusBarDefault == null) lightStatusBarDefault = insets.isAppearanceLightStatusBars
+            insets.isAppearanceLightStatusBars = false
+        } else {
+            defaultStatusBarColor?.let { window.statusBarColor = it }
+            lightStatusBarDefault?.let { insets.isAppearanceLightStatusBars = it }
         }
 
         // Section 11.8: Hide branded header/footer during capture, show capture footer
@@ -1811,9 +2285,10 @@ class HostedPageActivity : AppCompatActivity() {
         phaseBadge.visibility = View.GONE
         challengeProgress.visibility = View.GONE
         qualityIndicator.visibility = View.GONE
-        faceGuideQuality.visibility = View.GONE
-        faceGuideQualityDot.visibility = View.INVISIBLE
         qualityBanner.visibility = View.GONE
+        hintPill.visibility = View.INVISIBLE
+        shutterButton.visibility = View.GONE
+        setPreviewBlurred(false)
     }
 
     override fun onDestroy() {
@@ -1831,6 +2306,9 @@ class HostedPageActivity : AppCompatActivity() {
         mainScope.cancel()
         handler.removeCallbacksAndMessages(null)
         analysisExecutor.shutdown()
+        liveAnalyzer?.release()
+        liveAnalyzer = null
+        debugHooks?.stop()
         session?.release()
         pendingConfig = null
         pendingRequest = null
@@ -1848,6 +2326,25 @@ class HostedPageActivity : AppCompatActivity() {
         /** How long "One more quick check" shows before a server step-up challenge starts. */
         private const val STEP_UP_BRIEF_MS = 1500L
         private const val COUNTDOWN_MS = 3000L
+
+        private const val ICON_STILL = "\u25CE"
+        private const val GATE_TAG = "UseSenseGate"
+        private const val HINT_CENTRE_OF_H = 0.74f
+
+        /** Share of the upload sheet's bar that the upload itself fills. */
+        private const val UPLOAD_SHARE = 0.7f
+
+        /** Face mesh points (468 + 10 iris). */
+        private const val MAX_LANDMARKS = 478
+        /** The scan clock's period (~15 Hz); the view itself animates per frame. */
+        private const val SCAN_TICK_MS = 66L
+        /** Scan length when the server sends none (it used to be the passive capture's length too). */
+        private const val DEFAULT_SCAN_MS = 4500
+        private const val MIN_SCAN_MS = 1500L
+        /** Past this, a gate still loading counts as unavailable: offer the shutter. */
+        private const val GATE_INIT_TIMEOUT_MS = 8_000L
+        /** A gate result older than this is ignored (the gate thread stalled). */
+        private const val GATE_STALE_MS = 1_000L
 
         /** Ceiling on minting a fresh Flows session for "Try again". */
         private const val SESSION_REFRESH_TIMEOUT_MS = 30_000L

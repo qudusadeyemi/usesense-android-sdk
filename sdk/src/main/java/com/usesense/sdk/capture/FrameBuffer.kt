@@ -49,12 +49,14 @@ class FrameBuffer(private val maxFrames: Int) {
         currentPhase = phase
     }
 
+    @Synchronized
     fun startCapture() {
         captureStartMs = SystemClock.elapsedRealtime()
         frames.clear()
         nextIndex = 0
     }
 
+    @Synchronized
     fun addFrame(jpegData: ByteArray, luminance: Double = 0.0): CapturedFrame? {
         if (frames.size >= (roundLimit?.coerceAtMost(maxFrames) ?: maxFrames)) return null
 
@@ -80,10 +82,13 @@ class FrameBuffer(private val maxFrames: Int) {
         return frame
     }
 
+    @Synchronized
     fun getFrames(): List<CapturedFrame> = frames.toList()
 
+    @Synchronized
     fun getJpegDataList(): List<ByteArray> = frames.map { it.jpegData }
 
+    @Synchronized
     fun clear() {
         frames.clear()
         nextIndex = 0

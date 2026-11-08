@@ -15,6 +15,13 @@ class FrameCaptureManager(
 ) {
     private val frameBuffer = FrameBuffer(uploadConfig.maxFrames)
     private val isCapturing = AtomicBoolean(false)
+
+    /**
+     * Banking paused: the scan's quality gate is failing (the subject moved,
+     * left the oval...). Frames are dropped, the buffer and its clock are kept.
+     */
+    @Volatile var isPaused = false
+        private set
     private val encoderDispatcher = Executors.newFixedThreadPool(2).asCoroutineDispatcher()
     private var lastFrameTimeMs = 0L
     private val frameIntervalMs: Long = (1000L / uploadConfig.targetFps)
@@ -26,6 +33,24 @@ class FrameCaptureManager(
     val capturedFrameCount: Int get() = frameBuffer.frameCount
 
     fun startCapture() {
+        frameBuffer.startCapture()
+        isPaused = false
+        isCapturing.set(true)
+        lastFrameTimeMs = 0L
+    }
+
+    /** Stop banking frames without ending the capture (the scan ring pauses). */
+    fun pause() {
+        isPaused = true
+    }
+
+    fun resume() {
+        isPaused = false
+    }
+
+    /** Drop the banked frames and restart the clock, staying paused (a dropped scan window). */
+    fun restartPaused() {
+        isPaused = true
         frameBuffer.startCapture()
         isCapturing.set(true)
         lastFrameTimeMs = 0L
@@ -45,7 +70,7 @@ class FrameCaptureManager(
 
     fun createAnalyzer(): ImageAnalysis.Analyzer {
         return ImageAnalysis.Analyzer { imageProxy ->
-            if (!isCapturing.get()) {
+            if (!isCapturing.get() || isPaused) {
                 imageProxy.close()
                 return@Analyzer
             }
@@ -71,6 +96,25 @@ class FrameCaptureManager(
                     onCaptureComplete?.invoke()
                 }
             }
+        }
+    }
+
+    /**
+     * Bank an upright frame that did not come from CameraX (the debug fake
+     * camera). Same pacing, pause and cap rules as [createAnalyzer].
+     */
+    internal fun submitBitmap(upright: Bitmap) {
+        if (!isCapturing.get() || isPaused) return
+        val now = System.currentTimeMillis()
+        if (now - lastFrameTimeMs < frameIntervalMs) return
+        lastFrameTimeMs = now
+        val luminance = computeLuminanceFromBitmap(upright)
+        val jpegData = runCatching { FrameEncoder.bitmapToJpeg(upright) }.getOrNull() ?: return
+        val frame = frameBuffer.addFrame(jpegData, luminance)
+        if (frame != null) onFrameCaptured?.invoke(frame)
+        if (frameBuffer.frameCount >= uploadConfig.maxFrames) {
+            stopCapture()
+            onCaptureComplete?.invoke()
         }
     }
 

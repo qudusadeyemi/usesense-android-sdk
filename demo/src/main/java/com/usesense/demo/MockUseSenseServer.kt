@@ -91,16 +91,20 @@ class MockUseSenseServer {
             put("nonce", nonce)
             put("policy", JSONObject().apply {
                 put("requires_audio", requireAudio)
-                put("requires_stepup", true)
-                put("challenge_type", challengeType)
-                put("challenge", challenge)
+                // Passive: no challenge and no step-up, as the server's
+                // passive-first default sends.
+                put("requires_stepup", challengeType != "none")
+                if (challengeType != "none") {
+                    put("challenge_type", challengeType)
+                    put("challenge", challenge)
+                }
                 if (audioChallenge != null) put("audio_challenge", audioChallenge)
                 put("policy_source", "sensei")
             })
             put("upload", JSONObject().apply {
                 put("max_frames", 30)
                 put("target_fps", 3)
-                put("capture_duration_ms", 8000)
+                put("capture_duration_ms", if (challengeType == "none") 4500 else 8000)
             })
             put("geometric_coherence", JSONObject().apply {
                 put("dual_path_enabled", false)

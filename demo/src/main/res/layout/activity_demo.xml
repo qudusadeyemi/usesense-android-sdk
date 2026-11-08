@@ -201,13 +201,21 @@
                     android:orientation="vertical">
 
                     <RadioButton
+                        android:id="@+id/challengePassive"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/passive_scan"
+                        android:textColor="#FFFFFF"
+                        android:buttonTint="#FF4B5C"
+                        android:checked="true" />
+
+                    <RadioButton
                         android:id="@+id/challengeFollowDot"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="@string/follow_dot"
                         android:textColor="#FFFFFF"
-                        android:buttonTint="#FF4B5C"
-                        android:checked="true" />
+                        android:buttonTint="#FF4B5C" />
 
                     <RadioButton
                         android:id="@+id/challengeHeadTurn"

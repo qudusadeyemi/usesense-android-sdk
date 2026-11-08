@@ -10,6 +10,7 @@
     <string name="enrollment">Enrollment</string>
     <string name="authentication">Authentication</string>
     <string name="challenge_type_label">Challenge Type</string>
+    <string name="passive_scan">Passive scan (no challenge)</string>
     <string name="follow_dot">Follow the Dot</string>
     <string name="head_turn">Head Turn</string>
     <string name="speak_phrase">Speak Phrase</string>

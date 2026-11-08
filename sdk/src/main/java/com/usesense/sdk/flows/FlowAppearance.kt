@@ -25,6 +25,8 @@ data class FlowAppearance(
     val loader: AppearanceLoader? = null,
     /** Force a palette or follow the OS (default [Mode.AUTO]). */
     val mode: Mode? = null,
+    /** Face-capture guide colours (ring, contour lines, warning). */
+    val capture: AppearanceCapture? = null,
 ) {
     /** Force a palette or follow the OS. */
     enum class Mode(val wire: String) {
@@ -50,6 +52,33 @@ data class FlowAppearance(
             icons = raw.optJSONObject("icons")?.let(AppearanceIcons::decode),
             loader = raw.optJSONObject("loader")?.let(AppearanceLoader::decode),
             mode = Mode.fromWire(raw.optStringOrNull("mode")),
+            capture = raw.optJSONObject("capture")?.let(AppearanceCapture::decode),
+        )
+    }
+}
+
+/**
+ * Colours of the face-capture guide. Unset fields use the Sense defaults
+ * (ring #4F7CFF, contours #7A96FF to #A878FC, warning #FFB84D), and a colour
+ * below 3:1 contrast on the dark camera background is ignored, so the guide
+ * always stays readable. Wire: `capture: { ring, contour_start, contour_end, warning }`.
+ */
+data class AppearanceCapture(
+    /** Progress ring around the oval. */
+    val ring: String? = null,
+    /** Contour lines, top of the face. */
+    val contourStart: String? = null,
+    /** Contour lines, bottom of the face. */
+    val contourEnd: String? = null,
+    /** Oval and ring while a check is failing or the scan is paused. */
+    val warning: String? = null,
+) {
+    companion object {
+        fun decode(raw: JSONObject): AppearanceCapture = AppearanceCapture(
+            ring = raw.optStringOrNull("ring"),
+            contourStart = raw.optStringOrNull("contour_start") ?: raw.optStringOrNull("contourStart"),
+            contourEnd = raw.optStringOrNull("contour_end") ?: raw.optStringOrNull("contourEnd"),
+            warning = raw.optStringOrNull("warning"),
         )
     }
 }
@@ -252,6 +281,12 @@ fun mergeAppearance(high: FlowAppearance?, low: FlowAppearance?): FlowAppearance
             imageUrl = high.loader?.imageUrl ?: low.loader?.imageUrl,
         ).takeIf { high.loader != null || low.loader != null },
         mode = high.mode ?: low.mode,
+        capture = AppearanceCapture(
+            ring = high.capture?.ring ?: low.capture?.ring,
+            contourStart = high.capture?.contourStart ?: low.capture?.contourStart,
+            contourEnd = high.capture?.contourEnd ?: low.capture?.contourEnd,
+            warning = high.capture?.warning ?: low.capture?.warning,
+        ).takeIf { high.capture != null || low.capture != null },
     )
 }
 

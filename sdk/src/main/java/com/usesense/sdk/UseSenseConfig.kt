@@ -27,6 +27,16 @@ data class UseSenseConfig(
      * features map; the server returns 400 v4_not_enabled otherwise.
      */
     val liveSenseV4Enabled: Boolean = false,
+
+    /**
+     * Guided face capture (default true): the oval guide on every session, a
+     * quality gate that starts the scan by itself once the face is framed,
+     * lit, sharp and still, one hint at a time, and a shutter button after
+     * 20 s. False keeps capture manual: the shutter starts it straight away,
+     * with no gate. Presentation only; nothing sent to the server changes.
+     * Same switch as iOS `guidedCaptureEnabled` and the web SDK option.
+     */
+    val guidedCaptureEnabled: Boolean = true,
 ) {
     companion object {
         /**

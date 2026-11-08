@@ -85,6 +85,7 @@ class DemoActivity : AppCompatActivity() {
                     R.id.challengeFollowDot -> "follow_dot"
                     R.id.challengeHeadTurn -> "head_turn"
                     R.id.challengeSpeakPhrase -> "speak_phrase"
+                    R.id.challengePassive -> "none"
                     else -> "follow_dot"
                 }
                 mockDecision = when (verdictGroup.checkedRadioButtonId) {
