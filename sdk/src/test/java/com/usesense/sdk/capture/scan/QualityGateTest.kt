@@ -128,7 +128,7 @@ class QualityGateTest {
         // The oval is 260 px wide, so the ratio is eye distance / 361.
         // 55 / 361 = 0.15 < 0.17
         assertTrue(GateHint.MOVE_CLOSER in gate.evaluate(frame(500, pts = face(eyeDist = 55f)), identity, oval).failing)
-        // 120 / 361 = 0.33 > 0.31, and the size hint comes first.
+        // 120 / 361 = 0.33 > 0.32, and the size hint comes first.
         val far = gate.evaluate(frame(600, pts = face(eyeDist = 120f, rx = 160f)), identity, oval)
         assertEquals(GateHint.MOVE_BACK, far.top)
         assertFalse(GateHint.TOO_BIG in far.failing)

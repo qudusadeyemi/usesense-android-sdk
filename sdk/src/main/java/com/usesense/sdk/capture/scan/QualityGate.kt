@@ -318,7 +318,7 @@ internal class QualityGate(
         /** The oval is this share of the screen width on a phone: eye ratio is screen-width relative. */
         const val OVAL_WIDTH_OF_SCREEN = 0.72f
         const val DISTANCE_MIN = 0.17f
-        const val DISTANCE_MAX = 0.31f
+        const val DISTANCE_MAX = 0.32f
         const val MAX_YAW = 15.0
         const val MAX_PITCH = 15.0
         const val MAX_ROLL = 12.0
