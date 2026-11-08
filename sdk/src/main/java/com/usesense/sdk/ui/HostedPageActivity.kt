@@ -1335,7 +1335,12 @@ class HostedPageActivity : AppCompatActivity() {
                     return
                 }
                 val pass = gateUnavailable || debugHooks?.forceState == "pass" || fresh?.allPass ?: true
-                when (controller.tick(now, pass)) {
+                val event = controller.tick(now, pass)
+                if (event != null) {
+                    Log.i(TAG, "Scan $event: banked=${controller.bankedMs} ms blocking=${fresh?.blocking.orEmpty()} " +
+                        "dropped=${controller.droppedWindows}")
+                }
+                when (event) {
                     ScanController.Event.PAUSED -> {
                         sess.pauseCapture()
                         scanView.paused = true

@@ -99,6 +99,25 @@
                 android:inputType="text" />
         </com.google.android.material.textfield.TextInputLayout>
 
+        <!-- Flow ID (sandbox mode): runs an operator-authored flow -->
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/flowIdLayout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:visibility="gone"
+            app:boxBackgroundColor="#16213E"
+            app:hintTextColor="#B0B0CC">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/flowIdInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="@string/flow_id_hint"
+                android:textColor="#FFFFFF"
+                android:inputType="text" />
+        </com.google.android.material.textfield.TextInputLayout>
+
         <!-- Session Type -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
@@ -310,6 +329,21 @@
             android:textSize="16sp"
             app:cornerRadius="28dp"
             app:backgroundTint="#FF4B5C" />
+
+        <!-- Run Flow (sandbox mode) -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/runFlowButton"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginTop="12dp"
+            android:visibility="gone"
+            android:text="@string/run_flow"
+            android:textAllCaps="false"
+            android:textSize="16sp"
+            app:cornerRadius="28dp"
+            app:strokeColor="#FF4B5C"
+            app:strokeWidth="1dp"
+            app:backgroundTint="@android:color/transparent" />
 
         <!-- Last Result -->
         <com.google.android.material.card.MaterialCardView
