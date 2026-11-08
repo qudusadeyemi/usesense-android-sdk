@@ -191,6 +191,8 @@ class HostedPageActivity : AppCompatActivity() {
     private lateinit var hintPill: LinearLayout
     private lateinit var hintTitle: TextView
     private lateinit var hintDetail: TextView
+    /** The guidance last asked for (title, detail), shown or still fading in. */
+    private var guidanceTarget: Pair<String, String>? = null
     private lateinit var shutterButton: ImageButton
     private lateinit var hintGroup: LinearLayout
     private lateinit var uploadProgress: ProgressBar
@@ -1508,19 +1510,23 @@ class HostedPageActivity : AppCompatActivity() {
     /** Plain guidance text under the oval; a 200 ms crossfade when it changes. */
     private fun showGuidance(title: CharSequence, detail: CharSequence?) {
         hintPill.visibility = View.VISIBLE
-        val same = hintTitle.text.toString() == title.toString() &&
-            hintDetail.text.toString() == (detail?.toString() ?: "")
-        if (same) return
+        // Compare with the text being faded in, not the text on screen: the
+        // scan tick asks again every 66 ms, faster than the fade, and
+        // restarting it each time left the guidance stuck at alpha 0.
+        val target = title.toString() to (detail?.toString() ?: "")
+        if (target == guidanceTarget) return
+        guidanceTarget = target
         val apply = {
             hintTitle.text = title
             hintDetail.text = detail ?: ""
             hintDetail.visibility = if (detail != null) View.VISIBLE else View.GONE
         }
+        hintPill.animate().cancel()
         if (hintTitle.text.isNullOrEmpty()) {
             apply()
+            hintPill.alpha = 1f
             return
         }
-        hintPill.animate().cancel()
         hintPill.animate().alpha(0f).setDuration(GUIDANCE_FADE_MS / 2).withEndAction {
             apply()
             hintPill.animate().alpha(1f).setDuration(GUIDANCE_FADE_MS / 2).start()
