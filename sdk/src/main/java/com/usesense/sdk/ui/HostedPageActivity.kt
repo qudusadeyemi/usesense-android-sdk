@@ -54,6 +54,8 @@ import com.usesense.sdk.capture.scan.HintScheduler
 import com.usesense.sdk.capture.scan.LiveFaceAnalyzer
 import com.usesense.sdk.capture.scan.PreviewMapper
 import com.usesense.sdk.capture.scan.QualityGate
+import com.usesense.sdk.capture.scan.Relief
+import com.usesense.sdk.capture.scan.ReliefBuilder
 import com.usesense.sdk.capture.scan.ScanColors
 import com.usesense.sdk.capture.scan.UploadBar
 import com.usesense.sdk.capture.scan.ScanController
@@ -245,10 +247,6 @@ class HostedPageActivity : AppCompatActivity() {
         }
     }
     private var savedBrightness: Float? = null
-    private val pointXs = FloatArray(MAX_LANDMARKS)
-    private val pointYs = FloatArray(MAX_LANDMARKS)
-    private val pointZs = FloatArray(MAX_LANDMARKS)
-    private val mapped = FloatArray(2)
     private val scanTicker = object : Runnable {
         override fun run() {
             onScanTick()
@@ -1208,7 +1206,9 @@ class HostedPageActivity : AppCompatActivity() {
 
     private fun ensureLiveAnalyzer() {
         val analyzer = liveAnalyzer ?: LiveFaceAnalyzer(applicationContext) { frame ->
-            runOnUiThread { if (!isFinishing && !isDestroyed) onGateFrame(frame) }
+            // Gate thread: the contour relief is built here, the view only eases toward it.
+            val relief = buildRelief(frame)
+            runOnUiThread { if (!isFinishing && !isDestroyed) onGateFrame(frame, relief) }
         }.also { liveAnalyzer = it }
         analyzer.initialize { ok -> if (!ok) runOnUiThread { gateUnavailable = true } }
     }
@@ -1248,8 +1248,28 @@ class HostedPageActivity : AppCompatActivity() {
         handler.post(scanTicker)
     }
 
-    /** A gate frame from the live mesh (main thread). */
-    private fun onGateFrame(frame: GateFrame) {
+    /**
+     * The contour relief for [frame] at the view's size (gate thread). Landmarks
+     * are mapped to screen px as the preview shows them (mirrored aspect-fill).
+     */
+    private fun buildRelief(frame: GateFrame): Relief? {
+        val pts = frame.points ?: return null
+        val w = scanView.reliefWidth
+        val h = scanView.reliefHeight
+        if (w <= 0f || h <= 0f) return null
+        val n = minOf(frame.landmarkCount, MAX_LANDMARKS)
+        val xs = FloatArray(n); val ys = FloatArray(n); val zs = FloatArray(n)
+        val out = FloatArray(2)
+        val mapper = PreviewMapper(frame.imageWidth, frame.imageHeight, w, h)
+        for (i in 0 until n) {
+            mapper.map(pts[i * 3], pts[i * 3 + 1], out)
+            xs[i] = out[0]; ys[i] = out[1]; zs[i] = pts[i * 3 + 2]
+        }
+        return runCatching { ReliefBuilder.build(xs, ys, zs, n, w, h) }.getOrNull()
+    }
+
+    /** A gate frame from the live mesh (main thread), with its relief built on the gate thread. */
+    private fun onGateFrame(frame: GateFrame, relief: Relief? = null) {
         if (scanStage != ScanStage.ALIGN && scanStage != ScanStage.PASSIVE) return
         val sess = session ?: return
         val oval = scanView.ovalSpec() ?: return
@@ -1266,18 +1286,7 @@ class HostedPageActivity : AppCompatActivity() {
         if (result.faceTooDark) turnOnFillLight()
 
         val pts = frame.points
-        val n = minOf(frame.landmarkCount, MAX_LANDMARKS)
-        if (pts != null && n > 0) {
-            for (i in 0 until n) {
-                mapper.map(pts[i * 3], pts[i * 3 + 1], mapped)
-                pointXs[i] = mapped[0]
-                pointYs[i] = mapped[1]
-                pointZs[i] = pts[i * 3 + 2]
-            }
-            scanView.updateFace(pointXs, pointYs, pointZs, n)
-        } else {
-            scanView.clearFace()
-        }
+        if (relief != null) scanView.updateRelief(relief) else if (pts == null) scanView.clearFace()
 
         val forced = debugHooks?.forceState
         if (forced == "pass") {

@@ -67,41 +67,69 @@ class HeadPoseMathTest {
 class DepthGridTest {
 
     /**
-     * A synthetic 478-point face: a dome of points in a 200x260 px ellipse
-     * centred at (200, 300), nearest (smallest z) at the centre. Forehead (10),
-     * chin (152) and cheeks (234, 454) sit on the outline.
+     * A synthetic 478-point face in a 200x260 px ellipse centred at (200, 300):
+     * the FACE_OVAL ring on the outline at z 0, the rest inside with z = r^2 - 1,
+     * so depth runs from 0 at the outline to 1 at the centre. Forehead (10),
+     * chin (152) and cheeks (234, 454) are ring points.
      */
     private fun face(): Triple<FloatArray, FloatArray, FloatArray> {
         val xs = FloatArray(478); val ys = FloatArray(478); val zs = FloatArray(478)
         for (i in 0 until 478) {
             val a = i * 2.399963
-            val r = kotlin.math.sqrt((i + 0.5) / 478.0)
+            val r = kotlin.math.sqrt((i + 0.5) / 478.0) * 0.95
             xs[i] = 200f + (100 * r * cos(a)).toFloat()
             ys[i] = 300f + (130 * r * sin(a)).toFloat()
             zs[i] = (r * r).toFloat() - 1f
         }
-        xs[10] = 200f; ys[10] = 170f
-        xs[152] = 200f; ys[152] = 430f
-        xs[234] = 100f; ys[234] = 300f
-        xs[454] = 300f; ys[454] = 300f
+        val ring = QualityGate.FACE_OVAL
+        ring.forEachIndexed { k, idx ->
+            val a = -Math.PI / 2 + 2 * Math.PI * k / ring.size
+            xs[idx] = 200f + (100 * cos(a)).toFloat()
+            ys[idx] = 300f + (130 * sin(a)).toFloat()
+            zs[idx] = 0f
+        }
         return Triple(xs, ys, zs)
+    }
+
+    @Test fun `tessellation is 852 triangles of mesh points`() {
+        assertEquals(FaceTessellation.TRIANGLES * 3, FaceTessellation.INDICES.size)
+        assertTrue(FaceTessellation.INDICES.all { it in 0 until 468 })
     }
 
     @Test fun `face lifts the field, far from the head stays flat`() {
         val g = DepthGrid()
         g.resize(400f, 800f)
-        assertEquals(192, g.rows)
+        assertEquals(260, g.rows)
         val (xs, ys, zs) = face()
         g.update(xs, ys, zs, 478, nowMs = 0)
         g.settle()
         assertEquals(260f, g.faceHeight, 0.5f)
         val centre = g.sample(200f, 300f)
-        val cheek = g.sample(290f, 300f)
+        val cheek = g.sample(285f, 300f)
         assertTrue("centre $centre", centre > 0.8f)
         assertTrue("cheek $cheek < centre", cheek < centre)
         // The head dome lifts the hair above the forehead too.
-        assertTrue("above forehead ${g.sample(200f, 150f)}", g.sample(200f, 150f) > 0.1f)
+        assertTrue("above forehead ${g.sample(200f, 150f)}", g.sample(200f, 150f) > 0.05f)
         assertEquals(0f, g.sample(20f, 760f), 1e-4f)
+    }
+
+    @Test fun `depth is measured from the outline`() {
+        val (xs, ys, zs) = face()
+        // Shifting every z by a constant changes nothing.
+        val a = ReliefBuilder.build(xs, ys, zs, 478, 400f, 800f)!!
+        val b = ReliefBuilder.build(xs, ys, FloatArray(478) { zs[it] + 5f }, 478, 400f, 800f)!!
+        for (i in a.raw.indices) assertEquals(a.raw[i], b.raw[i], 1e-4f)
+    }
+
+    @Test fun `blur keeps a constant field constant`() {
+        val src = FloatArray(30 * 20) { 0.4f }
+        val out = ReliefBuilder.gaussBlur(src, 30, 20, 2f)
+        assertTrue(out.all { kotlin.math.abs(it - 0.4f) < 1e-5f })
+    }
+
+    @Test fun `too few points build nothing`() {
+        val (xs, ys, zs) = face()
+        assertNull(ReliefBuilder.build(xs, ys, zs, 100, 400f, 800f))
     }
 
     @Test fun `field eases toward a new frame`() {
@@ -113,7 +141,6 @@ class DepthGridTest {
         val before = g.sample(200f, 300f)
         // The face moves away: the old spot should fall, but only part of the way per frame.
         for (i in 0 until 478) xs[i] += 150f
-        xs[10] += 0f
         g.update(xs, ys, zs, 478, nowMs = 33)
         assertTrue(g.step())
         val after = g.sample(200f, 300f)
