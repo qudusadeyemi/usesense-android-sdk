@@ -82,7 +82,15 @@ internal data class GateResult(
     val faceTooDark: Boolean,
     /** The measured values, for the debug log and threshold tuning. */
     val metrics: GateMetrics? = null,
+    /** Stillness failed on this frame (motion wins over covered). */
+    val moving: Boolean = false,
 ) {
+    /**
+     * A drop on this frame counts as a drop for cover only when covered was the
+     * reason and the face wasn't moving (COVER-v1 "Steady baseline and motion" 3).
+     */
+    val coverDrop: Boolean get() = GateHint.FACE_COVERED in failing && !moving
+
     /** The failures that hold the scan: everything except light. */
     val blocking: List<GateHint> get() = failing.filter { it.check != GateCheck.LIGHT }
     val allPass: Boolean get() = blocking.isEmpty()
@@ -325,7 +333,8 @@ internal class QualityGate(
                 it.check == GateCheck.IN_OVAL || it.check == GateCheck.POSE
         }
         if (scanning && !watchOff) {
-            val changed = coverWatch.covered(frame.regions, baselineAllowed = settled)
+            val changed = coverWatch.covered(frame.regions, baselineAllowed = settled, counting = still)
+            if (coverWatch.baselineJustTaken) coverStats?.changeWatchBaselineTaken(frame.timestampMs - scanStartedAt)
             if (coverWatch.compared) {
                 coverStats?.changeWatchFrame(coverWatch.lastLumaDelta, coverWatch.lastChromaDelta, coverWatch.lastEdgeFactor)
                 if (coverWatch.lastSingleFrameFlags > 0) coverStats?.changeWatchSingleFrameFlags(coverWatch.lastSingleFrameFlags)
@@ -351,7 +360,7 @@ internal class QualityGate(
             segBodySkin = frame.cover?.bodySkin,
             segOther = frame.cover?.other,
         )
-        return GateResult(failing, tooDark, metrics)
+        return GateResult(failing, tooDark, metrics, moving = !still)
     }
 
     /** Iris-centre distance on screen ([xs], [ys]), or the eye-corner midpoints without iris points. */

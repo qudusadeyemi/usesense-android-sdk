@@ -113,6 +113,8 @@ internal class CoverWatch {
     private val streak = IntArray(FaceRegions.COUNT)
     /** Single-frame exceedances that ended on the last frame (failed once, then passed). */
     var lastSingleFrameFlags = 0; private set
+    /** The baseline was completed on the last frame. */
+    var baselineJustTaken = false; private set
 
     fun reset() {
         baseline = null
@@ -130,19 +132,32 @@ internal class CoverWatch {
      * settled: still and in position); frames that may not are skipped until
      * the baseline is complete.
      */
-    fun covered(regions: FaceRegions?, baselineAllowed: Boolean = true): Boolean {
+    fun covered(regions: FaceRegions?, baselineAllowed: Boolean = true, counting: Boolean = true): Boolean {
         compared = false
         lastSingleFrameFlags = 0
+        baselineJustTaken = false
         if (regions == null) return false
         val v = regions.values
         val base = baseline
         if (base == null || frames < BASELINE_FRAMES) {
-            if (!baselineAllowed) return false
+            if (!baselineAllowed) {
+                // The baseline frames must be consecutive settled frames: start over.
+                baseline = null
+                frames = 0
+                return false
+            }
             val b = base ?: FloatArray(v.size).also { baseline = it }
             // Running mean of the first frames.
             for (i in v.indices) b[i] += (v[i] - b[i]) / (frames + 1)
             frames++
             lastScore = 0f
+            baselineJustTaken = frames == BASELINE_FRAMES
+            return false
+        }
+        if (!counting) {
+            // Motion wins over covered: a moving frame doesn't count toward the
+            // 2-frame rule and resets it (COVER-v1 "Steady baseline and motion").
+            streak.fill(0)
             return false
         }
         var worst = 0f

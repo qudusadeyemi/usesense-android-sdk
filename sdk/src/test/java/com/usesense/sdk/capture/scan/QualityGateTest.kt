@@ -333,4 +333,47 @@ class QualityGateTest {
         // The real face stays clear (it would trip against an unsettled baseline).
         assertFalse((1000L..1300L step 100L).map { covered(g, scanFrame(it, regions())) }.any { it })
     }
+
+    @Test fun `the watch is off until a steady baseline exists (a shutter start mid-motion)`() {
+        // A shutter start ignores the gate: the scan begins while the head moves.
+        val g = QualityGate().also { it.coverStats = CoveredCheckStats() }
+        val moving = (0L..600L step 100L).map {
+            g.evaluate(scanFrameAt(it, regions(if (it % 200 == 0L) 1.5f else 1f), face(jitter = if (it % 200 == 0L) 20f else -20f)),
+                identity, oval, scanning = true)
+        }
+        assertTrue(moving.none { GateHint.FACE_COVERED in it.failing })
+        assertTrue(g.coverStats!!.toJson().getJSONObject("change_watch").isNull("baseline_wait_ms"))
+        // The head settles: after 300 ms of stillness the next 3 frames are the baseline.
+        val settled = (700L..1400L step 100L).map { covered(g, scanFrame(it, regions())) }
+        assertTrue(settled.none { it })
+        val wait = g.coverStats!!.toJson().getJSONObject("change_watch").getLong("baseline_wait_ms")
+        assertTrue("baseline taken after the head settled: $wait ms", wait >= 900L)
+    }
+
+    @Test fun `a hand on a still head is still caught`() {
+        val g = gateWithStats()
+        for (t in listOf(1000L, 1100L, 1200L)) assertFalse(covered(g, scanFrame(t, regions())))
+        assertFalse(covered(g, scanFrame(1300, regions(1.5f))))
+        assertTrue(covered(g, scanFrame(1400, regions(1.5f))))
+    }
+
+    @Test fun `stillness failing shows hold still, and the drop isn't a cover drop`() {
+        val g = gateWithStats()
+        for (t in listOf(1000L, 1100L, 1200L)) covered(g, scanFrame(t, regions()))
+        val r = g.evaluate(scanFrameAt(1300, regions(1.5f), face(jitter = 20f)), identity, oval, scanning = true)
+        assertTrue(GateHint.HOLD_STILL in r.failing)
+        assertFalse(GateHint.FACE_COVERED in r.failing)
+        assertTrue(r.moving)
+        assertFalse(r.coverDrop)
+        // The segmenter says covered while moving: still not a cover drop.
+        val seg = g.evaluate(GateFrame(1400, 480, 640, 1, face(jitter = -20f), PoseAngles(0.0, 0.0, 0.0), goodRegion, 0.1f, 0.1f,
+            regions(), handOver, false, 1400), identity, oval, scanning = true)
+        assertTrue(GateHint.FACE_COVERED in seg.failing)
+        assertFalse(seg.coverDrop)
+        // Covered on a still face is (after the head has been still for the window).
+        for (t in 1500L..2100L step 100L) g.evaluate(scanFrame(t, regions()), identity, oval, scanning = true)
+        val still = g.evaluate(GateFrame(2200, 480, 640, 1, face(), PoseAngles(0.0, 0.0, 0.0), goodRegion, 0.1f, 0.1f,
+            regions(), handOver, false, 2200), identity, oval, scanning = true)
+        assertTrue(still.coverDrop)
+    }
 }

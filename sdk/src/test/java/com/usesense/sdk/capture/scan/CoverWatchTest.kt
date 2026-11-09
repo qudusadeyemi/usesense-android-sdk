@@ -105,6 +105,31 @@ class CoverWatchTest {
         repeat(3) { assertFalse(watch.covered(FaceRegions.measure(skin(), w, h, pts, 478))) }
         repeat(3) { assertFalse(watch.covered(FaceRegions.measure(skin(), w, h, pts, 478))) }
     }
+
+    @Test fun `baseline frames must be consecutive settled frames`() {
+        val watch = CoverWatch()
+        val pts = points()
+        fun f(img: IntArray, settled: Boolean) = watch.covered(FaceRegions.measure(img, w, h, pts, 478), baselineAllowed = settled)
+        // Two settled covered frames, then a moving one: the baseline restarts.
+        f(covered(skin()), true); f(covered(skin()), true); f(skin(), false)
+        assertFalse(watch.baselineJustTaken)
+        // Three settled clear frames in a row: that is the baseline.
+        f(skin(), true); f(skin(), true); f(skin(), true)
+        assertTrue(watch.baselineJustTaken)
+        // So the clear face stays clear (a covered baseline would trip here).
+        repeat(3) { assertFalse(f(skin(), true)) }
+    }
+
+    @Test fun `a moving frame resets the 2-frame count`() {
+        val watch = CoverWatch()
+        val pts = points()
+        fun f(img: IntArray, still: Boolean) = watch.covered(FaceRegions.measure(img, w, h, pts, 478), counting = still)
+        repeat(3) { f(skin(), true) }
+        assertFalse(f(covered(skin()), true))   // 1st failing frame
+        assertFalse(f(covered(skin()), false))  // moving: doesn't count, resets
+        assertFalse(f(covered(skin()), true))   // 1st again
+        assertTrue(f(covered(skin()), true))    // 2nd in a row while still
+    }
 }
 
 class FaceCoverTest {

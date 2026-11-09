@@ -36,6 +36,7 @@ internal class CoveredCheckStats {
     private var changeTrips = 0
     private var singleFrameFlags = 0
     private var rebaselines = 0
+    private var baselineWaitMs: Long? = null
     private var changeMaxLuma = 0f
     private var changeMaxChroma = 0f
     private var changeMaxEdge = 1f
@@ -72,6 +73,7 @@ internal class CoveredCheckStats {
         changeMaxLuma = 0f
         changeMaxChroma = 0f
         changeMaxEdge = 1f
+        baselineWaitMs = null
     }
 
     @Synchronized fun scanFrame(cover: FaceCover) {
@@ -100,6 +102,11 @@ internal class CoveredCheckStats {
         changeMaxLuma = max(changeMaxLuma, lumaDelta)
         changeMaxChroma = max(changeMaxChroma, chromaDelta)
         changeMaxEdge = max(changeMaxEdge, edgeFactor)
+    }
+
+    /** The scan's steady change-watch baseline was taken [ms] after the scan started (first per scan). */
+    @Synchronized fun changeWatchBaselineTaken(ms: Long) {
+        if (baselineWaitMs == null) baselineWaitMs = ms.coerceAtLeast(0L)
     }
 
     /** A new change-watch baseline after a fill-light change. */
@@ -151,6 +158,7 @@ internal class CoveredCheckStats {
             put("trips", changeTrips)
             put("single_frame_flags", singleFrameFlags)
             put("rebaselines", rebaselines)
+            put("baseline_wait_ms", baselineWaitMs ?: JSONObject.NULL)
             put("max", JSONObject().apply {
                 put("luma_ratio_delta", r3(changeMaxLuma))
                 put("chroma_delta", r3(changeMaxChroma))

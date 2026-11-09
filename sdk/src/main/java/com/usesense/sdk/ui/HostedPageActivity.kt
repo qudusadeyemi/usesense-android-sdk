@@ -1443,7 +1443,7 @@ class HostedPageActivity : AppCompatActivity() {
                         scanView.paused = false
                     }
                     ScanController.Event.DROPPED -> {
-                        if (fresh?.failing?.contains(GateHint.FACE_COVERED) == true) {
+                        if (fresh?.coverDrop == true) {
                             liveAnalyzer?.coverStats?.scanDropForCover()
                         }
                         // Paused too long: start the window over from align.
