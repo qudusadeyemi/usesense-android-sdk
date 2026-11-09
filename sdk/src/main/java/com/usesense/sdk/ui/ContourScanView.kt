@@ -297,7 +297,7 @@ internal class ContourScanView @JvmOverloads constructor(
         /** Distance from the centre, in bump heights, over which the bulge levels off. */
         const val BULGE_KNEE = 0.25f
         /** Safety net only: the bulge keeps lines in order by itself. */
-        const val MIN_GAP_DP = 1f
+        const val MIN_GAP_DP = 2.5f
         /** v3: one colour at an even alpha. */
         const val LINE_ALPHA = 0.90f
         const val LINE_WIDTH_DP = 1.3f

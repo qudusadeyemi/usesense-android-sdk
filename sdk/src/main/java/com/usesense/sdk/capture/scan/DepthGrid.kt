@@ -196,7 +196,7 @@ internal object ReliefBuilder {
     const val BLUR_SIGMA = 0.9f
     const val DOME_HEIGHT = 1.0f
     /** v3.1: blur of the feature detail field, in 130-column cells (v3 hid it at 4). */
-    const val DETAIL_SIGMA = 2.0f
+    const val DETAIL_SIGMA = 2.5f
     /**
      * v3 bump: half-axes in face widths / heights, centred a little below the
      * face's middle (as Revolut). With a bulge up to 1.25 the line map stays
