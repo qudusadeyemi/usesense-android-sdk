@@ -25,6 +25,12 @@ internal class Relief(
     val centreY: Float = 0f,
     /** Bump half-height in screen px (scales the bulge). */
     val bumpRy: Float = 0f,
+    /**
+     * v3.1: the face's own shape (nose 1, outline 0), lightly blurred. The
+     * lines lift by it directly, wherever it is, so the nose, brow and lips
+     * show as gentle bends on top of the bulge (as Revolut).
+     */
+    val detail: FloatArray? = null,
 )
 
 /**
@@ -38,9 +44,10 @@ internal class Relief(
  *     barycentric depth; overlaps keep the larger value.
  *  3. Eye and mouth openings filled by normalised convolution, then a soft
  *     edge into the head dome.
- *  4. v3: the smooth head dome carries the shape; the mesh is low-passed
- *     ([MESH_LOWPASS_SIGMA]) and only adds a hint of nose and brow:
- *     raw = 1.0 x dome + 0.25 x lowpass(mesh), blurred 0.9 cells.
+ *  4. v3.1: two fields. The bulge field is a smooth rounded bump the size of
+ *     the face; the detail field is the mesh, lightly blurred
+ *     ([DETAIL_SIGMA]). The view bulges lines by the first and lifts them by
+ *     the second, so the head shape stays smooth and the features still show.
  *
  * Pure and allocation-per-call, so it runs on the gate thread; the view only
  * eases toward the result ([DepthGrid]).
@@ -132,7 +139,7 @@ internal object ReliefBuilder {
         // the head (flat lines beyond, as in Revolut) and the edge has zero
         // slope, so nothing piles up into a rim. A low-passed hint of the face
         // sits on top.
-        val meshLow = gaussBlur(mesh, cols, rows, MESH_LOWPASS_SIGMA * k)
+        val detail = gaussBlur(mesh, cols, rows, DETAIL_SIGMA * k)
         val bcy = (ty + by) / 2f + BUMP_CY_SHIFT * faceH
         val bRx = max(1f, BUMP_RX * faceW)
         val bRy = max(1f, BUMP_RY * faceH)
@@ -144,10 +151,10 @@ internal object ReliefBuilder {
                 val r2 = nx * nx + ny * ny
                 val bump = if (r2 < 1f) (1f - r2) * (1f - r2) else 0f
                 val i = y * cols + x
-                raw[i] = bump * DOME_HEIGHT + meshLow[i] * MESH_HEIGHT
+                raw[i] = bump * DOME_HEIGHT
             }
         }
-        return Relief(cols, rows, gaussBlur(raw, cols, rows, max(0.3f, BLUR_SIGMA * k)), faceH, dcx, bcy, bRy)
+        return Relief(cols, rows, gaussBlur(raw, cols, rows, max(0.3f, BLUR_SIGMA * k)), faceH, dcx, bcy, bRy, detail)
     }
 
     /** Separable Gaussian, radius ceil(2.5 sigma), clamped at the edges. */
@@ -187,10 +194,9 @@ internal object ReliefBuilder {
     const val EDGE_LO = 0.15f
     const val EDGE_HI = 0.95f
     const val BLUR_SIGMA = 0.9f
-    // v3 prototype: the head shape carries the relief, fine mesh detail is a hint.
     const val DOME_HEIGHT = 1.0f
-    const val MESH_HEIGHT = 0.15f
-    const val MESH_LOWPASS_SIGMA = 4.0f
+    /** v3.1: blur of the feature detail field, in 130-column cells (v3 hid it at 4). */
+    const val DETAIL_SIGMA = 2.0f
     /**
      * v3 bump: half-axes in face widths / heights, centred a little below the
      * face's middle (as Revolut). With a bulge up to 1.25 the line map stays
@@ -218,6 +224,9 @@ internal class DepthGrid(val cols: Int = COLS) {
     /** Smoothed field, 0..~1 per cell (rows x cols). */
     var field = FloatArray(0); private set
     private var target = FloatArray(0)
+    /** Smoothed feature detail field (v3.1), eased like [field]. */
+    private var detail = FloatArray(0)
+    private var detailTarget = FloatArray(0)
 
     /** Forehead-to-chin distance in screen px of the latest face (sets the line lift). */
     var faceHeight = 0f; private set
@@ -240,6 +249,8 @@ internal class DepthGrid(val cols: Int = COLS) {
         rows = max(1, (cols * h / w).roundToInt())
         field = FloatArray(rows * cols)
         target = FloatArray(rows * cols)
+        detail = FloatArray(rows * cols)
+        detailTarget = FloatArray(rows * cols)
         hasFace = false
     }
 
@@ -247,11 +258,13 @@ internal class DepthGrid(val cols: Int = COLS) {
     fun apply(relief: Relief, nowMs: Long) {
         if (relief.cols != cols || relief.rows != rows) return
         System.arraycopy(relief.raw, 0, target, 0, target.size)
+        relief.detail?.takeIf { it.size == detailTarget.size }?.let { System.arraycopy(it, 0, detailTarget, 0, it.size) }
         faceHeight = relief.faceHeight
         targetCentreY = relief.centreY
         targetBumpRy = relief.bumpRy
         if (!hasFace) {
             System.arraycopy(target, 0, field, 0, target.size)
+            System.arraycopy(detailTarget, 0, detail, 0, detail.size)
             centreY = targetCentreY
             bumpRy = targetBumpRy
         }
@@ -267,7 +280,10 @@ internal class DepthGrid(val cols: Int = COLS) {
 
     /** The face dropped. The field is kept for [HOLD_MS], then fades out. */
     fun noFace(nowMs: Long) {
-        if (hasFace && nowMs - lastFaceAt > HOLD_MS) target.fill(0f)
+        if (hasFace && nowMs - lastFaceAt > HOLD_MS) {
+            target.fill(0f)
+            detailTarget.fill(0f)
+        }
     }
 
     /** One display frame of temporal smoothing. Returns true while still moving. */
@@ -281,6 +297,7 @@ internal class DepthGrid(val cols: Int = COLS) {
             val d = target[i] - field[i]
             if (d > 0.002f || d < -0.002f) moving = true
             field[i] += d * alpha
+            detail[i] += (detailTarget[i] - detail[i]) * alpha
         }
         return moving
     }
@@ -288,6 +305,7 @@ internal class DepthGrid(val cols: Int = COLS) {
     /** Converge on the current target at once (frozen-frame screenshots). */
     fun settle() {
         System.arraycopy(target, 0, field, 0, field.size)
+        System.arraycopy(detailTarget, 0, detail, 0, detail.size)
         centreY = targetCentreY
         bumpRy = targetBumpRy
     }
@@ -303,6 +321,20 @@ internal class DepthGrid(val cols: Int = COLS) {
         val fy = gy - y0
         return at(x0, y0) * (1 - fx) * (1 - fy) + at(x0 + 1, y0) * fx * (1 - fy) +
             at(x0, y0 + 1) * (1 - fx) * fy + at(x0 + 1, y0 + 1) * fx * fy
+    }
+
+    /** Bilinear sample of the feature detail field (v3.1). */
+    fun sampleDetail(x: Float, y: Float): Float {
+        if (rows == 0) return 0f
+        val gx = x / cell
+        val gy = y / cell
+        val x0 = floor(gx).toInt()
+        val y0 = floor(gy).toInt()
+        val fx = gx - x0
+        val fy = gy - y0
+        fun d(xx: Int, yy: Int) = if (xx < 0 || yy < 0 || xx >= cols || yy >= rows) 0f else detail[yy * cols + xx]
+        return d(x0, y0) * (1 - fx) * (1 - fy) + d(x0 + 1, y0) * fx * (1 - fy) +
+            d(x0, y0 + 1) * (1 - fx) * fy + d(x0 + 1, y0 + 1) * fx * fy
     }
 
     private fun at(x: Int, y: Int): Float =

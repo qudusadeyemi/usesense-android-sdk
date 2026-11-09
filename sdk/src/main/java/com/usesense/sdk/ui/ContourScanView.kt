@@ -250,7 +250,10 @@ internal class ContourScanView @JvmOverloads constructor(
                 // bump height: lines above the nose already arch almost fully.
                 val t = kotlin.math.tanh((y - yc) / knee)
                 val amp = if (t < 0f) BULGE_UP else BULGE_DOWN
-                curY[j] = maxOf(y + amp * ry * d * t, prevY[j] + minGap)
+                // v3.1: plus a direct lift by the face's own shape (not scaled by
+                // distance from the centre), so the nose, brow and lips show.
+                val lift = DETAIL_LIFT * ry * depthGrid.sampleDetail(x, y)
+                curY[j] = maxOf(y + amp * ry * d * t - lift, prevY[j] + minGap)
             }
             val swap = prevY; prevY = curY; curY = swap
             val appearAt = k.toFloat() / count * SWEEP_MS
@@ -289,6 +292,8 @@ internal class ContourScanView @JvmOverloads constructor(
          */
         const val BULGE_UP = 0.50f
         const val BULGE_DOWN = 0.32f
+        /** v3.1: lift by the face's own shape, in bump heights (nose ~1). */
+        const val DETAIL_LIFT = 0.12f
         /** Distance from the centre, in bump heights, over which the bulge levels off. */
         const val BULGE_KNEE = 0.25f
         /** Safety net only: the bulge keeps lines in order by itself. */

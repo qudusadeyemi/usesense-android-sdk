@@ -115,6 +115,19 @@ class DepthGridTest {
         assertEquals(0f, g.sample(20f, 760f), 1e-4f)
     }
 
+    @Test fun `the detail field follows the face, highest at the nose`() {
+        val g = DepthGrid()
+        g.resize(400f, 800f)
+        val (xs, ys, zs) = face()
+        g.update(xs, ys, zs, 478, nowMs = 0)
+        g.settle()
+        val nose = g.sampleDetail(200f, 300f)
+        val cheek = g.sampleDetail(280f, 300f)
+        assertTrue("nose $nose", nose > 0.6f)
+        assertTrue("cheek $cheek < nose", cheek < nose)
+        assertEquals(0f, g.sampleDetail(20f, 760f), 1e-4f)
+    }
+
     @Test fun `depth is measured from the outline`() {
         val (xs, ys, zs) = face()
         // Shifting every z by a constant changes nothing.

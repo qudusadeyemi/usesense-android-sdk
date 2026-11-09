@@ -2456,7 +2456,7 @@ class HostedPageActivity : AppCompatActivity() {
 
         /** Share of the upload sheet's bar that the upload itself fills. */
         private const val UPLOAD_BAR_FRAME_MS = 33L
-        private const val SCAN_BLUR_DELAY_MS = 800L
+        private const val SCAN_BLUR_DELAY_MS = 1500L
         private const val SCAN_BLUR_DP = 18f
         private const val DEBUG_UPLOAD_PROGRESS = 0.64f
 
