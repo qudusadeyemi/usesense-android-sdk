@@ -15,6 +15,7 @@ import com.usesense.sdk.capture.scan.DepthGrid
 import com.usesense.sdk.capture.scan.Relief
 import com.usesense.sdk.capture.scan.OvalSpec
 import com.usesense.sdk.capture.scan.ScanColors
+import kotlin.math.max
 import kotlin.math.min
 
 /**
@@ -231,6 +232,8 @@ internal class ContourScanView @JvmOverloads constructor(
         val fadeStart = bottom - h * LINES_FADE
         val count = (bottom / spacing).toInt()
         val yc = depthGrid.centreY
+        val ry = depthGrid.bumpRy
+        val knee = max(1f, BULGE_KNEE * ry)
         val nS = prevY.size
         val elapsed = if (frozen) Long.MAX_VALUE / 2 else SystemClock.uptimeMillis() - sweepStart
         var sweeping = false
@@ -243,7 +246,11 @@ internal class ContourScanView @JvmOverloads constructor(
             for (j in 0 until nS) {
                 val x = j * step
                 val d = depthGrid.sample(x, y)
-                curY[j] = maxOf(y + BULGE * d * (y - yc), prevY[j] + minGap)
+                // Away from the centre, levelling off within [BULGE_KNEE] of the
+                // bump height: lines above the nose already arch almost fully.
+                val t = kotlin.math.tanh((y - yc) / knee)
+                val amp = if (t < 0f) BULGE_UP else BULGE_DOWN
+                curY[j] = maxOf(y + amp * ry * d * t, prevY[j] + minGap)
             }
             val swap = prevY; prevY = curY; curY = swap
             val appearAt = k.toFloat() / count * SWEEP_MS
@@ -274,8 +281,16 @@ internal class ContourScanView @JvmOverloads constructor(
         const val SAMPLE_STEP_DP = 3f
         const val LINES_BOTTOM = 0.84f
         const val LINES_FADE = 0.14f
-        /** v3: how far lines move away from the face centre, per unit field. */
-        const val BULGE = 1.2f
+        /**
+         * v3: how far lines move away from the face centre, in bump heights per
+         * unit field: more upward over the forehead and head than downward
+         * under the chin, as Revolut. Below ~0.65 the map stays monotonic for
+         * the (1 - r^2)^2 bump.
+         */
+        const val BULGE_UP = 0.50f
+        const val BULGE_DOWN = 0.32f
+        /** Distance from the centre, in bump heights, over which the bulge levels off. */
+        const val BULGE_KNEE = 0.25f
         /** Safety net only: the bulge keeps lines in order by itself. */
         const val MIN_GAP_DP = 1f
         /** v3: one colour at an even alpha. */

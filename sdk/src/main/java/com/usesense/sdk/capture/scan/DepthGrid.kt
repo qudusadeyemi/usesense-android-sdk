@@ -23,6 +23,8 @@ internal class Relief(
     val faceHeight: Float,
     val centreX: Float = 0f,
     val centreY: Float = 0f,
+    /** Bump half-height in screen px (scales the bulge). */
+    val bumpRy: Float = 0f,
 )
 
 /**
@@ -145,7 +147,7 @@ internal object ReliefBuilder {
                 raw[i] = bump * DOME_HEIGHT + meshLow[i] * MESH_HEIGHT
             }
         }
-        return Relief(cols, rows, gaussBlur(raw, cols, rows, max(0.3f, BLUR_SIGMA * k)), faceH, dcx, bcy)
+        return Relief(cols, rows, gaussBlur(raw, cols, rows, max(0.3f, BLUR_SIGMA * k)), faceH, dcx, bcy, bRy)
     }
 
     /** Separable Gaussian, radius ceil(2.5 sigma), clamped at the edges. */
@@ -222,6 +224,9 @@ internal class DepthGrid(val cols: Int = COLS) {
     /** Face centre in screen px, eased like the field. */
     var centreY = 0f; private set
     private var targetCentreY = 0f
+    /** Bump half-height in screen px, eased like the field. */
+    var bumpRy = 0f; private set
+    private var targetBumpRy = 0f
     var hasFace = false; private set
     private var lastFaceAt = 0L
 
@@ -244,9 +249,11 @@ internal class DepthGrid(val cols: Int = COLS) {
         System.arraycopy(relief.raw, 0, target, 0, target.size)
         faceHeight = relief.faceHeight
         targetCentreY = relief.centreY
+        targetBumpRy = relief.bumpRy
         if (!hasFace) {
             System.arraycopy(target, 0, field, 0, target.size)
             centreY = targetCentreY
+            bumpRy = targetBumpRy
         }
         hasFace = true
         lastFaceAt = nowMs
@@ -269,6 +276,7 @@ internal class DepthGrid(val cols: Int = COLS) {
         val dc = targetCentreY - centreY
         if (dc > 0.5f || dc < -0.5f) moving = true
         centreY += dc * alpha
+        bumpRy += (targetBumpRy - bumpRy) * alpha
         for (i in field.indices) {
             val d = target[i] - field[i]
             if (d > 0.002f || d < -0.002f) moving = true
@@ -281,6 +289,7 @@ internal class DepthGrid(val cols: Int = COLS) {
     fun settle() {
         System.arraycopy(target, 0, field, 0, field.size)
         centreY = targetCentreY
+        bumpRy = targetBumpRy
     }
 
     /** Bilinear sample at screen px (cell i at i x cell, as the reference). */
