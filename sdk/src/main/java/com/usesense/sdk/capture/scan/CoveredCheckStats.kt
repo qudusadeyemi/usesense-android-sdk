@@ -112,9 +112,10 @@ internal class CoveredCheckStats {
         put("model_load_ms", modelLoadMs ?: JSONObject.NULL)
         put("model_error", modelError ?: JSONObject.NULL)
         put("limits", JSONObject().apply {
-            put("body_skin", FaceCover.BODY_SKIN_MAX.toDouble())
-            put("other", FaceCover.OTHER_MAX.toDouble())
-            put("shrink", FaceCover.INNER.toDouble())
+            // Rounded: Float -> Double would write 0.11999999731779099.
+            put("body_skin", r3(FaceCover.BODY_SKIN_MAX))
+            put("other", r3(FaceCover.OTHER_MAX))
+            put("shrink", r3(FaceCover.INNER))
         })
         put("runs", runMs.size)
         val sorted = runMs.sorted()

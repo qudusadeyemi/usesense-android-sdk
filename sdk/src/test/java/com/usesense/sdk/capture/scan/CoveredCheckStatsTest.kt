@@ -62,6 +62,8 @@ class CoveredCheckStatsTest {
         assertEquals(0.12, j.getJSONObject("limits").getDouble("body_skin"), 1e-6)
         assertEquals(0.25, j.getJSONObject("limits").getDouble("other"), 1e-6)
         assertEquals(0.85, j.getJSONObject("limits").getDouble("shrink"), 1e-6)
+        // Written exactly, not as 0.11999999731779099.
+        assertTrue(j.getJSONObject("limits").toString().contains("\"body_skin\":0.12,"))
         assertEquals(3, j.getInt("runs"))
         assertEquals(930, j.getInt("run_ms_p50"))
         assertEquals(1210, j.getInt("run_ms_max"))
