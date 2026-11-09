@@ -229,4 +229,76 @@ class QualityGateTest {
         // 130 / 361 = 0.36 still fails while scanning.
         assertTrue(GateHint.MOVE_BACK in gate.evaluate(frame(700, pts = face(eyeDist = 130f)), identity, oval, scanning = true).failing)
     }
+
+    // ── Fill light and the change watch (COVER-v1) ──
+
+    private fun regions(lumaChin: Float = 1f) = FaceRegions(FloatArray(FaceRegions.COUNT * FaceRegions.STRIDE) { k ->
+        when (k % FaceRegions.STRIDE) {
+            0 -> if (k / FaceRegions.STRIDE == 5) lumaChin else 1f
+            1 -> 0.4f
+            2 -> 0.25f
+            else -> 10f
+        }
+    })
+
+    private val clear = FaceCover(bodySkin = 0f, other = 0f, faceSkin = 1f)
+    private val handOver = FaceCover(bodySkin = 0.5f, other = 0f, faceSkin = 0.5f)
+
+    private fun scanFrame(t: Long, r: FaceRegions, cover: FaceCover? = clear) =
+        GateFrame(t, 480, 640, 1, face(), PoseAngles(0.0, 0.0, 0.0), goodRegion, 0.1f, 0.1f, r, cover, false, t)
+
+    private fun gateWithStats() = QualityGate().also { it.coverStats = CoveredCheckStats() }
+
+    private fun covered(g: QualityGate, f: GateFrame) =
+        GateHint.FACE_COVERED in g.evaluate(f, identity, oval, scanning = true).failing
+
+    @Test fun `the fill light is frozen while a scan runs`() {
+        val latch = FillLightLatch()
+        assertTrue(latch.mayToggle())
+        latch.scanStarted()
+        assertFalse(latch.mayToggle())
+        latch.scanEnded()
+        assertTrue(latch.mayToggle())
+    }
+
+    @Test fun `a light change re-baselines after 500 ms on a clear face`() {
+        val g = gateWithStats()
+        for (t in listOf(1000L, 1100L, 1200L)) assertFalse(covered(g, scanFrame(t, regions())))
+        g.onLightChanged(1300)
+        // The light lit the chin region unevenly: ignored while exposure settles.
+        assertFalse(covered(g, scanFrame(1350, regions(1.5f))))
+        assertFalse(covered(g, scanFrame(1450, regions(1.5f))))
+        // After 500 ms, clear: a new baseline is taken from the lit face.
+        assertFalse(covered(g, scanFrame(1800, regions(1.5f))))
+        for (t in listOf(1900L, 2000L, 2100L, 2200L)) assertFalse(covered(g, scanFrame(t, regions(1.5f))))
+        assertEquals(1, g.coverStats!!.toJson().getJSONObject("change_watch").getInt("rebaselines"))
+    }
+
+    @Test fun `a light change while covered waits for a clear result`() {
+        val g = gateWithStats()
+        for (t in listOf(1000L, 1100L, 1200L)) covered(g, scanFrame(t, regions()))
+        g.onLightChanged(1300)
+        val waiting = g.evaluate(scanFrame(1800, regions(1.5f), handOver), identity, oval, scanning = true)
+        assertTrue(GateHint.HOLD_STILL in waiting.failing)
+        assertEquals(0, g.coverStats!!.toJson().getJSONObject("change_watch").getInt("rebaselines"))
+        g.evaluate(scanFrame(1900, regions(1.5f), clear), identity, oval, scanning = true)
+        assertEquals(1, g.coverStats!!.toJson().getJSONObject("change_watch").getInt("rebaselines"))
+    }
+
+    @Test fun `a brightness jump with no light change is not re-baselined`() {
+        val g = gateWithStats()
+        for (t in listOf(1000L, 1100L, 1200L)) covered(g, scanFrame(t, regions()))
+        assertFalse(covered(g, scanFrame(1300, regions(1.5f))))
+        assertTrue(covered(g, scanFrame(1400, regions(1.5f))))
+        assertEquals(0, g.coverStats!!.toJson().getJSONObject("change_watch").getInt("rebaselines"))
+    }
+
+    @Test fun `a light change long before the scan doesn't touch it`() {
+        val g = gateWithStats()
+        g.onLightChanged(100)
+        for (t in listOf(1000L, 1100L, 1200L)) covered(g, scanFrame(t, regions()))
+        assertFalse(covered(g, scanFrame(1300, regions(1.5f))))
+        assertTrue(covered(g, scanFrame(1400, regions(1.5f))))
+        assertEquals(0, g.coverStats!!.toJson().getJSONObject("change_watch").getInt("rebaselines"))
+    }
 }

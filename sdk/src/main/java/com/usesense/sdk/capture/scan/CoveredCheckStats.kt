@@ -35,6 +35,7 @@ internal class CoveredCheckStats {
     private var scanDrops = 0
     private var changeTrips = 0
     private var singleFrameFlags = 0
+    private var rebaselines = 0
     private var changeMaxLuma = 0f
     private var changeMaxChroma = 0f
     private var changeMaxEdge = 1f
@@ -101,6 +102,11 @@ internal class CoveredCheckStats {
         changeMaxEdge = max(changeMaxEdge, edgeFactor)
     }
 
+    /** A new change-watch baseline after a fill-light change. */
+    @Synchronized fun changeWatchRebaseline() {
+        rebaselines++
+    }
+
     /** One-frame exceedances the 2-frame rule ignored. */
     @Synchronized fun changeWatchSingleFrameFlags(n: Int) {
         singleFrameFlags += n
@@ -144,6 +150,7 @@ internal class CoveredCheckStats {
         put("change_watch", JSONObject().apply {
             put("trips", changeTrips)
             put("single_frame_flags", singleFrameFlags)
+            put("rebaselines", rebaselines)
             put("max", JSONObject().apply {
                 put("luma_ratio_delta", r3(changeMaxLuma))
                 put("chroma_delta", r3(changeMaxChroma))

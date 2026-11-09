@@ -134,6 +134,22 @@ internal class QualityGate(
     private var wasScanning = false
     private var changeTripped = false
 
+    // Fill light vs the change watch (COVER-v1 "Fill light and the change watch").
+    private var lightChangedAt = Long.MIN_VALUE
+    private var handledLightAt = Long.MIN_VALUE
+    private var scanStartedAt = 0L
+
+    /**
+     * The fill light was switched at [atMs] (frame clock). If that falls in a
+     * running scan (or within [LIGHT_SETTLE_MS] of its start, inside the
+     * baseline), the change watch is ignored for [LIGHT_SETTLE_MS] and then
+     * re-baselined, only while the segmenter says the face is clear.
+     * Never re-baselined on a brightness change alone: a hand moves it too.
+     */
+    fun onLightChanged(atMs: Long) {
+        lightChangedAt = atMs
+    }
+
     /** Receives the change watch's numbers for the upload (metadata.covered_check). */
     var coverStats: CoveredCheckStats? = null
 
@@ -163,6 +179,7 @@ internal class QualityGate(
         if (scanning && !wasScanning) {
             coverWatch.reset()
             changeTripped = false
+            scanStartedAt = frame.timestampMs
         }
         wasScanning = scanning
         val pts = frame.points
@@ -185,8 +202,28 @@ internal class QualityGate(
         // stage), or, during the scan, a face region changed sharply since it
         // started.
         val segCovered = frame.cover?.covered == true
-        val changed = scanning && coverWatch.covered(frame.regions)
-        if (scanning && coverWatch.compared) {
+        // A fill-light change in this scan: hold the change watch off while the
+        // exposure settles, then re-baseline it, but only on a clear face.
+        var watchOff = false
+        if (scanning && lightChangedAt != handledLightAt && lightChangedAt >= scanStartedAt - LIGHT_SETTLE_MS) {
+            watchOff = true
+            if (frame.timestampMs >= lightChangedAt + LIGHT_SETTLE_MS) {
+                val segmenterOn = frame.cover != null || frame.coverPending
+                val clear = !segmenterOn || (frame.cover != null && !frame.cover.covered)
+                if (clear) {
+                    coverWatch.reset()
+                    changeTripped = false
+                    handledLightAt = lightChangedAt
+                    coverStats?.changeWatchRebaseline()
+                    watchOff = false
+                } else {
+                    // Covered or no result yet: wait, with the scan paused.
+                    failing += GateHint.HOLD_STILL
+                }
+            }
+        }
+        val changed = scanning && !watchOff && coverWatch.covered(frame.regions)
+        if (scanning && !watchOff && coverWatch.compared) {
             coverStats?.changeWatchFrame(coverWatch.lastLumaDelta, coverWatch.lastChromaDelta, coverWatch.lastEdgeFactor)
             if (coverWatch.lastSingleFrameFlags > 0) coverStats?.changeWatchSingleFrameFlags(coverWatch.lastSingleFrameFlags)
             if (changed && !changeTripped) {
@@ -381,6 +418,8 @@ internal class QualityGate(
         const val OVAL_WIDTH_OF_SCREEN = 0.72f
         const val DISTANCE_MIN = 0.17f
         const val DISTANCE_MAX = 0.32f
+        /** How long the change watch is held off after a fill-light change (exposure settles). */
+        const val LIGHT_SETTLE_MS = 500L
         /** Extra room each side of the distance band once the scan runs (hysteresis). */
         const val DISTANCE_HOLD_MARGIN = 0.02f
         const val MAX_YAW = 15.0

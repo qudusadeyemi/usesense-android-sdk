@@ -50,7 +50,7 @@ class CoveredCheckStatsTest {
         assertEquals(setOf("body_skin", "other"), keys(j.getJSONObject("scan_max")))
         assertEquals(split + setOf("waited_ms", "outcome"), keys(j.getJSONObject("final")))
         val cw = j.getJSONObject("change_watch")
-        assertEquals(setOf("trips", "single_frame_flags", "max", "trip_regions"), keys(cw))
+        assertEquals(setOf("trips", "single_frame_flags", "rebaselines", "max", "trip_regions"), keys(cw))
         assertEquals(setOf("luma_ratio_delta", "chroma_delta", "edge_factor"), keys(cw.getJSONObject("max")))
     }
 

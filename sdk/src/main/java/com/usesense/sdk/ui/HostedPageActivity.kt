@@ -48,6 +48,7 @@ import com.usesense.sdk.api.models.*
 import com.usesense.sdk.capture.FrameCaptureManager
 import com.usesense.sdk.capture.ImageQualityAnalyzer
 import com.usesense.sdk.capture.scan.FaceRegions
+import com.usesense.sdk.capture.scan.FillLightLatch
 import com.usesense.sdk.capture.scan.GateFrame
 import com.usesense.sdk.capture.scan.GateHint
 import com.usesense.sdk.capture.scan.GateResult
@@ -1223,6 +1224,8 @@ class HostedPageActivity : AppCompatActivity() {
 
     /** The oval guide: hints until every check passes, then the scan starts by itself. */
     private fun enterAlign(sess: UseSenseSession) {
+        // Back to align (first time, or a dropped scan): the scan is over.
+        fillLightLatch.scanEnded()
         // The covered-face numbers ride in metadata.covered_check (COVER-v1 section 3).
         sess.coveredCheck = { liveAnalyzer?.takeIf { it.coverCheckOn || it.coverStatsTouched }?.coverStats?.toJson() }
         finalCoverSince = 0L
@@ -1262,6 +1265,8 @@ class HostedPageActivity : AppCompatActivity() {
      */
     /** When the scan completed and is waiting for its final covered-face check (0 = not waiting). */
     private var finalCoverSince = 0L
+    /** Freezes the fill light while a scan runs. */
+    private val fillLightLatch = FillLightLatch()
     /** Last align tick, for the time "Keep your face uncovered" was shown. */
     private var lastAlignTickAt = 0L
     @Volatile private var reliefLogAt = 0L
@@ -1497,6 +1502,7 @@ class HostedPageActivity : AppCompatActivity() {
         val challengeFlow = challengePresenter != null || sess.policy?.requiresStepup == true
         if (challengeFlow) {
             scanStage = ScanStage.CHALLENGE
+            fillLightLatch.scanStarted()
             stopScanLoop()
             faceGuideOverlay.visibility = View.GONE
             captureTopBar.visibility = View.GONE
@@ -1515,6 +1521,7 @@ class HostedPageActivity : AppCompatActivity() {
         }
 
         scanStage = ScanStage.PASSIVE
+        fillLightLatch.scanStarted()
         liveAnalyzer?.let { a ->
             val (cover, age) = a.latestCover(now)
             a.coverStats.scanStarted(cover, age)
@@ -1675,7 +1682,10 @@ class HostedPageActivity : AppCompatActivity() {
     /** Too dark: the screen becomes the fill light (full brightness, warm white surround). */
     private fun turnOnFillLight() {
         if (fillLightSince != null) return
+        // Frozen during a scan (COVER-v1): decided before it starts.
+        if (!fillLightLatch.mayToggle()) return
         fillLightSince = SystemClock.elapsedRealtime()
+        qualityGate.onLightChanged(fillLightSince!!)
         val lp = window.attributes
         savedBrightness = lp.screenBrightness
         lp.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_FULL
@@ -1684,8 +1694,11 @@ class HostedPageActivity : AppCompatActivity() {
     }
 
     private fun restoreFillLight() {
+        // Only called as a scan ends (finish, drop, cancel), so the scan is over.
+        fillLightLatch.scanEnded()
         if (fillLightSince == null) return
         fillLightSince = null
+        qualityGate.onLightChanged(SystemClock.elapsedRealtime())
         val lp = window.attributes
         lp.screenBrightness = savedBrightness ?: WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
         window.attributes = lp
