@@ -104,9 +104,10 @@ internal data class FaceCover(
  * Works from a single frame, so it also catches a face that was covered
  * before the scan started (CoverWatch only sees changes during the scan).
  *
- * Prototype: the 16 MB model is not bundled; it is loaded from the asset
- * [MODEL] if present, else from the app's external files dir. Without it the
- * check is off and capture works as before.
+ * The 16 MB model ships in the SDK's assets ([MODEL], SegmenterModelInfo).
+ * Debug and repacked builds may drop it; then it is loaded from the app's
+ * external files dir if present, and without it the check is off and capture
+ * works as before.
  */
 internal class FaceCoverSegmenter(private val context: Context) {
     private var segmenter: ImageSegmenter? = null
@@ -218,6 +219,6 @@ internal class FaceCoverSegmenter(private val context: Context) {
 
     companion object {
         private const val TAG = "UseSenseGate"
-        const val MODEL = "selfie_multiclass_256x256.tflite"
+        const val MODEL = com.usesense.sdk.liveness.SegmenterModelInfo.ASSET_FILENAME
     }
 }

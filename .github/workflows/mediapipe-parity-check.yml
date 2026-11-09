@@ -12,12 +12,16 @@ on:
     paths:
       - 'sdk/src/main/assets/face_landmarker.task'
       - 'sdk/src/main/java/com/usesense/sdk/liveness/MediaPipeModelInfo.kt'
+      - 'sdk/src/main/assets/selfie_multiclass_256x256.tflite'
+      - 'sdk/src/main/java/com/usesense/sdk/liveness/SegmenterModelInfo.kt'
       - '.github/workflows/mediapipe-parity-check.yml'
   push:
     branches: [main, master]
     paths:
       - 'sdk/src/main/assets/face_landmarker.task'
       - 'sdk/src/main/java/com/usesense/sdk/liveness/MediaPipeModelInfo.kt'
+      - 'sdk/src/main/assets/selfie_multiclass_256x256.tflite'
+      - 'sdk/src/main/java/com/usesense/sdk/liveness/SegmenterModelInfo.kt'
       - '.github/workflows/mediapipe-parity-check.yml'
 
 concurrency:
@@ -67,3 +71,18 @@ jobs:
           fi
 
           echo "Parity check passed."
+
+      - name: Check the segmentation model (covered-face check)
+        run: |
+          set -euo pipefail
+          ASSET=sdk/src/main/assets/selfie_multiclass_256x256.tflite
+          CONST=sdk/src/main/java/com/usesense/sdk/liveness/SegmenterModelInfo.kt
+          declared=$(grep -oE 'SHA256: String = "[a-f0-9]{64}"' "$CONST" | grep -oE '[a-f0-9]{64}')
+          actual=$(sha256sum "$ASSET" | awk '{print $1}')
+          echo "Declared: $declared"
+          echo "Actual:   $actual"
+          if [ "$declared" != "$actual" ]; then
+            echo "::error::Bundled segmentation model ($actual) does not match SegmenterModelInfo.SHA256 ($declared)"
+            exit 1
+          fi
+          echo "Segmentation model parity passed."
