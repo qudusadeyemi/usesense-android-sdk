@@ -43,6 +43,8 @@ class MetadataBuilder {
         verificationPackageSkipReason: String? = null,
         faceMeshInitResult: String? = null,
         faceMeshInitError: String? = null,
+        /** Covered-face check numbers (COVER-v1 section 3); null when the check never ran. */
+        coveredCheck: JSONObject? = null,
     ): ByteArray {
         val metadata = JSONObject()
 
@@ -55,6 +57,7 @@ class MetadataBuilder {
         // backend created the session, the upload is the only place the device
         // can say it can run a server step-up round.
         metadata.put("client_capabilities", org.json.JSONArray(com.usesense.sdk.finalization.StepUpCapability.ALL))
+        coveredCheck?.let { metadata.put("covered_check", it) }
 
         // Capture config
         val captureConfigJson = JSONObject().apply {

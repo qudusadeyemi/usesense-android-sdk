@@ -34,7 +34,15 @@ internal class LiveFaceAnalyzer(
     private val executor = Executors.newSingleThreadExecutor { r -> Thread(r, "usesense-gate") }
     private val busy = AtomicBoolean(false)
     private val qualityAnalyzer = ImageQualityAnalyzer()
-    private val coverSegmenter = FaceCoverSegmenter(context)
+    /** The covered-face check's numbers for the upload (metadata.covered_check). */
+    val coverStats = CoveredCheckStats()
+    private val coverSegmenter = FaceCoverSegmenter(context, coverStats)
+
+    /** The latest segmentation result and its age at [nowMs], or nulls. */
+    fun latestCover(nowMs: Long): Pair<FaceCover?, Long?> {
+        val c = coverSegmenter.latest ?: return null to null
+        return c to (nowMs - coverSegmenter.latestAt)
+    }
 
     @Volatile private var landmarker: FaceLandmarker? = null
     @Volatile private var released = false
@@ -42,6 +50,9 @@ internal class LiveFaceAnalyzer(
 
     /** The covered-face segmentation is running (its model is present). */
     val coverCheckOn: Boolean get() = coverSegmenter.available
+
+    /** The segmenter was at least tried (loaded or failed), so its numbers are worth sending. */
+    val coverStatsTouched: Boolean get() = coverStats.tried
 
     @Volatile var initState: InitState = InitState.IDLE
         private set

@@ -43,6 +43,9 @@ internal class UseSenseSession(
 ) {
     var onUploadProgress: ((Long, Long) -> Unit)? = null
 
+    /** The covered-face check's numbers for metadata.covered_check (set by the capture screen). */
+    var coveredCheck: (() -> org.json.JSONObject?)? = null
+
     private val apiClient = UseSenseApiClient(config).apply {
         // Surface real upload progress. The signals request is the only one
         // carrying megabytes, and on a slow uplink it runs for minutes; without
@@ -586,6 +589,8 @@ internal class UseSenseSession(
             null
         }
 
+        val coveredCheckJson = runCatching { coveredCheck?.invoke() }.getOrNull()
+        com.usesense.sdk.api.uploadTrace("covered_check ${coveredCheckJson ?: "absent"}")
         val metadataJson = metadataBuilder.build(
             sessionId = sid,
             source = "sdk",
@@ -613,6 +618,7 @@ internal class UseSenseSession(
             verificationPackageSkipReason = verificationPackageSkipReason,
             faceMeshInitResult = if (meshRequested) meshInitResult.value else null,
             faceMeshInitError = faceMeshManager.lastInitError ?: meshTimeoutError,
+            coveredCheck = coveredCheckJson,
         )
 
         return uploader.upload(

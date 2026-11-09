@@ -1211,6 +1211,7 @@ class HostedPageActivity : AppCompatActivity() {
             val relief = buildRelief(frame)
             runOnUiThread { if (!isFinishing && !isDestroyed) onGateFrame(frame, relief) }
         }.also { liveAnalyzer = it }
+        qualityGate.coverStats = analyzer.coverStats
         analyzer.initialize { ok -> if (!ok) runOnUiThread { gateUnavailable = true } }
     }
 
@@ -1221,6 +1222,8 @@ class HostedPageActivity : AppCompatActivity() {
 
     /** The oval guide: hints until every check passes, then the scan starts by itself. */
     private fun enterAlign(sess: UseSenseSession) {
+        // The covered-face numbers ride in metadata.covered_check (COVER-v1 section 3).
+        sess.coveredCheck = { liveAnalyzer?.takeIf { it.coverCheckOn || it.coverStatsTouched }?.coverStats?.toJson() }
         finalCoverSince = 0L
         handler.removeCallbacks(scanBlurOn)
         setScanBlur(false)
@@ -1258,6 +1261,8 @@ class HostedPageActivity : AppCompatActivity() {
      */
     /** When the scan completed and is waiting for its final covered-face check (0 = not waiting). */
     private var finalCoverSince = 0L
+    /** Last align tick, for the time "Keep your face uncovered" was shown. */
+    private var lastAlignTickAt = 0L
     @Volatile private var reliefLogAt = 0L
     private var reliefFrames = 0
     private var reliefMs = 0L
@@ -1310,10 +1315,18 @@ class HostedPageActivity : AppCompatActivity() {
         val pts = frame.points
         if (relief != null) scanView.updateRelief(relief) else if (pts == null) scanView.clearFace()
 
+        if (scanStage == ScanStage.PASSIVE && finalCoverSince == 0L) {
+            frame.cover?.let { liveAnalyzer?.coverStats?.scanFrame(it) }
+        }
+
         // The scan's final covered-face check: a result from after the scan.
         if (scanStage == ScanStage.PASSIVE && finalCoverSince > 0L && frame.coverAt >= finalCoverSince) {
             val covered = frame.cover?.covered == true
             Log.i(TAG, "Final cover check: covered=$covered hand=${frame.cover?.bodySkin}")
+            liveAnalyzer?.coverStats?.let { stats ->
+                stats.finalCheck(frame.cover, now - finalCoverSince, if (covered) "covered" else "clear")
+                if (covered) stats.scanDropForCover()
+            }
             finalCoverSince = 0L
             if (covered) {
                 sess.restartCaptureWindow()
@@ -1378,6 +1391,10 @@ class HostedPageActivity : AppCompatActivity() {
                 val failing = (fresh?.failing ?: listOf(GateHint.SHOW_FACE)).filter { it != GateHint.BRIGHTENING }
                 if (hintScheduler.update(now, failing)) announce(hintScheduler.current)
                 renderHint(hintScheduler.current)
+                if (hintScheduler.current == GateHint.FACE_COVERED && lastAlignTickAt > 0L) {
+                    liveAnalyzer?.coverStats?.alignCovered((now - lastAlignTickAt).coerceIn(0L, 250L))
+                }
+                lastAlignTickAt = now
                 // The stroke turns the warning colour while the instruction asks for an action.
                 scanView.tone = if (hintScheduler.current != null) ContourScanView.Tone.WARNING else ContourScanView.Tone.NEUTRAL
             }
@@ -1386,6 +1403,7 @@ class HostedPageActivity : AppCompatActivity() {
                     // Waiting for the final covered-face check; don't hang on it.
                     if (now - finalCoverSince > FINAL_COVER_WAIT_MS) {
                         Log.i(TAG, "Final cover check timed out; finishing")
+                        liveAnalyzer?.coverStats?.finalCheck(null, now - finalCoverSince, "timeout")
                         finalCoverSince = 0L
                         finishPassiveScan()
                     }
@@ -1415,6 +1433,9 @@ class HostedPageActivity : AppCompatActivity() {
                         scanView.paused = false
                     }
                     ScanController.Event.DROPPED -> {
+                        if (fresh?.failing?.contains(GateHint.FACE_COVERED) == true) {
+                            liveAnalyzer?.coverStats?.scanDropForCover()
+                        }
                         // Paused too long: start the window over from align.
                         sess.restartCaptureWindow()
                         watchdog.disarm()
@@ -1430,6 +1451,7 @@ class HostedPageActivity : AppCompatActivity() {
                             finalCoverSince = now
                             return
                         }
+                        liveAnalyzer?.coverStats?.finalCheck(null, null, "skipped")
                         finishPassiveScan()
                         return
                     }
@@ -1488,6 +1510,10 @@ class HostedPageActivity : AppCompatActivity() {
         }
 
         scanStage = ScanStage.PASSIVE
+        liveAnalyzer?.let { a ->
+            val (cover, age) = a.latestCover(now)
+            a.coverStats.scanStarted(cover, age)
+        }
         watchdog.arm(WatchdogPhase.CAPTURE)
         if (!sessionCaptureStarted) {
             sess.startCapture()

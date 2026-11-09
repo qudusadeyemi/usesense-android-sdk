@@ -132,6 +132,10 @@ internal class QualityGate(
     private var lastJitter = Float.NaN
     private val coverWatch = CoverWatch()
     private var wasScanning = false
+    private var changeTripped = false
+
+    /** Receives the change watch's numbers for the upload (metadata.covered_check). */
+    var coverStats: CoveredCheckStats? = null
 
     fun reset() {
         consecutiveFaceFrames = 0
@@ -156,7 +160,10 @@ internal class QualityGate(
         scanning: Boolean = false,
     ): GateResult {
         // A new scan takes a new baseline for the covered-face check.
-        if (scanning && !wasScanning) coverWatch.reset()
+        if (scanning && !wasScanning) {
+            coverWatch.reset()
+            changeTripped = false
+        }
         wasScanning = scanning
         val pts = frame.points
         val n = frame.landmarkCount
@@ -179,6 +186,13 @@ internal class QualityGate(
         // started.
         val segCovered = frame.cover?.covered == true
         val changed = scanning && coverWatch.covered(frame.regions)
+        if (scanning && coverWatch.compared) {
+            coverStats?.changeWatchFrame(coverWatch.lastLumaDelta, coverWatch.lastChromaDelta, coverWatch.lastEdgeFactor)
+            if (changed && !changeTripped) {
+                coverStats?.changeWatchTrip(FaceRegions.NAMES.getOrNull(coverWatch.lastRegion))
+            }
+            changeTripped = changed
+        }
         if (segCovered || changed) failing += GateHint.FACE_COVERED
 
         // No cover result yet for this face: hold (shown as "Hold still"), so a

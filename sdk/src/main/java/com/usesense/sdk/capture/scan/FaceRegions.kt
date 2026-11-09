@@ -25,7 +25,8 @@ internal class FaceRegions(val values: FloatArray) {
     companion object {
         /** Forehead, two cheeks, nose, mouth, chin (MediaPipe 478-point mesh). */
         val ANCHORS = intArrayOf(151, 50, 280, 5, 13, 199)
-        val NAMES = arrayOf("forehead", "cheekA", "cheekB", "nose", "mouth", "chin")
+        /** Names as in COVER-v1 section 3 (landmark 50 is the subject's right cheek, 280 the left). */
+        val NAMES = arrayOf("forehead", "cheek_r", "cheek_l", "nose", "mouth", "chin")
         const val COUNT = 6
         const val STRIDE = 4
         /** Patch half-size as a fraction of face width (cheek to cheek). */
@@ -97,16 +98,24 @@ internal class CoverWatch {
     /** The largest change seen on the last frame, for the debug log. */
     var lastScore = 0f; private set
     var lastRegion = -1; private set
+    /** Raw changes on the last frame after the baseline (max over regions), for the upload scores. */
+    var lastLumaDelta = 0f; private set
+    var lastChromaDelta = 0f; private set
+    var lastEdgeFactor = 1f; private set
+    /** The baseline is set and the last frame was compared against it. */
+    var compared = false; private set
 
     fun reset() {
         baseline = null
         frames = 0
         lastScore = 0f
         lastRegion = -1
+        compared = false
     }
 
     /** True when the face looks covered compared with the start of the scan. */
     fun covered(regions: FaceRegions?): Boolean {
+        compared = false
         if (regions == null) return false
         val v = regions.values
         val base = baseline
@@ -120,18 +129,24 @@ internal class CoverWatch {
         }
         var worst = 0f
         var worstRegion = -1
+        var maxLuma = 0f; var maxChroma = 0f; var maxEdge = 1f
         for (r in 0 until FaceRegions.COUNT) {
             val o = r * FaceRegions.STRIDE
-            val luma = abs(v[o] - base[o]) / LUMA_LIMIT
-            val chroma = max(abs(v[o + 1] - base[o + 1]), abs(v[o + 2] - base[o + 2])) / CHROMA_LIMIT
+            val lumaDelta = abs(v[o] - base[o])
+            val chromaDelta = max(abs(v[o + 1] - base[o + 1]), abs(v[o + 2] - base[o + 2]))
             val e0 = base[o + 3] + EDGE_FLOOR
             val e1 = v[o + 3] + EDGE_FLOOR
-            val edge = (max(e1 / e0, e0 / e1) - 1f) / (EDGE_RATIO_LIMIT - 1f)
-            val score = maxOf(luma, chroma, edge)
+            val edgeFactor = max(e1 / e0, e0 / e1)
+            maxLuma = max(maxLuma, lumaDelta); maxChroma = max(maxChroma, chromaDelta); maxEdge = max(maxEdge, edgeFactor)
+            val score = maxOf(lumaDelta / LUMA_LIMIT, chromaDelta / CHROMA_LIMIT, (edgeFactor - 1f) / (EDGE_RATIO_LIMIT - 1f))
             if (score > worst) { worst = score; worstRegion = r }
         }
         lastScore = worst
         lastRegion = worstRegion
+        lastLumaDelta = maxLuma
+        lastChromaDelta = maxChroma
+        lastEdgeFactor = maxEdge
+        compared = true
         return worst >= 1f
     }
 

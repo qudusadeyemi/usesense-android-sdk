@@ -1,0 +1,162 @@
+package com.usesense.sdk.capture.scan
+
+import com.usesense.sdk.liveness.SegmenterModelInfo
+import org.json.JSONArray
+import org.json.JSONObject
+import kotlin.math.max
+import kotlin.math.roundToInt
+
+/**
+ * The covered-face check's numbers for the signals upload, as
+ * `metadata.covered_check` (capture-test-kit COVER-v1.md section 3). Numbers
+ * only: no images, no landmarks. Sent so real-world score distributions can
+ * set the limits later; it changes no decision.
+ *
+ * Counters cover the whole capture; the per-scan fields (at_scan_start,
+ * scan_max, final, change_watch.max) describe the last scan attempt, the one
+ * uploaded. Written from the segmenter thread, the gate thread and the main
+ * thread, so every method is synchronized.
+ */
+internal class CoveredCheckStats {
+    private var modelLoadMs: Long? = null
+    private var modelError: String? = null
+    private var modelLoaded = false
+    private val runMs = ArrayList<Long>()
+
+    private var atScanStart: FaceCover? = null
+    private var atScanStartAgeMs: Long? = null
+    private var scanMaxBodySkin = 0f
+    private var scanMaxOther = 0f
+    private var finalCover: FaceCover? = null
+    private var finalWaitedMs: Long? = null
+    private var finalOutcome: String? = null
+
+    private var alignCoveredMs = 0L
+    private var scanDrops = 0
+    private var changeTrips = 0
+    private var changeMaxLuma = 0f
+    private var changeMaxChroma = 0f
+    private var changeMaxEdge = 1f
+    private val tripRegions = LinkedHashSet<String>()
+
+    /** The model load was attempted (loaded or failed). */
+    val tried: Boolean @Synchronized get() = modelLoadMs != null
+
+    @Synchronized fun modelLoaded(ms: Long) {
+        modelLoaded = true
+        modelLoadMs = ms
+        modelError = null
+    }
+
+    @Synchronized fun modelFailed(ms: Long, error: String) {
+        modelLoaded = false
+        modelLoadMs = ms
+        modelError = error.take(200)
+    }
+
+    @Synchronized fun run(ms: Long) {
+        runMs += ms
+    }
+
+    /** A scan started: the latest segmentation result and its age. Resets the per-scan fields. */
+    @Synchronized fun scanStarted(cover: FaceCover?, ageMs: Long?) {
+        atScanStart = cover
+        atScanStartAgeMs = if (cover != null) ageMs else null
+        scanMaxBodySkin = 0f
+        scanMaxOther = 0f
+        finalCover = null
+        finalWaitedMs = null
+        finalOutcome = null
+        changeMaxLuma = 0f
+        changeMaxChroma = 0f
+        changeMaxEdge = 1f
+    }
+
+    @Synchronized fun scanFrame(cover: FaceCover) {
+        scanMaxBodySkin = max(scanMaxBodySkin, cover.bodySkin)
+        scanMaxOther = max(scanMaxOther, cover.other)
+    }
+
+    /** The final check before finishing: clear | covered | timeout | skipped. */
+    @Synchronized fun finalCheck(cover: FaceCover?, waitedMs: Long?, outcome: String) {
+        finalCover = cover
+        finalWaitedMs = waitedMs
+        finalOutcome = outcome
+    }
+
+    @Synchronized fun alignCovered(ms: Long) {
+        if (ms > 0) alignCoveredMs += ms
+    }
+
+    /** A scan dropped back to align for cover (segmenter or final check). */
+    @Synchronized fun scanDropForCover() {
+        scanDrops++
+    }
+
+    /** One scan frame compared against the change-watch baseline. */
+    @Synchronized fun changeWatchFrame(lumaDelta: Float, chromaDelta: Float, edgeFactor: Float) {
+        changeMaxLuma = max(changeMaxLuma, lumaDelta)
+        changeMaxChroma = max(changeMaxChroma, chromaDelta)
+        changeMaxEdge = max(changeMaxEdge, edgeFactor)
+    }
+
+    /** The change watch started failing (it pauses the scan); [region] as in FaceRegions.NAMES. */
+    @Synchronized fun changeWatchTrip(region: String?) {
+        changeTrips++
+        region?.let { tripRegions += it }
+    }
+
+    @Synchronized fun toJson(): JSONObject = JSONObject().apply {
+        put("version", VERSION)
+        put("model_sha256_prefix", if (modelLoaded) SegmenterModelInfo.SHA256.take(8) else JSONObject.NULL)
+        put("model_load_ms", modelLoadMs ?: JSONObject.NULL)
+        put("model_error", modelError ?: JSONObject.NULL)
+        put("limits", JSONObject().apply {
+            put("body_skin", FaceCover.BODY_SKIN_MAX.toDouble())
+            put("other", FaceCover.OTHER_MAX.toDouble())
+            put("shrink", FaceCover.INNER.toDouble())
+        })
+        put("runs", runMs.size)
+        val sorted = runMs.sorted()
+        put("run_ms_p50", if (sorted.isEmpty()) JSONObject.NULL else sorted[sorted.size / 2])
+        put("run_ms_max", sorted.lastOrNull() ?: JSONObject.NULL)
+        put("at_scan_start", atScanStart?.let { split(it).put("age_ms", atScanStartAgeMs ?: JSONObject.NULL) } ?: JSONObject.NULL)
+        put("scan_max", JSONObject().apply {
+            put("body_skin", r3(scanMaxBodySkin))
+            put("other", r3(scanMaxOther))
+        })
+        put("final", if (finalOutcome == null) {
+            JSONObject.NULL
+        } else {
+            (finalCover?.let { split(it) } ?: JSONObject())
+                .put("waited_ms", finalWaitedMs ?: JSONObject.NULL)
+                .put("outcome", finalOutcome)
+        })
+        put("align_covered_ms", alignCoveredMs)
+        put("scan_drops", scanDrops)
+        put("change_watch", JSONObject().apply {
+            put("trips", changeTrips)
+            put("max", JSONObject().apply {
+                put("luma_ratio_delta", r3(changeMaxLuma))
+                put("chroma_delta", r3(changeMaxChroma))
+                put("edge_factor", r3(changeMaxEdge))
+            })
+            put("trip_regions", JSONArray(tripRegions.toList()))
+        })
+    }
+
+    private fun split(c: FaceCover) = JSONObject().apply {
+        put("bg", r3(c.background))
+        put("hair", r3(c.hair))
+        put("body_skin", r3(c.bodySkin))
+        put("face_skin", r3(c.faceSkin))
+        put("clothes", r3(c.clothes))
+        put("others", r3(c.others))
+    }
+
+    private fun r3(v: Float): Double = (v * 1000f).roundToInt() / 1000.0
+
+    companion object {
+        const val VERSION = "cover-v1"
+    }
+}

@@ -22,6 +22,13 @@ internal data class FaceCover(
     val bodySkin: Float,
     /** Share labelled background, clothes or other objects (a phone, paper). */
     val other: Float,
+    // The full six-class split (shares of the shrunk face area), for the
+    // covered_check scores sent with the upload (COVER-v1 section 3).
+    val background: Float = 0f,
+    val hair: Float = 0f,
+    val faceSkin: Float = 0f,
+    val clothes: Float = 0f,
+    val others: Float = 0f,
 ) {
     val covered: Boolean get() = bodySkin >= BODY_SKIN_MAX || other >= OTHER_MAX
 
@@ -62,7 +69,8 @@ internal data class FaceCover(
             }
             val sx = mw.toFloat() / imgW
             val sy = mh.toFloat() / imgH
-            var total = 0; var body = 0; var other = 0
+            val counts = IntArray(6)
+            var total = 0
             val step = maxOf(1f, (maxX - minX) / 40f)
             var y = minY
             while (y <= maxY) {
@@ -71,10 +79,8 @@ internal data class FaceCover(
                     if (inside(px, py, x, y)) {
                         val mx = (x * sx).toInt().coerceIn(0, mw - 1)
                         val my = (y * sy).toInt().coerceIn(0, mh - 1)
-                        when (mask(my * mw + mx)) {
-                            BODY_SKIN -> body++
-                            BACKGROUND, CLOTHES, OTHERS -> other++
-                        }
+                        val c = mask(my * mw + mx)
+                        if (c in 0..5) counts[c]++
                         total++
                     }
                     x += step
@@ -82,7 +88,16 @@ internal data class FaceCover(
                 y += step
             }
             if (total == 0) return null
-            return FaceCover(body.toFloat() / total, other.toFloat() / total)
+            fun share(c: Int) = counts[c].toFloat() / total
+            return FaceCover(
+                bodySkin = share(BODY_SKIN),
+                other = share(BACKGROUND) + share(CLOTHES) + share(OTHERS),
+                background = share(BACKGROUND),
+                hair = share(HAIR),
+                faceSkin = share(FACE_SKIN),
+                clothes = share(CLOTHES),
+                others = share(OTHERS),
+            )
         }
 
         private fun inside(px: FloatArray, py: FloatArray, x: Float, y: Float): Boolean {
@@ -109,7 +124,11 @@ internal data class FaceCover(
  * external files dir if present, and without it the check is off and capture
  * works as before.
  */
-internal class FaceCoverSegmenter(private val context: Context) {
+internal class FaceCoverSegmenter(
+    private val context: Context,
+    /** Model load and run times for the covered_check upload scores. */
+    private val stats: CoveredCheckStats? = null,
+) {
     private var segmenter: ImageSegmenter? = null
     @Volatile var available = false; private set
     /**
@@ -133,6 +152,7 @@ internal class FaceCoverSegmenter(private val context: Context) {
     /** Call on the gate thread. */
     fun initialize(): Boolean {
         if (segmenter != null) return true
+        val t0 = SystemClock.elapsedRealtime()
         return try {
             val base = BaseOptions.builder().apply {
                 val asset = runCatching { context.assets.open(MODEL).close(); true }.getOrDefault(false)
@@ -140,7 +160,10 @@ internal class FaceCoverSegmenter(private val context: Context) {
                     setModelAssetPath(MODEL)
                 } else {
                     val file = File(context.getExternalFilesDir(null), MODEL)
-                    if (!file.isFile) return false
+                    if (!file.isFile) {
+                        stats?.modelFailed(SystemClock.elapsedRealtime() - t0, "model not bundled")
+                        return false
+                    }
                     setModelAssetBuffer(map(file))
                 }
             }.build()
@@ -152,9 +175,11 @@ internal class FaceCoverSegmenter(private val context: Context) {
                 .build()
             segmenter = ImageSegmenter.createFromOptions(context, options)
             available = true
+            stats?.modelLoaded(SystemClock.elapsedRealtime() - t0)
             Log.i(TAG, "Face cover segmentation on ($MODEL)")
             true
         } catch (e: Throwable) {
+            stats?.modelFailed(SystemClock.elapsedRealtime() - t0, "${e.javaClass.simpleName}: ${e.message}")
             Log.w(TAG, "Face cover segmentation unavailable: ${e.javaClass.simpleName}: ${e.message}")
             false
         }
@@ -200,6 +225,7 @@ internal class FaceCoverSegmenter(private val context: Context) {
         val dt = SystemClock.elapsedRealtime() - t0
         runs++
         meanMs = if (runs == 1) dt.toDouble() else meanMs * 0.9 + dt * 0.1
+        stats?.run(dt)
         return cover
     }
 
