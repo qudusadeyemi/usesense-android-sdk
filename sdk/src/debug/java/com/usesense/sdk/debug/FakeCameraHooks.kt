@@ -17,7 +17,8 @@ import kotlin.concurrent.thread
  *   adb push usesense_fake_camera.json /sdcard/Android/data/<app id>/files/
  * with
  *   { "video": "face-portrait.mp4", "freezeAt": 4.0, "forceState": "scan", "forceProgress": 0.5, "forceHint": "CENTRE" }
- * All keys but "video" are optional. Delete the json to get the real camera back.
+ * All keys are optional: without "video" the real camera runs and only the forced
+ * state applies. Delete the json to get the normal flow back.
  */
 internal class FakeCameraHooks(context: Context) : DebugCaptureHooks, DebugCaptureHooks.Enablable {
     private val dir = context.getExternalFilesDir(null)
@@ -30,7 +31,9 @@ internal class FakeCameraHooks(context: Context) : DebugCaptureHooks, DebugCaptu
     private val freezeAtS: Double? = config?.takeIf { it.has("freezeAt") }?.optDouble("freezeAt")
     @Volatile private var running = false
 
-    override val enabled: Boolean get() = video != null
+    /** On with any config; with no "video" it only forces a state over the real camera. */
+    override val enabled: Boolean get() = config != null
+    override val usesFakeCamera: Boolean get() = video != null
     override val forceState: String? = config?.optString("forceState")?.takeIf { it.isNotBlank() }
     override val forceProgress: Float? = config?.takeIf { it.has("forceProgress") }?.optDouble("forceProgress")?.toFloat()
     override val forceHint: String? = config?.optString("forceHint")?.takeIf { it.isNotBlank() }

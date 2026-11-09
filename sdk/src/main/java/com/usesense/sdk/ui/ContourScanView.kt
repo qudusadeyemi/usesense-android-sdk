@@ -98,19 +98,16 @@ internal class ContourScanView @JvmOverloads constructor(
     }
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 1f * dp
+        strokeWidth = LINE_WIDTH_DP * dp
         strokeCap = Paint.Cap.ROUND
     }
     private val fillLightPaint = Paint()
 
-    /** Per-colour-bucket segment buffers for one line (x0, y0, x1, y1 ...), [T_BUCKETS] x [SHADE_BUCKETS]. */
-    private var buckets = Array(T_BUCKETS * SHADE_BUCKETS) { FloatArray(0) }
-    private val bucketLen = IntArray(T_BUCKETS * SHADE_BUCKETS)
-    /** Per-sample y of the line above (no crossing), this line's y, depth and light. */
+    /** Segment buffer for one line (x0, y0, x1, y1 ...). */
+    private var segments = FloatArray(0)
+    /** Per-sample y of the line above and of this line. */
     private var prevY = FloatArray(0)
     private var curY = FloatArray(0)
-    private var depS = FloatArray(0)
-    private var litS = FloatArray(0)
 
     /** View size for the gate thread, which builds the relief at this size. */
     @Volatile var reliefWidth = 0f; private set
@@ -155,9 +152,8 @@ internal class ContourScanView @JvmOverloads constructor(
         reliefWidth = w.toFloat()
         reliefHeight = h.toFloat()
         val samples = kotlin.math.ceil(w / (SAMPLE_STEP_DP * dp)).toInt() + 2
-        buckets = Array(T_BUCKETS * SHADE_BUCKETS) { FloatArray(samples * 4) }
+        segments = FloatArray(samples * 4)
         prevY = FloatArray(samples); curY = FloatArray(samples)
-        depS = FloatArray(samples); litS = FloatArray(samples)
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -219,10 +215,13 @@ internal class ContourScanView @JvmOverloads constructor(
     }
 
     /**
-     * Contour lines, edge to edge (RELIEF-v2.md, a port of `drawLines` in the
-     * reference). Lines are laid out top to bottom, each at least [MIN_GAP_DP]
-     * below the line above at every x, hidden ones included, so they never
-     * cross. Returns true while the sweep-in is still running.
+     * Contour lines, edge to edge. v3 prototype (Revolut-style bulge): each
+     * line moves away from the face centre in proportion to the field,
+     *   y' = y + [BULGE] x f(x, y) x (y - centreY),
+     * so lines arch up over the forehead and head and sag down over the mouth
+     * and chin, the way a rounded object bends a grid. The map is monotonic for
+     * this field, so lines keep their order; [MIN_GAP_DP] is only a safety net.
+     * One colour, even alpha, no shading. Returns true while the sweep runs.
      */
     private fun drawLines(canvas: Canvas, w: Float, h: Float): Boolean {
         val spacing = LINE_SPACING_DP * dp
@@ -231,13 +230,12 @@ internal class ContourScanView @JvmOverloads constructor(
         val bottom = h * LINES_BOTTOM
         val fadeStart = bottom - h * LINES_FADE
         val count = (bottom / spacing).toInt()
-        val amp = AMP_OF_FACE_H * depthGrid.faceHeight
-        val cell = depthGrid.cellSize
+        val yc = depthGrid.centreY
         val nS = prevY.size
         val elapsed = if (frozen) Long.MAX_VALUE / 2 else SystemClock.uptimeMillis() - sweepStart
         var sweeping = false
-        val flat = colors.contourStart
-        val peak = colors.contourEnd
+        val colour = colors.ring
+        val seg = segments
         prevY.fill(-1e9f)
 
         for (k in 0..count) {
@@ -245,45 +243,22 @@ internal class ContourScanView @JvmOverloads constructor(
             for (j in 0 until nS) {
                 val x = j * step
                 val d = depthGrid.sample(x, y)
-                curY[j] = maxOf(y - d * amp, prevY[j] + minGap)
-                depS[j] = d
-                val slope = (depthGrid.sample(x, y + cell) - depthGrid.sample(x, y - cell)) / 2f
-                litS[j] = (slope * LIGHT_GAIN).coerceIn(-1f, 1f)
+                curY[j] = maxOf(y + BULGE * d * (y - yc), prevY[j] + minGap)
             }
             val swap = prevY; prevY = curY; curY = swap
-            // prevY now holds this line.
             val appearAt = k.toFloat() / count * SWEEP_MS
             val a0 = ((elapsed - appearAt) / LINE_FADE_MS).coerceIn(0f, 1f)
             if (a0 < 1f) sweeping = true
             if (a0 <= 0f) continue
             val edgeFade = if (y > fadeStart) 1f - (y - fadeStart) / (bottom - fadeStart) else 1f
-            bucketLen.fill(0)
+            var len = 0
             for (j in 1 until nS) {
-                val t = min(1f, (depS[j] + depS[j - 1]) / 2f / PEAK_DEPTH)
-                val lit = (litS[j] + litS[j - 1]) / 2f
-                val tb = (t * (T_BUCKETS - 1) + 0.5f).toInt()
-                val sb = ((lit + 1f) / 2f * (SHADE_BUCKETS - 1) + 0.5f).toInt().coerceIn(0, SHADE_BUCKETS - 1)
-                val b = tb * SHADE_BUCKETS + sb
-                val arr = buckets[b]
-                val i = bucketLen[b]
-                if (i + 4 <= arr.size) {
-                    arr[i] = (j - 1) * step; arr[i + 1] = prevY[j - 1]; arr[i + 2] = j * step; arr[i + 3] = prevY[j]
-                    bucketLen[b] = i + 4
-                }
+                if (len + 4 > seg.size) break
+                seg[len] = (j - 1) * step; seg[len + 1] = prevY[j - 1]; seg[len + 2] = j * step; seg[len + 3] = prevY[j]
+                len += 4
             }
-            for (b in buckets.indices) {
-                if (bucketLen[b] == 0) continue
-                val t = (b / SHADE_BUCKETS) / (T_BUCKETS - 1f)
-                val lit = (b % SHADE_BUCKETS) / (SHADE_BUCKETS - 1f) * 2f - 1f
-                val shade = 1f + LIGHT * lit
-                val base = ColorUtils.blendARGB(flat, peak, t)
-                val r = min(255f, Color.red(base) * shade).toInt()
-                val g = min(255f, Color.green(base) * shade).toInt()
-                val bl = min(255f, Color.blue(base) * shade).toInt()
-                val alpha = min(1f, (FLAT_ALPHA + (PEAK_ALPHA - FLAT_ALPHA) * t) * shade) * a0 * edgeFade
-                linePaint.color = Color.argb((alpha * 255).toInt().coerceIn(0, 255), r, g, bl)
-                canvas.drawLines(buckets[b], 0, bucketLen[b], linePaint)
-            }
+            linePaint.color = ColorUtils.setAlphaComponent(colour, (LINE_ALPHA * a0 * edgeFade * 255).toInt().coerceIn(0, 255))
+            canvas.drawLines(seg, 0, len, linePaint)
         }
         return sweeping
     }
@@ -295,27 +270,21 @@ internal class ContourScanView @JvmOverloads constructor(
         const val OVAL_RX_OF_W = 0.36f
         const val OVAL_RY_OF_H = 0.235f
         const val RING_GAP_DP = 6f
-        const val LINE_SPACING_DP = 7f
+        const val LINE_SPACING_DP = 9f
         const val SAMPLE_STEP_DP = 3f
         const val LINES_BOTTOM = 0.84f
         const val LINES_FADE = 0.14f
-        /** Max lift as a fraction of face height (RELIEF-v2; v1 had 0.16). */
-        const val AMP_OF_FACE_H = 0.28f
-        /** A line never comes closer than this to the line above (no crossing). */
-        const val MIN_GAP_DP = 3f
-        /** Top-lit shading: brightness change, and the slope gain before clamping. */
-        const val LIGHT = 0.30f
-        const val LIGHT_GAIN = 12f
-        /** Field value at which a line reaches the peak colour. */
-        const val PEAK_DEPTH = 0.8f
-        const val FLAT_ALPHA = 0.50f
-        const val PEAK_ALPHA = 0.95f
+        /** v3: how far lines move away from the face centre, per unit field. */
+        const val BULGE = 1.2f
+        /** Safety net only: the bulge keeps lines in order by itself. */
+        const val MIN_GAP_DP = 1f
+        /** v3: one colour at an even alpha. */
+        const val LINE_ALPHA = 0.90f
+        const val LINE_WIDTH_DP = 1.3f
         const val SWEEP_MS = 520f
         const val LINE_FADE_MS = 140f
         /** Veil opacity: lights the face while the camera still shows through. */
         const val FILL_LIGHT_ALPHA = 0.38f
-        private const val T_BUCKETS = 8
-        private const val SHADE_BUCKETS = 7
 
         fun ovalFor(w: Float, h: Float): RectF {
             val cx = w * OVAL_CX

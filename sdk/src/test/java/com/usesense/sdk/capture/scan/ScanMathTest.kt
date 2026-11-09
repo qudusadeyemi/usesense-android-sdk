@@ -99,7 +99,7 @@ class DepthGridTest {
     @Test fun `face lifts the field, far from the head stays flat`() {
         val g = DepthGrid()
         g.resize(400f, 800f)
-        assertEquals(260, g.rows)
+        assertEquals(128, g.rows)
         val (xs, ys, zs) = face()
         g.update(xs, ys, zs, 478, nowMs = 0)
         g.settle()
@@ -108,8 +108,10 @@ class DepthGridTest {
         val cheek = g.sample(285f, 300f)
         assertTrue("centre $centre", centre > 0.8f)
         assertTrue("cheek $cheek < centre", cheek < centre)
-        // The head dome lifts the hair above the forehead too.
-        assertTrue("above forehead ${g.sample(200f, 150f)}", g.sample(200f, 150f) > 0.05f)
+        // The bump reaches a little past the forehead (y 170)...
+        assertTrue("near forehead ${g.sample(200f, 180f)}", g.sample(200f, 180f) > 0.05f)
+        // ...and stops at the sides of the head (flat lines beyond).
+        assertEquals(0f, g.sample(20f, 300f), 0.02f)
         assertEquals(0f, g.sample(20f, 760f), 1e-4f)
     }
 

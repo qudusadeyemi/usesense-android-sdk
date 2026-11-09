@@ -1183,6 +1183,7 @@ class HostedPageActivity : AppCompatActivity() {
     /** Feed the pipeline from the debug fake camera instead of CameraX. False when not in use. */
     private fun startFakeCamera(sess: UseSenseSession): Boolean {
         val hooks = debugHooks ?: return false
+        if (!hooks.usesFakeCamera) return false
         val preview = fakePreview ?: ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             scaleX = -1f // mirrored, as the front-camera preview
@@ -1220,6 +1221,8 @@ class HostedPageActivity : AppCompatActivity() {
 
     /** The oval guide: hints until every check passes, then the scan starts by itself. */
     private fun enterAlign(sess: UseSenseSession) {
+        handler.removeCallbacks(scanBlurOn)
+        setScanBlur(false)
         sess.setCapturePhase(CapturePhase.FACE_GUIDE)
         scanStage = ScanStage.ALIGN
         val now = SystemClock.elapsedRealtime()
@@ -1252,6 +1255,10 @@ class HostedPageActivity : AppCompatActivity() {
      * The contour relief for [frame] at the view's size (gate thread). Landmarks
      * are mapped to screen px as the preview shows them (mirrored aspect-fill).
      */
+    @Volatile private var reliefLogAt = 0L
+    private var reliefFrames = 0
+    private var reliefMs = 0L
+
     private fun buildRelief(frame: GateFrame): Relief? {
         val pts = frame.points ?: return null
         val w = scanView.reliefWidth
@@ -1265,7 +1272,19 @@ class HostedPageActivity : AppCompatActivity() {
             mapper.map(pts[i * 3], pts[i * 3 + 1], out)
             xs[i] = out[0]; ys[i] = out[1]; zs[i] = pts[i * 3 + 2]
         }
-        return runCatching { ReliefBuilder.build(xs, ys, zs, n, w, h) }.getOrNull()
+        val t0 = SystemClock.elapsedRealtime()
+        val relief = runCatching { ReliefBuilder.build(xs, ys, zs, n, w, h) }.getOrNull()
+        if (Log.isLoggable(GATE_TAG, Log.DEBUG)) {
+            reliefFrames++
+            reliefMs += SystemClock.elapsedRealtime() - t0
+            val now = SystemClock.elapsedRealtime()
+            if (now - reliefLogAt >= 2000) {
+                Log.d(GATE_TAG, "gate %.1f fps, relief %.1f ms".format(java.util.Locale.US,
+                    reliefFrames * 1000f / (now - reliefLogAt), reliefMs.toFloat() / reliefFrames.coerceAtLeast(1)))
+                reliefLogAt = now; reliefFrames = 0; reliefMs = 0
+            }
+        }
+        return relief
     }
 
     /** A gate frame from the live mesh (main thread), with its relief built on the gate thread. */
@@ -1456,6 +1475,10 @@ class HostedPageActivity : AppCompatActivity() {
         scanView.tone = ContourScanView.Tone.READY
         scanCopyShown = false
         renderScanCopy(controller)
+        // v3 prototype: as Revolut, the camera blurs shortly into the scan so the
+        // lines carry the shape on their own.
+        handler.removeCallbacks(scanBlurOn)
+        handler.postDelayed(scanBlurOn, SCAN_BLUR_DELAY_MS)
         if (debugHooks?.forceState == "upload") {
             // Test rig: the upload sheet over the blurred camera, no network.
             stopScanLoop()
@@ -1602,6 +1625,21 @@ class HostedPageActivity : AppCompatActivity() {
         window.attributes = lp
         savedBrightness = null
         scanView.fillLight = false
+    }
+
+    private val scanBlurOn = Runnable { if (scanStage == ScanStage.PASSIVE) setScanBlur(true) }
+
+    /** Blur the camera under the contour scan (Android 12+; older versions keep it sharp). */
+    private fun setScanBlur(on: Boolean) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        val effect = if (on) {
+            val r = SCAN_BLUR_DP * resources.displayMetrics.density
+            RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP)
+        } else {
+            null
+        }
+        cameraPreview.setRenderEffect(effect)
+        fakePreview?.setRenderEffect(effect)
     }
 
     /** The face blurs out behind the processing sheet (Android 12+; older versions keep the opaque sheet). */
@@ -2418,6 +2456,8 @@ class HostedPageActivity : AppCompatActivity() {
 
         /** Share of the upload sheet's bar that the upload itself fills. */
         private const val UPLOAD_BAR_FRAME_MS = 33L
+        private const val SCAN_BLUR_DELAY_MS = 800L
+        private const val SCAN_BLUR_DP = 18f
         private const val DEBUG_UPLOAD_PROGRESS = 0.64f
 
         /** Face mesh points (468 + 10 iris). */

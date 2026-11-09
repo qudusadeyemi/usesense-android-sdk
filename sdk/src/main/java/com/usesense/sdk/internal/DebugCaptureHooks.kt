@@ -26,6 +26,9 @@ internal interface DebugCaptureHooks {
     val frozen: Boolean
 
     /** Start delivering upright, unmirrored frames (on a background thread). */
+    /** False when the config only forces a state: the real camera stays on. */
+    val usesFakeCamera: Boolean get() = true
+
     fun start(onFrame: (Bitmap) -> Unit)
 
     fun stop()

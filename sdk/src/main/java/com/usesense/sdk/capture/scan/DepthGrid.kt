@@ -11,13 +11,24 @@ import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
-/** One frame's relief: the raw field (rows x cols, 0..~1) and the face height in screen px. */
-internal class Relief(val cols: Int, val rows: Int, val raw: FloatArray, val faceHeight: Float)
+/**
+ * One frame's relief: the raw field (rows x cols, 0..~1), the face height in
+ * screen px and the face centre (midpoint of forehead 10 and chin 152), which
+ * the lines bulge away from.
+ */
+internal class Relief(
+    val cols: Int,
+    val rows: Int,
+    val raw: FloatArray,
+    val faceHeight: Float,
+    val centreX: Float = 0f,
+    val centreY: Float = 0f,
+)
 
 /**
- * Contour relief v2 (capture-test-kit RELIEF-v2.md; a port of `updateField`
- * in reference/index.html). Display only: MediaPipe z is a prediction from one
- * flat image and proves nothing about depth.
+ * Contour relief v3 prototype (Revolut-style bulge; v2 in RELIEF-v2.md).
+ * Display only: MediaPipe z is a prediction from one flat image and proves
+ * nothing about depth.
  *
  *  1. Depth per landmark relative to the face outline: the FACE_OVAL ring is 0,
  *     the nearest point (the nose tip) about 1.
@@ -25,7 +36,9 @@ internal class Relief(val cols: Int, val rows: Int, val raw: FloatArray, val fac
  *     barycentric depth; overlaps keep the larger value.
  *  3. Eye and mouth openings filled by normalised convolution, then a soft
  *     edge into the head dome.
- *  4. raw = 0.50 x dome + 0.70 x mesh, blurred 0.9 cells.
+ *  4. v3: the smooth head dome carries the shape; the mesh is low-passed
+ *     ([MESH_LOWPASS_SIGMA]) and only adds a hint of nose and brow:
+ *     raw = 1.0 x dome + 0.25 x lowpass(mesh), blurred 0.9 cells.
  *
  * Pure and allocation-per-call, so it runs on the gate thread; the view only
  * eases toward the result ([DepthGrid]).
@@ -41,6 +54,8 @@ internal object ReliefBuilder {
         val rows = max(1, (cols * height / width).roundToInt())
         val n = rows * cols
         val cell = width / cols
+        // Blur sizes are specified in 130-column cells; keep them the same on screen.
+        val k = cols / 130f
 
         // 1. Depth relative to the outline.
         var zMin = Float.MAX_VALUE
@@ -102,33 +117,35 @@ internal object ReliefBuilder {
         // 3. Fill the openings, then a soft edge.
         val mc = FloatArray(n)
         for (i in 0 until n) mc[i] = mesh[i] * cover[i]
-        val num = gaussBlur(mc, cols, rows, FILL_SIGMA)
-        val den2 = gaussBlur(cover, cols, rows, FILL_SIGMA)
-        val soft = gaussBlur(cover, cols, rows, EDGE_SIGMA)
+        val num = gaussBlur(mc, cols, rows, FILL_SIGMA * k)
+        val den2 = gaussBlur(cover, cols, rows, FILL_SIGMA * k)
+        val soft = gaussBlur(cover, cols, rows, EDGE_SIGMA * k)
         for (i in 0 until n) {
             val filled = if (cover[i] != 0f) mesh[i] else if (den2[i] > 1e-3f) num[i] / den2[i] else 0f
             mesh[i] = filled * smoothstep(EDGE_LO, EDGE_HI, soft[i])
         }
 
-        // 4. Combine.
+        // 4. Combine: a rounded bump just wider than the face, (1 - r^2)^2 inside
+        // an ellipse: every line bows smoothly, the bend stops at the sides of
+        // the head (flat lines beyond, as in Revolut) and the edge has zero
+        // slope, so nothing piles up into a rim. A low-passed hint of the face
+        // sits on top.
+        val meshLow = gaussBlur(mesh, cols, rows, MESH_LOWPASS_SIGMA * k)
+        val bcy = (ty + by) / 2f + BUMP_CY_SHIFT * faceH
+        val bRx = max(1f, BUMP_RX * faceW)
+        val bRy = max(1f, BUMP_RY * faceH)
         val raw = FloatArray(n)
         for (y in 0 until rows) {
-            val sy = (y + 0.5f) * cell
-            val ny = (sy - dcy) / dry
+            val ny = ((y + 0.5f) * cell - bcy) / bRy
             for (x in 0 until cols) {
-                val sx = (x + 0.5f) * cell
-                val nx = (sx - dcx) / drx
+                val nx = ((x + 0.5f) * cell - dcx) / bRx
                 val r2 = nx * nx + ny * ny
-                val dome = if (r2 < 1f) {
-                    (1f - r2).toDouble().pow(0.75).toFloat() * smoothstep(1f, 1f - DOME_FEATHER, sqrt(r2))
-                } else {
-                    0f
-                }
+                val bump = if (r2 < 1f) (1f - r2) * (1f - r2) else 0f
                 val i = y * cols + x
-                raw[i] = dome * DOME_HEIGHT + mesh[i] * MESH_HEIGHT
+                raw[i] = bump * DOME_HEIGHT + meshLow[i] * MESH_HEIGHT
             }
         }
-        return Relief(cols, rows, gaussBlur(raw, cols, rows, BLUR_SIGMA), faceH)
+        return Relief(cols, rows, gaussBlur(raw, cols, rows, max(0.3f, BLUR_SIGMA * k)), faceH, dcx, bcy)
     }
 
     /** Separable Gaussian, radius ceil(2.5 sigma), clamped at the edges. */
@@ -168,8 +185,18 @@ internal object ReliefBuilder {
     const val EDGE_LO = 0.15f
     const val EDGE_HI = 0.95f
     const val BLUR_SIGMA = 0.9f
-    const val DOME_HEIGHT = 0.50f
-    const val MESH_HEIGHT = 0.70f
+    // v3 prototype: the head shape carries the relief, fine mesh detail is a hint.
+    const val DOME_HEIGHT = 1.0f
+    const val MESH_HEIGHT = 0.15f
+    const val MESH_LOWPASS_SIGMA = 4.0f
+    /**
+     * v3 bump: half-axes in face widths / heights, centred a little below the
+     * face's middle (as Revolut). With a bulge up to 1.25 the line map stays
+     * monotonic for this profile: 1 + A(1 - v)(1 - 5v) > 0 for v in 0..1.
+     */
+    const val BUMP_RX = 0.58f
+    const val BUMP_RY = 0.65f
+    const val BUMP_CY_SHIFT = 0.05f
     const val DOME_RX = 0.62f
     const val DOME_RY = 0.78f
     const val DOME_CY_SHIFT = -0.12f
@@ -192,6 +219,9 @@ internal class DepthGrid(val cols: Int = COLS) {
 
     /** Forehead-to-chin distance in screen px of the latest face (sets the line lift). */
     var faceHeight = 0f; private set
+    /** Face centre in screen px, eased like the field. */
+    var centreY = 0f; private set
+    private var targetCentreY = 0f
     var hasFace = false; private set
     private var lastFaceAt = 0L
 
@@ -213,7 +243,11 @@ internal class DepthGrid(val cols: Int = COLS) {
         if (relief.cols != cols || relief.rows != rows) return
         System.arraycopy(relief.raw, 0, target, 0, target.size)
         faceHeight = relief.faceHeight
-        if (!hasFace) System.arraycopy(target, 0, field, 0, target.size)
+        targetCentreY = relief.centreY
+        if (!hasFace) {
+            System.arraycopy(target, 0, field, 0, target.size)
+            centreY = targetCentreY
+        }
         hasFace = true
         lastFaceAt = nowMs
     }
@@ -232,6 +266,9 @@ internal class DepthGrid(val cols: Int = COLS) {
     /** One display frame of temporal smoothing. Returns true while still moving. */
     fun step(alpha: Float = EMA_ALPHA): Boolean {
         var moving = false
+        val dc = targetCentreY - centreY
+        if (dc > 0.5f || dc < -0.5f) moving = true
+        centreY += dc * alpha
         for (i in field.indices) {
             val d = target[i] - field[i]
             if (d > 0.002f || d < -0.002f) moving = true
@@ -243,6 +280,7 @@ internal class DepthGrid(val cols: Int = COLS) {
     /** Converge on the current target at once (frozen-frame screenshots). */
     fun settle() {
         System.arraycopy(target, 0, field, 0, field.size)
+        centreY = targetCentreY
     }
 
     /** Bilinear sample at screen px (cell i at i x cell, as the reference). */
@@ -262,7 +300,8 @@ internal class DepthGrid(val cols: Int = COLS) {
         if (x < 0 || y < 0 || x >= cols || y >= rows) 0f else field[y * cols + x]
 
     companion object {
-        const val COLS = 130
+        /** v3: the field is smooth, so a coarse grid is enough (v2 used 130). */
+        const val COLS = 64
         const val EMA_ALPHA = 0.30f
         const val HOLD_MS = 300L
     }
