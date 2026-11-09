@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [4.12.0] - 2026-11-09
+
+Guided face capture (LiveSense capture redesign, Phase 1). Tested on a Samsung
+Galaxy A03 (Android 13): mock captures, a sandbox Flow run to a verdict, hands
+over the face before, during and at the end of the scan, and lighting changes.
+
+**Size:** the AAR grows to about 20 MB (was ~4 MB) because the covered-face
+check bundles MediaPipe's multiclass selfie segmentation model (16.4 MB).
+
 ### Added
 
 - **Guided face capture (LiveSense capture redesign, Phase 1).** Every session
@@ -35,7 +44,16 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   over the face holds the scan with "Keep your face uncovered", before it
   starts, during it, and in a final check before it finishes. Uses MediaPipe's
   multiclass selfie segmentation (bundled, 16.4 MB; the AAR grows to ~20 MB) on
-  its own thread, plus a per-region change watch during the scan.
+  its own thread, plus a per-region change watch during the scan. The change
+  watch takes its baseline only from a steady face, needs 2 frames in a row on
+  one region, gives way to "Hold still" while the face moves, and re-baselines
+  after a fill-light change only on a clear face; the fill light is frozen
+  during a scan.
+- `metadata.covered_check` in the signals upload (COVER-v1 section 3): the
+  covered-face check's numbers (model, timings, six-class face split at scan
+  start and at the final check, change-watch maxima, trips and drops). Numbers
+  only, no images or landmarks; it changes no decision.
+- Demo app: **Run flow** in sandbox mode (flow ID and API key typed at runtime).
 - `FlowAppearance.capture` (`ring`, `contourStart`, `contourEnd`, `warning`) with
   Sense defaults; a colour below 3:1 contrast on the camera falls back.
 - `UseSenseConfig.guidedCaptureEnabled` (default `true`); `false` starts
@@ -49,10 +67,17 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 - A crash on MediaPipe's thread when two face landmarkers with different
   outputs ran in one app (static output-stream indices in tasks-vision
   0.20230731). Both now share one output configuration.
+- A stalled signals upload was never retried: the 30 s stall monitors failed
+  the session long before an attempt timed out (300 s write idle). Each
+  attempt now has a 20 s idle timeout and retries (1/2/4 s, same idempotency
+  key) count as progress, so they run inside the stall windows.
+- The upload's no-progress monitor treated a retry resending from zero as no
+  progress.
 
-Nothing sent to the server changes: same frames format, metadata and scoring.
-Server challenges (follow the dot, head turn, speak phrase) still run when the
-session asks for one; the gate only decides when they start.
+The frames format, the rest of the metadata and the scoring are unchanged; the
+only addition to the upload is `metadata.covered_check`. Server challenges
+(follow the dot, head turn, speak phrase) still run when the session asks for
+one; the gate only decides when they start.
 
 ## [4.11.0] - 2026-11-07
 
