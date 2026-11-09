@@ -95,6 +95,16 @@ class CoverWatchTest {
     @Test fun `a global brightness change (the fill light) is not a cover`() {
         assertFalse(watched(List(3) { skin() } + skin(1.25f)).last())
     }
+
+    @Test fun `frames not allowed into the baseline are skipped`() {
+        val watch = CoverWatch()
+        val pts = points()
+        // Three covered frames arrive while the face isn't settled: not baseline.
+        repeat(3) { assertFalse(watch.covered(FaceRegions.measure(covered(skin()), w, h, pts, 478), baselineAllowed = false)) }
+        // Settled clear frames become the baseline, so the clear face stays clear.
+        repeat(3) { assertFalse(watch.covered(FaceRegions.measure(skin(), w, h, pts, 478))) }
+        repeat(3) { assertFalse(watch.covered(FaceRegions.measure(skin(), w, h, pts, 478))) }
+    }
 }
 
 class FaceCoverTest {
@@ -127,4 +137,5 @@ class FaceCoverTest {
         val c = cover(IntArray(100 * 100) { if (it / 100 < 35) FaceCover.HAIR else FaceCover.FACE_SKIN })
         assertFalse(c.covered)
     }
+
 }

@@ -222,16 +222,8 @@ internal class QualityGate(
                 }
             }
         }
-        val changed = scanning && !watchOff && coverWatch.covered(frame.regions)
-        if (scanning && !watchOff && coverWatch.compared) {
-            coverStats?.changeWatchFrame(coverWatch.lastLumaDelta, coverWatch.lastChromaDelta, coverWatch.lastEdgeFactor)
-            if (coverWatch.lastSingleFrameFlags > 0) coverStats?.changeWatchSingleFrameFlags(coverWatch.lastSingleFrameFlags)
-            if (changed && !changeTripped) {
-                coverStats?.changeWatchTrip(FaceRegions.NAMES.getOrNull(coverWatch.lastRegion))
-            }
-            changeTripped = changed
-        }
-        if (segCovered || changed) failing += GateHint.FACE_COVERED
+        if (segCovered) failing += GateHint.FACE_COVERED
+        // The change watch runs at the end (after stillness and position), see below.
 
         // No cover result yet for this face: hold (shown as "Hold still"), so a
         // scan can't start before the covered check has seen the face.
@@ -318,7 +310,33 @@ internal class QualityGate(
         }
 
         // 9. Stillness over 300 ms.
-        if (!isStill(frame.timestampMs, pts, n, eyeDist)) failing += GateHint.HOLD_STILL
+        val still = isStill(frame.timestampMs, pts, n, eyeDist)
+        if (!still) failing += GateHint.HOLD_STILL
+
+        // 2b (continued). The change watch (scan only). Its baseline is taken only
+        // from settled frames, the face still, in the oval, at the distance and
+        // facing forward, so a scan started from the shutter or while the face was
+        // still moving in doesn't freeze a bad baseline (A03: 11 s false
+        // "covered" from a baseline taken mid-movement). A change while the face
+        // is moving reads "Hold still" (stillness already pauses the scan), not
+        // "Keep your face uncovered".
+        val settled = still && failing.none {
+            it.check == GateCheck.FACE_FOUND || it.check == GateCheck.DISTANCE ||
+                it.check == GateCheck.IN_OVAL || it.check == GateCheck.POSE
+        }
+        if (scanning && !watchOff) {
+            val changed = coverWatch.covered(frame.regions, baselineAllowed = settled)
+            if (coverWatch.compared) {
+                coverStats?.changeWatchFrame(coverWatch.lastLumaDelta, coverWatch.lastChromaDelta, coverWatch.lastEdgeFactor)
+                if (coverWatch.lastSingleFrameFlags > 0) coverStats?.changeWatchSingleFrameFlags(coverWatch.lastSingleFrameFlags)
+                val pausesForCover = changed && still
+                if (pausesForCover && !changeTripped) {
+                    coverStats?.changeWatchTrip(FaceRegions.NAMES.getOrNull(coverWatch.lastRegion))
+                }
+                changeTripped = pausesForCover
+                if (pausesForCover && GateHint.FACE_COVERED !in failing) insertInOrder(failing, GateHint.FACE_COVERED)
+            }
+        }
 
         val metrics = GateMetrics(
             ovalFit = worstFit,
@@ -403,6 +421,12 @@ internal class QualityGate(
         }
         lastJitter = (total / k) / eyeDist
         return lastJitter < MAX_JITTER
+    }
+
+    /** Insert [hint] keeping the list in check order (the first is the one shown). */
+    private fun insertInOrder(list: MutableList<GateHint>, hint: GateHint) {
+        val at = list.indexOfFirst { it.check.ordinal > hint.check.ordinal }
+        if (at < 0) list += hint else list.add(at, hint)
     }
 
     companion object {

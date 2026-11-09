@@ -124,14 +124,20 @@ internal class CoverWatch {
         lastSingleFrameFlags = 0
     }
 
-    /** True when the face looks covered compared with the start of the scan. */
-    fun covered(regions: FaceRegions?): Boolean {
+    /**
+     * True when the face looks covered compared with the start of the scan.
+     * [baselineAllowed]: whether this frame may go into the baseline (the face
+     * settled: still and in position); frames that may not are skipped until
+     * the baseline is complete.
+     */
+    fun covered(regions: FaceRegions?, baselineAllowed: Boolean = true): Boolean {
         compared = false
         lastSingleFrameFlags = 0
         if (regions == null) return false
         val v = regions.values
         val base = baseline
         if (base == null || frames < BASELINE_FRAMES) {
+            if (!baselineAllowed) return false
             val b = base ?: FloatArray(v.size).also { baseline = it }
             // Running mean of the first frames.
             for (i in v.indices) b[i] += (v[i] - b[i]) / (frames + 1)

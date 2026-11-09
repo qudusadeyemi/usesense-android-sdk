@@ -247,7 +247,8 @@ class QualityGateTest {
     private fun scanFrame(t: Long, r: FaceRegions, cover: FaceCover? = clear) =
         GateFrame(t, 480, 640, 1, face(), PoseAngles(0.0, 0.0, 0.0), goodRegion, 0.1f, 0.1f, r, cover, false, t)
 
-    private fun gateWithStats() = QualityGate().also { it.coverStats = CoveredCheckStats() }
+    /** A gate with stats, warmed up (face found, 300 ms of stillness history) before the scan. */
+    private fun gateWithStats() = QualityGate().also { it.coverStats = CoveredCheckStats(); warm(it) }
 
     private fun covered(g: QualityGate, f: GateFrame) =
         GateHint.FACE_COVERED in g.evaluate(f, identity, oval, scanning = true).failing
@@ -300,5 +301,36 @@ class QualityGateTest {
         assertFalse(covered(g, scanFrame(1300, regions(1.5f))))
         assertTrue(covered(g, scanFrame(1400, regions(1.5f))))
         assertEquals(0, g.coverStats!!.toJson().getJSONObject("change_watch").getInt("rebaselines"))
+    }
+
+    private fun scanFrameAt(t: Long, r: FaceRegions, pts: FloatArray) =
+        GateFrame(t, 480, 640, 1, pts, PoseAngles(0.0, 0.0, 0.0), goodRegion, 0.1f, 0.1f, r, clear, false, t)
+
+    @Test fun `a change while the face moves reads hold still, not uncovered`() {
+        val g = gateWithStats()
+        for (t in listOf(1000L, 1100L, 1200L)) assertFalse(covered(g, scanFrame(t, regions())))
+        // The chin region changes on two frames while the face is moving.
+        val moving = listOf(1300L, 1400L).map {
+            g.evaluate(scanFrameAt(it, regions(1.5f), face(jitter = if (it == 1300L) 20f else -20f)), identity, oval, scanning = true)
+        }
+        assertTrue(moving.all { GateHint.HOLD_STILL in it.failing })
+        assertTrue(moving.none { GateHint.FACE_COVERED in it.failing })
+        assertEquals(0, g.coverStats!!.toJson().getJSONObject("change_watch").getInt("trips"))
+        // Once the face is still again, the same change is a cover.
+        val later = (1800L..2400L step 100L).map { covered(g, scanFrame(it, regions(1.5f))) }
+        assertTrue(later.last())
+        assertEquals(1, g.coverStats!!.toJson().getJSONObject("change_watch").getInt("trips"))
+    }
+
+    @Test fun `the baseline waits for a settled face`() {
+        // No warm-up: the first scan frames have no stillness history, so they
+        // must not become the baseline.
+        val g = QualityGate().also { it.coverStats = CoveredCheckStats() }
+        // Three unsettled frames with a different chin...
+        for (t in listOf(0L, 50L, 100L)) covered(g, scanFrame(t, regions(1.5f)))
+        // ...then settled frames with the real face: the baseline is these.
+        for (t in 200L..900L step 100L) covered(g, scanFrame(t, regions()))
+        // The real face stays clear (it would trip against an unsettled baseline).
+        assertFalse((1000L..1300L step 100L).map { covered(g, scanFrame(it, regions())) }.any { it })
     }
 }
