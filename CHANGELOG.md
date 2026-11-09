@@ -24,12 +24,18 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   brightness under a warm white veil before any "too dark" hint.
 - **Shutter fallback** after 20 s or 3 dropped scan windows. It starts the same
   scan with the same quality bar.
-- **Contour scan** (relief v3, capture-test-kit RELIEF-v3.md): lines across the
-  screen bulge away from the face centre over a rounded bump the size of the
-  face, arching over the forehead and sagging under the chin, and follow the
-  head live. The camera blurs shortly into the scan. A progress ring runs round
+- **Contour scan** (relief v3.1, capture-test-kit RELIEF-v3.md): lines across
+  the screen bulge away from the face centre over a rounded bump the size of
+  the face, arching over the forehead and sagging under the chin, with the
+  nose, brow and lips showing as gentle bends, and follow the head live.
+  Packed lines fade instead of stacking. The camera blurs 1.5 s into the scan. A progress ring runs round
   the oval, and the new "Checking it's you" upload sheet sits over a blurred
   camera with a bar that keeps moving through the server check.
+- **Covered-face check** (capture-test-kit COVER-v1.md): a hand, phone or paper
+  over the face holds the scan with "Keep your face uncovered", before it
+  starts, during it, and in a final check before it finishes. Uses MediaPipe's
+  multiclass selfie segmentation (bundled, 16.4 MB; the AAR grows to ~20 MB) on
+  its own thread, plus a per-region change watch during the scan.
 - `FlowAppearance.capture` (`ring`, `contourStart`, `contourEnd`, `warning`) with
   Sense defaults; a colour below 3:1 contrast on the camera falls back.
 - `UseSenseConfig.guidedCaptureEnabled` (default `true`); `false` starts
