@@ -62,9 +62,13 @@ internal class LiveFaceAnalyzer(
                     .setRunningMode(RunningMode.VIDEO)
                     // Two, so a second person in view can be caught.
                     .setNumFaces(2)
-                    .setMinFaceDetectionConfidence(0.5f)
-                    .setMinFacePresenceConfidence(0.5f)
-                    .setMinTrackingConfidence(0.5f)
+                    .setMinFaceDetectionConfidence(MIN_DETECTION)
+                    // 0.85 presence/tracking was tried for covered faces on the A03:
+                    // it didn't drop a half-covered face and made the tracker
+                    // re-detect a face it was already tracking (two faces, "Only you
+                    // in the picture"). Covered faces are caught by CoverWatch.
+                    .setMinFacePresenceConfidence(MIN_PRESENCE)
+                    .setMinTrackingConfidence(MIN_TRACKING)
                     // Must match the session mesh (FaceLandmarkerOutputs): MediaPipe
                     // keeps the output stream positions in static fields.
                     .setOutputFaceBlendshapes(FaceLandmarkerOutputs.BLENDSHAPES)
@@ -166,11 +170,16 @@ internal class LiveFaceAnalyzer(
             return
         }
         // The subject is the largest face (MediaPipe doesn't order by size), as iOS and Web.
-        val face = faces.maxByOrNull { f ->
+        val boxes = faces.map { f ->
             var x0 = 1f; var x1 = 0f; var y0 = 1f; var y1 = 0f
             for (p in f) { x0 = minOf(x0, p.x()); x1 = maxOf(x1, p.x()); y0 = minOf(y0, p.y()); y1 = maxOf(y1, p.y()) }
-            (x1 - x0) * (y1 - y0)
-        } ?: faces[0]
+            floatArrayOf(x0, y0, x1, y1)
+        }
+        val faceIndex0 = boxes.indices.maxByOrNull { (boxes[it][2] - boxes[it][0]) * (boxes[it][3] - boxes[it][1]) } ?: 0
+        val face = faces[faceIndex0]
+        // A second face that mostly overlaps the subject is the same face found
+        // twice (tracking and re-detection), not another person.
+        val distinctFaces = 1 + boxes.indices.count { it != faceIndex0 && iou(boxes[it], boxes[faceIndex0]) < SAME_FACE_IOU }
         val faceIndex = faces.indexOf(face)
         val pts = FloatArray(face.size * 3)
         var minX = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE
@@ -207,7 +216,16 @@ internal class LiveFaceAnalyzer(
         val region = qualityAnalyzer.analyzeFaceRegion(
             argb, w, h, minX.toInt(), minY.toInt(), maxX.toInt() + 1, maxY.toInt() + 1,
         )
-        onFrame(GateFrame(ts, w, h, faces.size, pts, pose, region, blinkL, blinkR))
+        val regions = FaceRegions.measure(argb, w, h, pts, face.size)
+        onFrame(GateFrame(ts, w, h, distinctFaces, pts, pose, region, blinkL, blinkR, regions))
+    }
+
+    private fun iou(a: FloatArray, b: FloatArray): Float {
+        val ix = maxOf(0f, minOf(a[2], b[2]) - maxOf(a[0], b[0]))
+        val iy = maxOf(0f, minOf(a[3], b[3]) - maxOf(a[1], b[1]))
+        val inter = ix * iy
+        val union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+        return if (union <= 0f) 0f else inter / union
     }
 
     fun release() {
@@ -229,5 +247,10 @@ internal class LiveFaceAnalyzer(
          * of 12). MediaPipe resizes for its models itself.
          */
         const val TARGET_LONG_EDGE = 640f
+        const val MIN_DETECTION = 0.5f
+        const val MIN_PRESENCE = 0.5f
+        const val MIN_TRACKING = 0.5f
+        /** A second face overlapping the subject by more than this is the same face found twice. */
+        const val SAME_FACE_IOU = 0.3f
     }
 }

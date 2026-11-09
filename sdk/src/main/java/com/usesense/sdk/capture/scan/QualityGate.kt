@@ -13,13 +13,15 @@ import kotlin.math.max
  */
 internal enum class GateCheck {
     // v1.2: distance runs before in-frame, so size problems get size guidance.
-    FACE_FOUND, ONE_PERSON, DISTANCE, IN_OVAL, POSE, LIGHT, SHARPNESS, EYES_OPEN, STILLNESS,
+    FACE_FOUND, ONE_PERSON, COVERED, DISTANCE, IN_OVAL, POSE, LIGHT, SHARPNESS, EYES_OPEN, STILLNESS,
 }
 
 /** One hint per failure. Several hints can belong to one check (closer / back). */
 internal enum class GateHint(val check: GateCheck) {
     SHOW_FACE(GateCheck.FACE_FOUND),
     ONE_PERSON(GateCheck.ONE_PERSON),
+    /** During the scan the face changed as if something came in front of it (a hand, a phone). */
+    FACE_COVERED(GateCheck.COVERED),
     MOVE_CLOSER(GateCheck.DISTANCE),
     MOVE_BACK(GateCheck.DISTANCE),
     CENTRE(GateCheck.IN_OVAL),
@@ -49,6 +51,8 @@ internal class GateFrame(
     val faceRegion: ImageQualityAnalyzer.FaceRegionReport?,
     val eyeBlinkLeft: Float? = null,
     val eyeBlinkRight: Float? = null,
+    /** Appearance of six face regions, for the covered-face check during the scan. */
+    val regions: FaceRegions? = null,
 ) {
     val landmarkCount: Int get() = (points?.size ?: 0) / 3
 }
@@ -89,13 +93,16 @@ internal data class GateMetrics(
     val luma: Double?,
     val clipped: Double?,
     val sharpness: Double?,
+    /** Covered-face change score during the scan (>= 1 fails) and its region. */
+    val cover: Float = 0f,
+    val coverRegion: Int = -1,
 ) {
     override fun toString(): String =
         "oval=%.2f dist=%.3f jitter=%.3f yaw=%.1f pitch=%.1f roll=%.1f luma=%.0f clip=%.3f sharp=%.1f".format(
             java.util.Locale.US, ovalFit, eyeDistanceRatio, jitter,
             pose?.yaw ?: Double.NaN, pose?.pitch ?: Double.NaN, pose?.roll ?: Double.NaN,
             luma ?: Double.NaN, clipped ?: Double.NaN, sharpness ?: Double.NaN,
-        )
+        ) + if (coverRegion >= 0) " cover=%.2f@%s".format(java.util.Locale.US, cover, FaceRegions.NAMES[coverRegion]) else ""
 }
 
 /**
@@ -113,11 +120,14 @@ internal class QualityGate(
     private var vx = FloatArray(478)
     private var vy = FloatArray(478)
     private var lastJitter = Float.NaN
+    private val coverWatch = CoverWatch()
+    private var wasScanning = false
 
     fun reset() {
         consecutiveFaceFrames = 0
         sharpnessHistory.clear()
         stillHistory.clear()
+        coverWatch.reset()
     }
 
     /**
@@ -135,6 +145,9 @@ internal class QualityGate(
         fillLightOnForMs: Long? = null,
         scanning: Boolean = false,
     ): GateResult {
+        // A new scan takes a new baseline for the covered-face check.
+        if (scanning && !wasScanning) coverWatch.reset()
+        wasScanning = scanning
         val pts = frame.points
         val n = frame.landmarkCount
         if (frame.faceCount < 1 || pts == null || n < MIN_LANDMARKS) {
@@ -150,6 +163,10 @@ internal class QualityGate(
 
         // 2. One person.
         if (frame.faceCount >= 2) failing += GateHint.ONE_PERSON
+
+        // 2b. Covered (scan only): a face region changed sharply since the scan
+        // started, as when a hand or an object comes in front of the face.
+        if (scanning && coverWatch.covered(frame.regions)) failing += GateHint.FACE_COVERED
 
         // Map once to screen space (aspect-fill + mirror, as the preview).
         val n0 = n
@@ -242,6 +259,8 @@ internal class QualityGate(
             luma = region?.meanLuma,
             clipped = region?.clippedRatio,
             sharpness = sharpnessHistory.takeIf { it.isNotEmpty() }?.sorted()?.get(sharpnessHistory.size / 2),
+            cover = if (scanning) coverWatch.lastScore else 0f,
+            coverRegion = if (scanning) coverWatch.lastRegion else -1,
         )
         return GateResult(failing, tooDark, metrics)
     }

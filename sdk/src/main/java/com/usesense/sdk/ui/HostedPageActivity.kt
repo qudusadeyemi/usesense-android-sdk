@@ -1533,6 +1533,7 @@ class HostedPageActivity : AppCompatActivity() {
     private fun hintText(hint: GateHint): Pair<String, String?>? = when (hint) {
         GateHint.SHOW_FACE -> getString(R.string.usesense_hint_show_face) to null
         GateHint.ONE_PERSON -> getString(R.string.usesense_hint_one_person) to null
+        GateHint.FACE_COVERED -> getString(R.string.usesense_hint_face_covered) to null
         GateHint.CENTRE -> getString(R.string.usesense_hint_centre) to null
         GateHint.MOVE_CLOSER -> getString(R.string.usesense_hint_move_closer) to null
         GateHint.MOVE_BACK, GateHint.TOO_BIG -> getString(R.string.usesense_hint_move_back) to null

@@ -185,6 +185,7 @@
          Web: change it in all three. -->
     <string name="usesense_hint_show_face">Show your face in the oval</string>
     <string name="usesense_hint_one_person">Only you in the picture</string>
+    <string name="usesense_hint_face_covered">Keep your face uncovered</string>
     <string name="usesense_hint_centre">Move your face to the centre</string>
     <string name="usesense_hint_move_closer">Move a little closer</string>
     <string name="usesense_hint_move_back">Move back a little</string>
