@@ -72,6 +72,34 @@ class FinalizationCoordinatorTest {
     }
 
     @Test
+    fun `a retry restarting from zero bytes counts as progress`() = runTest {
+        var now = 0L
+        val updates = mutableListOf<FinalizationUpdate>()
+        val operations = object : FinalizationOperations by successfulOperations() {
+            override suspend fun upload(onProgress: (Long, Long) -> Unit): Result<Unit> {
+                // Attempt 1 sends 40 of 100 bytes, then stalls for 24 (idle timeout + backoff).
+                onProgress(0, 100); onProgress(40, 100)
+                now += 24; kotlinx.coroutines.yield()
+                // The retry starts from zero and resends; before the fix the coordinator
+                // only counted bytes past 40, so these 24 + 20 units had no progress.
+                onProgress(0, 100)
+                now += 20; kotlinx.coroutines.yield()
+                onProgress(30, 100)
+                now += 20; kotlinx.coroutines.yield()
+                onProgress(100, 100)
+                return Result.success(Unit)
+            }
+        }
+        FinalizationCoordinator(
+            operations,
+            FinalizationPolicy(noProgressTimeoutMs = 30, uploadAllowanceMs = 300, progressCheckMs = 1),
+            { now },
+            { kotlinx.coroutines.yield() },
+        ).run(updates::add)
+        assertFalse(updates.any { it is FinalizationUpdate.Recovery })
+    }
+
+    @Test
     fun `completion timeout is technical recovery not rejection`() = runTest {
         val recovery = runWith(object : FinalizationOperations by successfulOperations() {
             override suspend fun complete(): Result<UseSenseResult> {

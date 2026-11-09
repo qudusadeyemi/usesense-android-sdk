@@ -65,9 +65,12 @@ class UploadPayloadTest {
     }
 
     @Test
-    fun `upload write timeout leaves headroom for a slow uplink`() {
-        // A measured production session uploaded at 14.6 KB/s. The previous 30s
-        // write timeout could not carry a multi-megabyte body at that rate.
-        assertTrue(UseSenseApiClient.UPLOAD_WRITE_TIMEOUT_SECONDS >= 120L)
+    fun `a slow uplink fits the whole-call ceiling`() {
+        // A measured production session uploaded at 14.6 KB/s. OkHttp's write
+        // timeout is an idle timer per write (it resets as bytes move), so the
+        // whole upload is bounded by the call timeout: a 4 MB body at that rate
+        // takes ~280 s, inside UPLOAD_CALL_TIMEOUT_SECONDS.
+        val seconds = 4_000_000.0 / 14_600.0
+        assertTrue(seconds < UseSenseApiClient.UPLOAD_CALL_TIMEOUT_SECONDS)
     }
 }
