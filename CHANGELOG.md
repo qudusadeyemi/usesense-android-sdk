@@ -13,24 +13,36 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   found, alone, inside the oval, at the right distance, facing the screen,
   lit, sharp, eyes open and still. Checks run on a live MediaPipe face mesh and
   on the face area only (a bright window behind the subject no longer hides a
-  dark face). One hint at a time, after 400 ms of failure and for at least
+  dark face). Light is advice only: it turns on the fill light and gives a
+  hint but never holds the scan, so a darker face in ordinary room light is
+  not locked out. One hint at a time, after 400 ms of failure and for at least
   1.2 s, also spoken by TalkBack; a haptic tick when every check passes and
   when the scan completes.
 - **Pause instead of restart.** Moving pauses the progress ring and resumes it
   when still; banked frames are kept unless the pause lasts over 1.5 s.
 - **Screen fill light.** A face that is too dark turns the screen to full
-  brightness with a warm white border before any "too dark" hint.
+  brightness under a warm white veil before any "too dark" hint.
 - **Shutter fallback** after 20 s or 3 dropped scan windows. It starts the same
   scan with the same quality bar.
-- **Contour scan**: lines across the screen lifted by the face mesh depth and a
-  head dome, a progress ring round the oval, and a blurred camera behind the
-  new "Checking it's you" upload sheet.
+- **Contour scan** (relief v3, capture-test-kit RELIEF-v3.md): lines across the
+  screen bulge away from the face centre over a rounded bump the size of the
+  face, arching over the forehead and sagging under the chin, and follow the
+  head live. The camera blurs shortly into the scan. A progress ring runs round
+  the oval, and the new "Checking it's you" upload sheet sits over a blurred
+  camera with a bar that keeps moving through the server check.
 - `FlowAppearance.capture` (`ring`, `contourStart`, `contourEnd`, `warning`) with
   Sense defaults; a colour below 3:1 contrast on the camera falls back.
 - `UseSenseConfig.guidedCaptureEnabled` (default `true`); `false` starts
   capture from the shutter with no gate.
 - Debug builds only: a fake camera that plays a video through the capture
-  pipeline, for screenshots against the shared capture test kit.
+  pipeline, for screenshots against the shared capture test kit; without a
+  video it keeps the real camera and only forces a state (e.g. holds the scan).
+
+### Fixed
+
+- A crash on MediaPipe's thread when two face landmarkers with different
+  outputs ran in one app (static output-stream indices in tasks-vision
+  0.20230731). Both now share one output configuration.
 
 Nothing sent to the server changes: same frames format, metadata and scoring.
 Server challenges (follow the dot, head turn, speak phrase) still run when the
