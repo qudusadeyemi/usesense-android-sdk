@@ -107,6 +107,7 @@ internal class CoveredCheckStats {
     /** The scan's steady change-watch baseline was taken [ms] after the scan started (first per scan). */
     @Synchronized fun changeWatchBaselineTaken(ms: Long) {
         if (baselineWaitMs == null) baselineWaitMs = ms.coerceAtLeast(0L)
+        debug("change watch baseline taken ${ms} ms after scan start")
     }
 
     /** A new change-watch baseline after a fill-light change. */
@@ -122,6 +123,7 @@ internal class CoveredCheckStats {
     /** The change watch started failing (it pauses the scan); [region] as in FaceRegions.NAMES. */
     @Synchronized fun changeWatchTrip(region: String?) {
         changeTrips++
+        debug("change watch trip #$changeTrips on $region")
         region?.let { tripRegions += it }
     }
 
@@ -178,6 +180,10 @@ internal class CoveredCheckStats {
     }
 
     private fun r3(v: Float): Double = (v * 1000f).roundToInt() / 1000.0
+
+    private fun debug(message: String) {
+        runCatching { if (android.util.Log.isLoggable("UseSenseGate", android.util.Log.DEBUG)) android.util.Log.d("UseSenseGate", message) }
+    }
 
     companion object {
         const val VERSION = "cover-v1"
