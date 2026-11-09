@@ -35,8 +35,6 @@ internal class LiveFaceAnalyzer(
     private val busy = AtomicBoolean(false)
     private val qualityAnalyzer = ImageQualityAnalyzer()
     private val coverSegmenter = FaceCoverSegmenter(context)
-    private var lastCover: FaceCover? = null
-    private var lastCoverAt = 0L
 
     @Volatile private var landmarker: FaceLandmarker? = null
     @Volatile private var released = false
@@ -171,6 +169,7 @@ internal class LiveFaceAnalyzer(
         val h = bmp.height
         val faces = result.faceLandmarks()
         if (faces.isEmpty()) {
+            coverSegmenter.clear()
             onFrame(GateFrame(ts, w, h, 0, null, null, null))
             return
         }
@@ -222,16 +221,21 @@ internal class LiveFaceAnalyzer(
             argb, w, h, minX.toInt(), minY.toInt(), maxX.toInt() + 1, maxY.toInt() + 1,
         )
         val regions = FaceRegions.measure(argb, w, h, pts, face.size)
-        // Segmentation every few frames; its result holds for a second.
-        if (coverSegmenter.available && frames % COVER_EVERY == 0) {
-            runCatching { coverSegmenter.measure(bmp, pts, face.size) }.getOrNull()?.let {
-                lastCover = it
-                lastCoverAt = ts
+        // Covered-face segmentation on its own thread whenever it is free; the
+        // latest result holds until replaced (or the face is lost).
+        var coverPending = false
+        var cover: FaceCover? = null
+        if (coverSegmenter.available) {
+            if (coverSegmenter.ready) {
+                runCatching { bmp.copy(Bitmap.Config.ARGB_8888, false) }.getOrNull()?.let {
+                    coverSegmenter.offer(it, pts.copyOf(), face.size, ts)
+                }
             }
-            if (frames % (COVER_EVERY * 20) == 0) Log.d(TAG, "cover segmentation ~${coverSegmenter.meanMs.toInt()} ms")
+            cover = coverSegmenter.latest?.takeIf { ts - coverSegmenter.latestAt <= COVER_MAX_AGE_MS }
+            coverPending = cover == null
+            if (frames % 60 == 0) Log.d(TAG, "cover segmentation ~${coverSegmenter.meanMs.toInt()} ms")
         }
-        val cover = lastCover?.takeIf { ts - lastCoverAt <= COVER_MAX_AGE_MS }
-        onFrame(GateFrame(ts, w, h, distinctFaces, pts, pose, region, blinkL, blinkR, regions, cover))
+        onFrame(GateFrame(ts, w, h, distinctFaces, pts, pose, region, blinkL, blinkR, regions, cover, coverPending))
     }
 
     private fun iou(a: FloatArray, b: FloatArray): Float {
@@ -262,9 +266,8 @@ internal class LiveFaceAnalyzer(
          * of 12). MediaPipe resizes for its models itself.
          */
         const val TARGET_LONG_EDGE = 640f
-        /** Run the covered-face segmentation on every Nth gate frame. */
-        const val COVER_EVERY = 3
-        const val COVER_MAX_AGE_MS = 1000L
+        /** A covered-face result older than this no longer counts. */
+        const val COVER_MAX_AGE_MS = 3000L
         const val MIN_DETECTION = 0.5f
         const val MIN_PRESENCE = 0.5f
         const val MIN_TRACKING = 0.5f

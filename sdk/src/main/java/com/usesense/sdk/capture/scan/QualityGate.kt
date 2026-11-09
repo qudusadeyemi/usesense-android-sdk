@@ -55,6 +55,8 @@ internal class GateFrame(
     val regions: FaceRegions? = null,
     /** Segmentation of the face area (null when the segmenter is off or stale). */
     val cover: FaceCover? = null,
+    /** The segmenter is on but has no result for this face yet: don't pass. */
+    val coverPending: Boolean = false,
 ) {
     val landmarkCount: Int get() = (points?.size ?: 0) / 3
 }
@@ -176,6 +178,10 @@ internal class QualityGate(
         val segCovered = frame.cover?.covered == true
         val changed = scanning && coverWatch.covered(frame.regions)
         if (segCovered || changed) failing += GateHint.FACE_COVERED
+
+        // No cover result yet for this face: hold (shown as "Hold still"), so a
+        // scan can't start before the covered check has seen the face.
+        if (frame.coverPending) failing += GateHint.HOLD_STILL
 
         // Map once to screen space (aspect-fill + mirror, as the preview).
         val n0 = n

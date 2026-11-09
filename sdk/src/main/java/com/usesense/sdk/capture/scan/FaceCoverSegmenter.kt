@@ -13,6 +13,8 @@ import java.io.File
 import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** How much of the face area the segmenter sees as something other than face. */
 internal data class FaceCover(
@@ -109,6 +111,20 @@ internal data class FaceCover(
 internal class FaceCoverSegmenter(private val context: Context) {
     private var segmenter: ImageSegmenter? = null
     @Volatile var available = false; private set
+    /**
+     * Segmentation takes ~900 ms on a Galaxy A03, so it runs on its own
+     * low-priority thread and never holds the gate; the latest result is kept.
+     */
+    private val executor = Executors.newSingleThreadExecutor { r ->
+        Thread({ android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND); r.run() }, "usesense-cover")
+    }
+    private val busy = AtomicBoolean(false)
+    @Volatile var latest: FaceCover? = null; private set
+    @Volatile var latestAt = 0L; private set
+    @Volatile private var released = false
+
+    /** True when [offer] would start a run now. */
+    val ready: Boolean get() = available && !released && !busy.get()
     /** Rolling mean run time, for the debug log. */
     var meanMs = 0.0; private set
     private var runs = 0
@@ -143,7 +159,36 @@ internal class FaceCoverSegmenter(private val context: Context) {
         }
     }
 
-    /** Segment [bmp] and measure the face area of [pts]. Call on the gate thread. */
+    /**
+     * Start a segmentation of [bmp] (taken over, recycled here) for the face in
+     * [pts] if none is running; returns false (and recycles) when busy.
+     * [stampMs] is the frame's time, kept with the result.
+     */
+    fun offer(bmp: Bitmap, pts: FloatArray, count: Int, stampMs: Long): Boolean {
+        if (!available || released || !busy.compareAndSet(false, true)) {
+            bmp.recycle()
+            return false
+        }
+        executor.execute {
+            try {
+                if (!released) measure(bmp, pts, count)?.let { latest = it; latestAt = stampMs }
+            } catch (e: Throwable) {
+                Log.w(TAG, "Cover segmentation failed: ${e.message}")
+            } finally {
+                bmp.recycle()
+                busy.set(false)
+            }
+        }
+        return true
+    }
+
+    /** Forget the last result (the face was lost). */
+    fun clear() {
+        latest = null
+        latestAt = 0L
+    }
+
+    /** Segment [bmp] and measure the face area of [pts]. Runs on the cover thread. */
     fun measure(bmp: Bitmap, pts: FloatArray, count: Int): FaceCover? {
         val seg = segmenter ?: return null
         val t0 = SystemClock.elapsedRealtime()
@@ -158,9 +203,13 @@ internal class FaceCoverSegmenter(private val context: Context) {
     }
 
     fun release() {
-        runCatching { segmenter?.close() }
-        segmenter = null
+        released = true
         available = false
+        executor.execute {
+            runCatching { segmenter?.close() }
+            segmenter = null
+        }
+        executor.shutdown()
     }
 
     private fun map(file: File): ByteBuffer = FileInputStream(file).use { s ->
