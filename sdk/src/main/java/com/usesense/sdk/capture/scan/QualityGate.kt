@@ -188,6 +188,7 @@ internal class QualityGate(
         val changed = scanning && coverWatch.covered(frame.regions)
         if (scanning && coverWatch.compared) {
             coverStats?.changeWatchFrame(coverWatch.lastLumaDelta, coverWatch.lastChromaDelta, coverWatch.lastEdgeFactor)
+            if (coverWatch.lastSingleFrameFlags > 0) coverStats?.changeWatchSingleFrameFlags(coverWatch.lastSingleFrameFlags)
             if (changed && !changeTripped) {
                 coverStats?.changeWatchTrip(FaceRegions.NAMES.getOrNull(coverWatch.lastRegion))
             }

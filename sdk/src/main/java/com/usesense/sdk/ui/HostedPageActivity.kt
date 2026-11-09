@@ -47,6 +47,7 @@ import com.usesense.sdk.api.UseSenseApiClient
 import com.usesense.sdk.api.models.*
 import com.usesense.sdk.capture.FrameCaptureManager
 import com.usesense.sdk.capture.ImageQualityAnalyzer
+import com.usesense.sdk.capture.scan.FaceRegions
 import com.usesense.sdk.capture.scan.GateFrame
 import com.usesense.sdk.capture.scan.GateHint
 import com.usesense.sdk.capture.scan.GateResult
@@ -1309,6 +1310,10 @@ class HostedPageActivity : AppCompatActivity() {
             // adb shell setprop log.tag.UseSenseGate DEBUG
             lastGateLogAt = now
             Log.d(GATE_TAG, "faces=${frame.faceCount} failing=${result.failing} ${result.metrics ?: ""}")
+        }
+        result.metrics?.takeIf { it.cover >= 1f && it.coverRegion >= 0 && Log.isLoggable(GATE_TAG, Log.DEBUG) }?.let {
+            Log.d(GATE_TAG, "change watch exceeded: %.2f@%s covered=%s".format(java.util.Locale.US,
+                it.cover, FaceRegions.NAMES[it.coverRegion], GateHint.FACE_COVERED in result.failing))
         }
         if (result.faceTooDark) turnOnFillLight()
 

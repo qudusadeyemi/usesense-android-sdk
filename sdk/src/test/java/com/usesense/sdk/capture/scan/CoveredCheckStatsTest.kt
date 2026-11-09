@@ -27,6 +27,7 @@ class CoveredCheckStatsTest {
         scanFrame(cover)
         scanFrame(cover.copy(bodySkin = 0.02f, other = 0.04f))
         changeWatchFrame(0.06f, 0.011f, 1.3f)
+        changeWatchSingleFrameFlags(3)
         changeWatchTrip("mouth")
         changeWatchTrip("chin")
         scanDropForCover()
@@ -49,7 +50,7 @@ class CoveredCheckStatsTest {
         assertEquals(setOf("body_skin", "other"), keys(j.getJSONObject("scan_max")))
         assertEquals(split + setOf("waited_ms", "outcome"), keys(j.getJSONObject("final")))
         val cw = j.getJSONObject("change_watch")
-        assertEquals(setOf("trips", "max", "trip_regions"), keys(cw))
+        assertEquals(setOf("trips", "single_frame_flags", "max", "trip_regions"), keys(cw))
         assertEquals(setOf("luma_ratio_delta", "chroma_delta", "edge_factor"), keys(cw.getJSONObject("max")))
     }
 
@@ -77,6 +78,7 @@ class CoveredCheckStatsTest {
         assertEquals(1, j.getInt("scan_drops"))
         val cw = j.getJSONObject("change_watch")
         assertEquals(2, cw.getInt("trips"))
+        assertEquals(3, cw.getInt("single_frame_flags"))
         assertEquals(1.3, cw.getJSONObject("max").getDouble("edge_factor"), 1e-9)
         assertEquals(listOf("mouth", "chin"), (0 until cw.getJSONArray("trip_regions").length()).map { cw.getJSONArray("trip_regions").getString(it) })
     }

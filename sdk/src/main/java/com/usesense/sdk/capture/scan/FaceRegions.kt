@@ -104,6 +104,15 @@ internal class CoverWatch {
     var lastEdgeFactor = 1f; private set
     /** The baseline is set and the last frame was compared against it. */
     var compared = false; private set
+    /**
+     * Consecutive failing frames per region. COVER-v1 section 2: a region must
+     * fail on [REQUIRED_FRAMES] frames in a row (the same region; a pass resets
+     * it) to count as covered, so a single-frame exceedance (a clear face on an
+     * iPhone 17 Pro hit luma 0.235 for one frame, 7 times) is ignored.
+     */
+    private val streak = IntArray(FaceRegions.COUNT)
+    /** Single-frame exceedances that ended on the last frame (failed once, then passed). */
+    var lastSingleFrameFlags = 0; private set
 
     fun reset() {
         baseline = null
@@ -111,11 +120,14 @@ internal class CoverWatch {
         lastScore = 0f
         lastRegion = -1
         compared = false
+        streak.fill(0)
+        lastSingleFrameFlags = 0
     }
 
     /** True when the face looks covered compared with the start of the scan. */
     fun covered(regions: FaceRegions?): Boolean {
         compared = false
+        lastSingleFrameFlags = 0
         if (regions == null) return false
         val v = regions.values
         val base = baseline
@@ -129,6 +141,9 @@ internal class CoverWatch {
         }
         var worst = 0f
         var worstRegion = -1
+        var covering = -1
+        var coveringScore = 0f
+        var singles = 0
         var maxLuma = 0f; var maxChroma = 0f; var maxEdge = 1f
         for (r in 0 until FaceRegions.COUNT) {
             val o = r * FaceRegions.STRIDE
@@ -140,18 +155,29 @@ internal class CoverWatch {
             maxLuma = max(maxLuma, lumaDelta); maxChroma = max(maxChroma, chromaDelta); maxEdge = max(maxEdge, edgeFactor)
             val score = maxOf(lumaDelta / LUMA_LIMIT, chromaDelta / CHROMA_LIMIT, (edgeFactor - 1f) / (EDGE_RATIO_LIMIT - 1f))
             if (score > worst) { worst = score; worstRegion = r }
+            if (score >= 1f) {
+                streak[r]++
+                if (streak[r] >= REQUIRED_FRAMES && score > coveringScore) { covering = r; coveringScore = score }
+            } else {
+                if (streak[r] == 1) singles++
+                streak[r] = 0
+            }
         }
         lastScore = worst
-        lastRegion = worstRegion
+        // The region that is covering, else the worst one (debug log).
+        lastRegion = if (covering >= 0) covering else worstRegion
+        lastSingleFrameFlags = singles
         lastLumaDelta = maxLuma
         lastChromaDelta = maxChroma
         lastEdgeFactor = maxEdge
         compared = true
-        return worst >= 1f
+        return covering >= 0
     }
 
     companion object {
         const val BASELINE_FRAMES = 3
+        /** Consecutive failing frames on one region before it counts as covered. */
+        const val REQUIRED_FRAMES = 2
         /** Change in a region's luma relative to the face mean. */
         const val LUMA_LIMIT = 0.22f
         /** Change in red or blue chromaticity. */

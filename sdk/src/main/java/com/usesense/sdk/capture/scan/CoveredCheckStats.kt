@@ -34,6 +34,7 @@ internal class CoveredCheckStats {
     private var alignCoveredMs = 0L
     private var scanDrops = 0
     private var changeTrips = 0
+    private var singleFrameFlags = 0
     private var changeMaxLuma = 0f
     private var changeMaxChroma = 0f
     private var changeMaxEdge = 1f
@@ -100,6 +101,11 @@ internal class CoveredCheckStats {
         changeMaxEdge = max(changeMaxEdge, edgeFactor)
     }
 
+    /** One-frame exceedances the 2-frame rule ignored. */
+    @Synchronized fun changeWatchSingleFrameFlags(n: Int) {
+        singleFrameFlags += n
+    }
+
     /** The change watch started failing (it pauses the scan); [region] as in FaceRegions.NAMES. */
     @Synchronized fun changeWatchTrip(region: String?) {
         changeTrips++
@@ -137,6 +143,7 @@ internal class CoveredCheckStats {
         put("scan_drops", scanDrops)
         put("change_watch", JSONObject().apply {
             put("trips", changeTrips)
+            put("single_frame_flags", singleFrameFlags)
             put("max", JSONObject().apply {
                 put("luma_ratio_delta", r3(changeMaxLuma))
                 put("chroma_delta", r3(changeMaxChroma))
