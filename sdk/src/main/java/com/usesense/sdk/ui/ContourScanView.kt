@@ -104,8 +104,9 @@ internal class ContourScanView @JvmOverloads constructor(
     }
     private val fillLightPaint = Paint()
 
-    /** Segment buffer for one line (x0, y0, x1, y1 ...). */
-    private var segments = FloatArray(0)
+    /** Segment buffers for one line by alpha bucket (x0, y0, x1, y1 ...). */
+    private var segBuckets = Array(ALPHA_BUCKETS) { FloatArray(0) }
+    private val bucketLen = IntArray(ALPHA_BUCKETS)
     /** Per-sample y of the line above and of this line. */
     private var prevY = FloatArray(0)
     private var curY = FloatArray(0)
@@ -153,7 +154,7 @@ internal class ContourScanView @JvmOverloads constructor(
         reliefWidth = w.toFloat()
         reliefHeight = h.toFloat()
         val samples = kotlin.math.ceil(w / (SAMPLE_STEP_DP * dp)).toInt() + 2
-        segments = FloatArray(samples * 4)
+        segBuckets = Array(ALPHA_BUCKETS) { FloatArray(samples * 4) }
         prevY = FloatArray(samples); curY = FloatArray(samples)
     }
 
@@ -238,7 +239,6 @@ internal class ContourScanView @JvmOverloads constructor(
         val elapsed = if (frozen) Long.MAX_VALUE / 2 else SystemClock.uptimeMillis() - sweepStart
         var sweeping = false
         val colour = colors.ring
-        val seg = segments
         prevY.fill(-1e9f)
 
         for (k in 0..count) {
@@ -261,14 +261,27 @@ internal class ContourScanView @JvmOverloads constructor(
             if (a0 < 1f) sweeping = true
             if (a0 <= 0f) continue
             val edgeFade = if (y > fadeStart) 1f - (y - fadeStart) / (bottom - fadeStart) else 1f
-            var len = 0
+            // v3.1: where lines are squeezed together (above the head, under the
+            // chin) they fade with the squeeze, so the crowding reads as a soft
+            // glow rather than a dark band. curY now holds the line above.
+            bucketLen.fill(0)
             for (j in 1 until nS) {
-                if (len + 4 > seg.size) break
-                seg[len] = (j - 1) * step; seg[len + 1] = prevY[j - 1]; seg[len + 2] = j * step; seg[len + 3] = prevY[j]
-                len += 4
+                val gap = minOf(prevY[j] - curY[j], prevY[j - 1] - curY[j - 1])
+                val squeeze = (gap / spacing).coerceIn(0f, 1f)
+                val b = (squeeze * (ALPHA_BUCKETS - 1) + 0.5f).toInt()
+                val arr = segBuckets[b]
+                val i = bucketLen[b]
+                if (i + 4 > arr.size) continue
+                arr[i] = (j - 1) * step; arr[i + 1] = prevY[j - 1]; arr[i + 2] = j * step; arr[i + 3] = prevY[j]
+                bucketLen[b] = i + 4
             }
-            linePaint.color = ColorUtils.setAlphaComponent(colour, (LINE_ALPHA * a0 * edgeFade * 255).toInt().coerceIn(0, 255))
-            canvas.drawLines(seg, 0, len, linePaint)
+            for (b in 0 until ALPHA_BUCKETS) {
+                if (bucketLen[b] == 0) continue
+                val squeeze = b / (ALPHA_BUCKETS - 1f)
+                val fade = SQUEEZE_FLOOR + (1f - SQUEEZE_FLOOR) * squeeze
+                linePaint.color = ColorUtils.setAlphaComponent(colour, (LINE_ALPHA * fade * a0 * edgeFade * 255).toInt().coerceIn(0, 255))
+                canvas.drawLines(segBuckets[b], 0, bucketLen[b], linePaint)
+            }
         }
         return sweeping
     }
@@ -301,6 +314,9 @@ internal class ContourScanView @JvmOverloads constructor(
         /** v3: one colour at an even alpha. */
         const val LINE_ALPHA = 0.90f
         const val LINE_WIDTH_DP = 1.3f
+        /** v3.1: alpha of a line squeezed to nothing, relative to a line at its normal spacing. */
+        const val SQUEEZE_FLOOR = 0.25f
+        private const val ALPHA_BUCKETS = 6
         const val SWEEP_MS = 520f
         const val LINE_FADE_MS = 140f
         /** Veil opacity: lights the face while the camera still shows through. */

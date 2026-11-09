@@ -143,9 +143,13 @@ internal object ReliefBuilder {
         val bcy = (ty + by) / 2f + BUMP_CY_SHIFT * faceH
         val bRx = max(1f, BUMP_RX * faceW)
         val bRy = max(1f, BUMP_RY * faceH)
+        // Taller above the centre: lines pushed up over the forehead spread
+        // their squeeze over more distance instead of stacking above the head.
+        val bRyUp = max(1f, BUMP_RY_UP * faceH)
         val raw = FloatArray(n)
         for (y in 0 until rows) {
-            val ny = ((y + 0.5f) * cell - bcy) / bRy
+            val dy = (y + 0.5f) * cell - bcy
+            val ny = dy / (if (dy < 0f) bRyUp else bRy)
             for (x in 0 until cols) {
                 val nx = ((x + 0.5f) * cell - dcx) / bRx
                 val r2 = nx * nx + ny * ny
@@ -204,6 +208,8 @@ internal object ReliefBuilder {
      */
     const val BUMP_RX = 0.58f
     const val BUMP_RY = 0.65f
+    /** Half-height above the centre (v3.1): a gentler fade over the head. */
+    const val BUMP_RY_UP = 0.85f
     const val BUMP_CY_SHIFT = 0.05f
     const val DOME_RX = 0.62f
     const val DOME_RY = 0.78f
