@@ -40,6 +40,9 @@ internal class LiveFaceAnalyzer(
     @Volatile private var released = false
     @Volatile private var lastTimestampMs = 0L
 
+    /** The covered-face segmentation is running (its model is present). */
+    val coverCheckOn: Boolean get() = coverSegmenter.available
+
     @Volatile var initState: InitState = InitState.IDLE
         private set
 
@@ -235,7 +238,7 @@ internal class LiveFaceAnalyzer(
             coverPending = cover == null
             if (frames % 60 == 0) Log.d(TAG, "cover segmentation ~${coverSegmenter.meanMs.toInt()} ms")
         }
-        onFrame(GateFrame(ts, w, h, distinctFaces, pts, pose, region, blinkL, blinkR, regions, cover, coverPending))
+        onFrame(GateFrame(ts, w, h, distinctFaces, pts, pose, region, blinkL, blinkR, regions, cover, coverPending, coverSegmenter.latestAt))
     }
 
     private fun iou(a: FloatArray, b: FloatArray): Float {

@@ -57,6 +57,8 @@ internal class GateFrame(
     val cover: FaceCover? = null,
     /** The segmenter is on but has no result for this face yet: don't pass. */
     val coverPending: Boolean = false,
+    /** Time of the frame the [cover] result was segmented from. */
+    val coverAt: Long = 0L,
 ) {
     val landmarkCount: Int get() = (points?.size ?: 0) / 3
 }

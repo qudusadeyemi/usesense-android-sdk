@@ -1221,6 +1221,7 @@ class HostedPageActivity : AppCompatActivity() {
 
     /** The oval guide: hints until every check passes, then the scan starts by itself. */
     private fun enterAlign(sess: UseSenseSession) {
+        finalCoverSince = 0L
         handler.removeCallbacks(scanBlurOn)
         setScanBlur(false)
         sess.setCapturePhase(CapturePhase.FACE_GUIDE)
@@ -1255,6 +1256,8 @@ class HostedPageActivity : AppCompatActivity() {
      * The contour relief for [frame] at the view's size (gate thread). Landmarks
      * are mapped to screen px as the preview shows them (mirrored aspect-fill).
      */
+    /** When the scan completed and is waiting for its final covered-face check (0 = not waiting). */
+    private var finalCoverSince = 0L
     @Volatile private var reliefLogAt = 0L
     private var reliefFrames = 0
     private var reliefMs = 0L
@@ -1306,6 +1309,21 @@ class HostedPageActivity : AppCompatActivity() {
 
         val pts = frame.points
         if (relief != null) scanView.updateRelief(relief) else if (pts == null) scanView.clearFace()
+
+        // The scan's final covered-face check: a result from after the scan.
+        if (scanStage == ScanStage.PASSIVE && finalCoverSince > 0L && frame.coverAt >= finalCoverSince) {
+            val covered = frame.cover?.covered == true
+            Log.i(TAG, "Final cover check: covered=$covered hand=${frame.cover?.bodySkin}")
+            finalCoverSince = 0L
+            if (covered) {
+                sess.restartCaptureWindow()
+                watchdog.disarm()
+                enterAlign(sess)
+            } else {
+                finishPassiveScan()
+            }
+            return
+        }
 
         val forced = debugHooks?.forceState
         if (forced == "pass") {
@@ -1364,6 +1382,15 @@ class HostedPageActivity : AppCompatActivity() {
                 scanView.tone = if (hintScheduler.current != null) ContourScanView.Tone.WARNING else ContourScanView.Tone.NEUTRAL
             }
             ScanStage.PASSIVE -> {
+                if (finalCoverSince > 0L) {
+                    // Waiting for the final covered-face check; don't hang on it.
+                    if (now - finalCoverSince > FINAL_COVER_WAIT_MS) {
+                        Log.i(TAG, "Final cover check timed out; finishing")
+                        finalCoverSince = 0L
+                        finishPassiveScan()
+                    }
+                    return
+                }
                 debugHooks?.forceProgress?.takeIf { debugHooks?.forceState.let { it != null && it != "pass" } }?.let { held ->
                     // Test rig: hold the ring for the golden screenshot.
                     scanView.paused = false
@@ -1396,6 +1423,13 @@ class HostedPageActivity : AppCompatActivity() {
                     }
                     ScanController.Event.COMPLETED -> {
                         scanView.progress = 1f
+                        if (liveAnalyzer?.coverCheckOn == true && debugHooks?.forceState != "pass") {
+                            // Covered-face segmentation lags ~1 s on slow phones:
+                            // finish only once a result from after the last banked
+                            // frame says the face is clear (onGateFrame).
+                            finalCoverSince = now
+                            return
+                        }
                         finishPassiveScan()
                         return
                     }
@@ -2458,6 +2492,8 @@ class HostedPageActivity : AppCompatActivity() {
         /** Share of the upload sheet's bar that the upload itself fills. */
         private const val UPLOAD_BAR_FRAME_MS = 33L
         private const val SCAN_BLUR_DELAY_MS = 1500L
+        /** Longest wait for the final covered-face check before finishing anyway. */
+        private const val FINAL_COVER_WAIT_MS = 2500L
         private const val SCAN_BLUR_DP = 18f
         private const val DEBUG_UPLOAD_PROGRESS = 0.64f
 
