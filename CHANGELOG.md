@@ -12,7 +12,7 @@ Guided face capture (LiveSense capture redesign, Phase 1). Tested on a Samsung
 Galaxy A03 (Android 13): mock captures, a sandbox Flow run to a verdict, hands
 over the face before, during and at the end of the scan, and lighting changes.
 
-**Size:** the AAR grows to about 20 MB (was ~4 MB) because the covered-face
+**Size:** the AAR grows to about 20 MB (4.11.0 was 4.8 MB) because the covered-face
 check bundles MediaPipe's multiclass selfie segmentation model (16.4 MB).
 
 ### Added
