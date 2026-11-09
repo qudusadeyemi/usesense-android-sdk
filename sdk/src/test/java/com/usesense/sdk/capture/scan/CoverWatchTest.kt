@@ -62,3 +62,35 @@ class CoverWatchTest {
         assertFalse(watched(List(3) { skin() } + skin(1.25f)).last())
     }
 }
+
+class FaceCoverTest {
+    /** A 100x100 frame, the FACE_OVAL ring on a circle of radius 40 around (50, 50). */
+    private fun points(): FloatArray {
+        val p = FloatArray(478 * 3)
+        val ring = QualityGate.FACE_OVAL
+        ring.forEachIndexed { k, idx ->
+            val a = 2 * Math.PI * k / ring.size
+            p[idx * 3] = (50 + 40 * kotlin.math.cos(a)).toFloat()
+            p[idx * 3 + 1] = (50 + 40 * kotlin.math.sin(a)).toFloat()
+        }
+        return p
+    }
+
+    private fun cover(mask: IntArray) = FaceCover.measure({ mask[it] }, 100, 100, 100, 100, points(), 478)!!
+
+    @Test fun `a clear face is not covered`() {
+        val c = cover(IntArray(100 * 100) { FaceCover.FACE_SKIN })
+        assertFalse(c.covered)
+    }
+
+    @Test fun `a hand over the lower face is covered`() {
+        // Body skin over the bottom third of the face.
+        val c = cover(IntArray(100 * 100) { if (it / 100 > 62) FaceCover.BODY_SKIN else FaceCover.FACE_SKIN })
+        assertTrue("hand ${c.bodySkin}", c.covered)
+    }
+
+    @Test fun `hair over the forehead is not a cover`() {
+        val c = cover(IntArray(100 * 100) { if (it / 100 < 35) FaceCover.HAIR else FaceCover.FACE_SKIN })
+        assertFalse(c.covered)
+    }
+}

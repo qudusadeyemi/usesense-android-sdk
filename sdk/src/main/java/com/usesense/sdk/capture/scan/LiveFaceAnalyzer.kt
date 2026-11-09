@@ -34,6 +34,9 @@ internal class LiveFaceAnalyzer(
     private val executor = Executors.newSingleThreadExecutor { r -> Thread(r, "usesense-gate") }
     private val busy = AtomicBoolean(false)
     private val qualityAnalyzer = ImageQualityAnalyzer()
+    private val coverSegmenter = FaceCoverSegmenter(context)
+    private var lastCover: FaceCover? = null
+    private var lastCoverAt = 0L
 
     @Volatile private var landmarker: FaceLandmarker? = null
     @Volatile private var released = false
@@ -83,6 +86,8 @@ internal class LiveFaceAnalyzer(
                 false
             }
             initState = if (ok) InitState.READY else InitState.FAILED
+            // Optional: the covered-face segmenter (off when its model is absent).
+            if (ok && !released) coverSegmenter.initialize()
             onDone(ok)
         }
     }
@@ -217,7 +222,16 @@ internal class LiveFaceAnalyzer(
             argb, w, h, minX.toInt(), minY.toInt(), maxX.toInt() + 1, maxY.toInt() + 1,
         )
         val regions = FaceRegions.measure(argb, w, h, pts, face.size)
-        onFrame(GateFrame(ts, w, h, distinctFaces, pts, pose, region, blinkL, blinkR, regions))
+        // Segmentation every few frames; its result holds for a second.
+        if (coverSegmenter.available && frames % COVER_EVERY == 0) {
+            runCatching { coverSegmenter.measure(bmp, pts, face.size) }.getOrNull()?.let {
+                lastCover = it
+                lastCoverAt = ts
+            }
+            if (frames % (COVER_EVERY * 20) == 0) Log.d(TAG, "cover segmentation ~${coverSegmenter.meanMs.toInt()} ms")
+        }
+        val cover = lastCover?.takeIf { ts - lastCoverAt <= COVER_MAX_AGE_MS }
+        onFrame(GateFrame(ts, w, h, distinctFaces, pts, pose, region, blinkL, blinkR, regions, cover))
     }
 
     private fun iou(a: FloatArray, b: FloatArray): Float {
@@ -234,6 +248,7 @@ internal class LiveFaceAnalyzer(
         executor.execute {
             runCatching { landmarker?.close() }
             landmarker = null
+            coverSegmenter.release()
         }
         executor.shutdown()
     }
@@ -247,6 +262,9 @@ internal class LiveFaceAnalyzer(
          * of 12). MediaPipe resizes for its models itself.
          */
         const val TARGET_LONG_EDGE = 640f
+        /** Run the covered-face segmentation on every Nth gate frame. */
+        const val COVER_EVERY = 3
+        const val COVER_MAX_AGE_MS = 1000L
         const val MIN_DETECTION = 0.5f
         const val MIN_PRESENCE = 0.5f
         const val MIN_TRACKING = 0.5f

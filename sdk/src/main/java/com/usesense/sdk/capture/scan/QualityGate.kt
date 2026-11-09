@@ -53,6 +53,8 @@ internal class GateFrame(
     val eyeBlinkRight: Float? = null,
     /** Appearance of six face regions, for the covered-face check during the scan. */
     val regions: FaceRegions? = null,
+    /** Segmentation of the face area (null when the segmenter is off or stale). */
+    val cover: FaceCover? = null,
 ) {
     val landmarkCount: Int get() = (points?.size ?: 0) / 3
 }
@@ -96,13 +98,17 @@ internal data class GateMetrics(
     /** Covered-face change score during the scan (>= 1 fails) and its region. */
     val cover: Float = 0f,
     val coverRegion: Int = -1,
+    /** Segmenter shares of the face area: body skin (a hand) and other. */
+    val segBodySkin: Float? = null,
+    val segOther: Float? = null,
 ) {
     override fun toString(): String =
         "oval=%.2f dist=%.3f jitter=%.3f yaw=%.1f pitch=%.1f roll=%.1f luma=%.0f clip=%.3f sharp=%.1f".format(
             java.util.Locale.US, ovalFit, eyeDistanceRatio, jitter,
             pose?.yaw ?: Double.NaN, pose?.pitch ?: Double.NaN, pose?.roll ?: Double.NaN,
             luma ?: Double.NaN, clipped ?: Double.NaN, sharpness ?: Double.NaN,
-        ) + if (coverRegion >= 0) " cover=%.2f@%s".format(java.util.Locale.US, cover, FaceRegions.NAMES[coverRegion]) else ""
+        ) + (if (coverRegion >= 0) " cover=%.2f@%s".format(java.util.Locale.US, cover, FaceRegions.NAMES[coverRegion]) else "") +
+            (if (segBodySkin != null) " seg=hand %.2f other %.2f".format(java.util.Locale.US, segBodySkin, segOther ?: 0f) else "")
 }
 
 /**
@@ -164,9 +170,12 @@ internal class QualityGate(
         // 2. One person.
         if (frame.faceCount >= 2) failing += GateHint.ONE_PERSON
 
-        // 2b. Covered (scan only): a face region changed sharply since the scan
-        // started, as when a hand or an object comes in front of the face.
-        if (scanning && coverWatch.covered(frame.regions)) failing += GateHint.FACE_COVERED
+        // 2b. Covered: the segmenter sees a hand or an object over the face (any
+        // stage), or, during the scan, a face region changed sharply since it
+        // started.
+        val segCovered = frame.cover?.covered == true
+        val changed = scanning && coverWatch.covered(frame.regions)
+        if (segCovered || changed) failing += GateHint.FACE_COVERED
 
         // Map once to screen space (aspect-fill + mirror, as the preview).
         val n0 = n
@@ -261,6 +270,8 @@ internal class QualityGate(
             sharpness = sharpnessHistory.takeIf { it.isNotEmpty() }?.sorted()?.get(sharpnessHistory.size / 2),
             cover = if (scanning) coverWatch.lastScore else 0f,
             coverRegion = if (scanning) coverWatch.lastRegion else -1,
+            segBodySkin = frame.cover?.bodySkin,
+            segOther = frame.cover?.other,
         )
         return GateResult(failing, tooDark, metrics)
     }
