@@ -101,12 +101,12 @@ internal class ContourScanView @JvmOverloads constructor(
         style = Paint.Style.STROKE
         strokeWidth = LINE_WIDTH_DP * dp
         strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
     }
     private val fillLightPaint = Paint()
 
-    /** Segment buffers for one line by alpha bucket (x0, y0, x1, y1 ...). */
-    private var segBuckets = Array(ALPHA_BUCKETS) { FloatArray(0) }
-    private val bucketLen = IntArray(ALPHA_BUCKETS)
+    /** One run of equal-alpha segments of a line, stroked as a single path. */
+    private val linePath = Path()
     /** Per-sample y of the line above and of this line. */
     private var prevY = FloatArray(0)
     private var curY = FloatArray(0)
@@ -154,7 +154,6 @@ internal class ContourScanView @JvmOverloads constructor(
         reliefWidth = w.toFloat()
         reliefHeight = h.toFloat()
         val samples = kotlin.math.ceil(w / (SAMPLE_STEP_DP * dp)).toInt() + 2
-        segBuckets = Array(ALPHA_BUCKETS) { FloatArray(samples * 4) }
         prevY = FloatArray(samples); curY = FloatArray(samples)
     }
 
@@ -264,23 +263,31 @@ internal class ContourScanView @JvmOverloads constructor(
             // v3.1: where lines are squeezed together (above the head, under the
             // chin) they fade with the squeeze, so the crowding reads as a soft
             // glow rather than a dark band. curY now holds the line above.
-            bucketLen.fill(0)
-            for (j in 1 until nS) {
-                val gap = minOf(prevY[j] - curY[j], prevY[j - 1] - curY[j - 1])
-                val squeeze = (gap / spacing).coerceIn(0f, 1f)
-                val b = (squeeze * (ALPHA_BUCKETS - 1) + 0.5f).toInt()
-                val arr = segBuckets[b]
-                val i = bucketLen[b]
-                if (i + 4 > arr.size) continue
-                arr[i] = (j - 1) * step; arr[i + 1] = prevY[j - 1]; arr[i + 2] = j * step; arr[i + 3] = prevY[j]
-                bucketLen[b] = i + 4
-            }
-            for (b in 0 until ALPHA_BUCKETS) {
-                if (bucketLen[b] == 0) continue
-                val squeeze = b / (ALPHA_BUCKETS - 1f)
+            // Runs of equal alpha are stroked as one path: drawing each segment
+            // with round caps blends the overlapping caps twice at every joint,
+            // which makes translucent lines look dotted (seen in the reference).
+            var runStart = 1
+            var runBucket = -1
+            for (j in 1..nS) {
+                val b = if (j < nS) {
+                    val gap = minOf(prevY[j] - curY[j], prevY[j - 1] - curY[j - 1])
+                    val squeeze = (gap / spacing).coerceIn(0f, 1f)
+                    (squeeze * (ALPHA_BUCKETS - 1) + 0.5f).toInt()
+                } else {
+                    -1
+                }
+                if (j == 1) { runBucket = b; continue }
+                if (b == runBucket) continue
+                // Stroke segments runStart..j-1 (points runStart-1..j-1).
+                linePath.rewind()
+                linePath.moveTo((runStart - 1) * step, prevY[runStart - 1])
+                for (k in runStart until j) linePath.lineTo(k * step, prevY[k])
+                val squeeze = runBucket / (ALPHA_BUCKETS - 1f)
                 val fade = SQUEEZE_FLOOR + (1f - SQUEEZE_FLOOR) * squeeze
                 linePaint.color = ColorUtils.setAlphaComponent(colour, (LINE_ALPHA * fade * a0 * edgeFade * 255).toInt().coerceIn(0, 255))
-                canvas.drawLines(segBuckets[b], 0, bucketLen[b], linePaint)
+                canvas.drawPath(linePath, linePaint)
+                runStart = j
+                runBucket = b
             }
         }
         return sweeping
