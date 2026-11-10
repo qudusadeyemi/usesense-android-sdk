@@ -2,6 +2,7 @@ package com.usesense.sdk.capture.extracheck
 
 import com.usesense.sdk.R
 import com.usesense.sdk.api.models.HeadTurnStep
+import com.usesense.sdk.capture.scan.GateHint
 
 /** A guidance line: title and optional second line, as string resources. */
 internal data class Guidance(val title: Int, val detail: Int? = null)
@@ -31,18 +32,25 @@ internal object ExtraCheckCopy {
         }
 
     /** What the guidance says right now. [words]: a Speak phrase that isn't digits. */
+    /**
+     * [pausedBy]: the gate check holding a paused movement (the scan's
+     * guidance names it, the second line says the movement waits).
+     */
     fun guidance(
         runner: ExtraCheckRunner,
         words: Boolean = false,
+        pausedBy: GateHint? = null,
     ): Guidance {
         if (runner.completed) return Guidance(R.string.usesense_xc_done)
         val kind = runner.kind
         if (runner.paused) {
-            return when (kind) {
-                ExtraCheckKind.HEAD_TURN -> Guidance(R.string.usesense_hint_centre, R.string.usesense_xc_paused_turn_detail)
-                ExtraCheckKind.FOLLOW_DOT -> Guidance(R.string.usesense_hint_show_face, R.string.usesense_xc_dot_wait)
-                ExtraCheckKind.SPEAK_DIGITS -> Guidance(R.string.usesense_hint_show_face, R.string.usesense_xc_paused_digits_detail)
-            }
+            val (fallback, detail) =
+                when (kind) {
+                    ExtraCheckKind.HEAD_TURN -> R.string.usesense_hint_centre to R.string.usesense_xc_paused_turn_detail
+                    ExtraCheckKind.FOLLOW_DOT -> R.string.usesense_hint_show_face to R.string.usesense_xc_dot_wait
+                    ExtraCheckKind.SPEAK_DIGITS -> R.string.usesense_hint_show_face to R.string.usesense_xc_paused_digits_detail
+                }
+            return Guidance(pausedBy?.let(::hintTitle) ?: fallback, detail)
         }
         return when (kind) {
             ExtraCheckKind.HEAD_TURN -> headTurn(runner)
@@ -92,6 +100,22 @@ internal object ExtraCheckCopy {
             )
         }
     }
+
+    /** The scan's words for a failing gate check (the light checks never pause, so they have none). */
+    fun hintTitle(hint: GateHint): Int? =
+        when (hint) {
+            GateHint.SHOW_FACE -> R.string.usesense_hint_show_face
+            GateHint.ONE_PERSON -> R.string.usesense_hint_one_person
+            GateHint.FACE_COVERED -> R.string.usesense_hint_face_covered
+            GateHint.CENTRE -> R.string.usesense_hint_centre
+            GateHint.MOVE_CLOSER -> R.string.usesense_hint_move_closer
+            GateHint.MOVE_BACK, GateHint.TOO_BIG -> R.string.usesense_hint_move_back
+            GateHint.LOOK_STRAIGHT -> R.string.usesense_hint_look_straight
+            GateHint.HOLD_STEADY -> R.string.usesense_hint_hold_steady
+            GateHint.EYES_OPEN -> R.string.usesense_hint_eyes_open
+            GateHint.HOLD_STILL -> R.string.usesense_hint_hold_still
+            GateHint.BRIGHTENING, GateHint.FACE_LIGHT, GateHint.TOO_BRIGHT -> null
+        }
 
     /** The digits as the pill shows them: "4 7 2 9" (the server already spaces them). */
     fun digitsText(phrase: String?): String {

@@ -11,10 +11,10 @@ import org.junit.Test
 /** The extra check's clock (storyboard flows 4 and 5, decisions on pause and retry). */
 class ExtraCheckRunnerTest {
     private val leftRight = listOf(ExtraCheckStep(2000, direction = "left"), ExtraCheckStep(2000, direction = "right"))
-    private val turnedLeft = ExtraCheckInput(faceInOval = true, turn = -0.4f)
-    private val turnedRight = ExtraCheckInput(faceInOval = true, turn = 0.4f)
-    private val still = ExtraCheckInput(faceInOval = true, turn = 0f)
-    private val away = ExtraCheckInput(faceInOval = false)
+    private val turnedLeft = ExtraCheckInput(gatePasses = true, turn = -0.4f)
+    private val turnedRight = ExtraCheckInput(gatePasses = true, turn = 0.4f)
+    private val still = ExtraCheckInput(gatePasses = true, turn = 0f)
+    private val away = ExtraCheckInput(gatePasses = false)
 
     /** Tick every 50 ms from [from] up to [to]; returns every event. */
     private fun ExtraCheckRunner.run(
@@ -123,10 +123,10 @@ class ExtraCheckRunnerTest {
     fun `speak digits says we can't hear you after 2 s of a flat meter`() {
         val r = ExtraCheckRunner(ExtraCheckKind.SPEAK_DIGITS, listOf(ExtraCheckStep(4000)))
         r.start(0)
-        val quiet = r.run(0, 2100, ExtraCheckInput(faceInOval = true, micLevel = 0.02f))
+        val quiet = r.run(0, 2100, ExtraCheckInput(gatePasses = true, micLevel = 0.02f))
         assertEquals(listOf(ExtraCheckEvent.Quiet), quiet)
         assertTrue(r.quiet)
-        val heard = r.run(2100, 2200, ExtraCheckInput(faceInOval = true, micLevel = 0.6f))
+        val heard = r.run(2100, 2200, ExtraCheckInput(gatePasses = true, micLevel = 0.6f))
         assertEquals(listOf(ExtraCheckEvent.Heard), heard)
         assertFalse(r.quiet)
     }
@@ -135,9 +135,9 @@ class ExtraCheckRunnerTest {
     fun `a silent microphone holds the digits at most 6 s, then it completes`() {
         val r = ExtraCheckRunner(ExtraCheckKind.SPEAK_DIGITS, listOf(ExtraCheckStep(4000)))
         r.start(0)
-        val events = r.run(0, 9_900, ExtraCheckInput(faceInOval = true, micLevel = 0f))
+        val events = r.run(0, 9_900, ExtraCheckInput(gatePasses = true, micLevel = 0f))
         assertFalse(ExtraCheckEvent.Completed in events)
-        val later = r.run(9_900, 10_200, ExtraCheckInput(faceInOval = true, micLevel = 0f))
+        val later = r.run(9_900, 10_200, ExtraCheckInput(gatePasses = true, micLevel = 0f))
         assertTrue(ExtraCheckEvent.Completed in later)
         assertFalse("done is never shown amber", r.quiet)
     }

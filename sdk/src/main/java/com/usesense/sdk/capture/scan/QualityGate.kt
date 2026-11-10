@@ -63,6 +63,24 @@ internal class GateFrame(
     val landmarkCount: Int get() = (points?.size ?: 0) / 3
 }
 
+/**
+ * A movement the extra check asks for (Head Turn, Follow Dot). Every other
+ * check still runs as in the scan; only these give way:
+ *  - pose may go to [MAX_YAW] / [MAX_PITCH] on the axis the step asks for;
+ *  - while [moving], stillness and the covered-face change watch are off (the
+ *    face is meant to move; the segmenter's covered check still runs).
+ */
+internal data class GateMotion(
+    val yawAllowed: Boolean,
+    val pitchAllowed: Boolean,
+    val moving: Boolean,
+) {
+    companion object {
+        const val MAX_YAW = 50.0
+        const val MAX_PITCH = 35.0
+    }
+}
+
 /** The guide oval in view pixels. */
 internal data class OvalSpec(val cx: Float, val cy: Float, val rx: Float, val ry: Float)
 
@@ -182,6 +200,7 @@ internal class QualityGate(
         oval: OvalSpec,
         fillLightOnForMs: Long? = null,
         scanning: Boolean = false,
+        motion: GateMotion? = null,
     ): GateResult {
         // A new scan takes a new baseline for the covered-face check.
         if (scanning && !wasScanning) {
@@ -280,7 +299,9 @@ internal class QualityGate(
 
         // 5. Pose.
         frame.pose?.let { p ->
-            if (abs(p.yaw) >= MAX_YAW || abs(p.pitch) >= MAX_PITCH || abs(p.roll) >= MAX_ROLL) {
+            val maxYaw = if (motion?.yawAllowed == true) GateMotion.MAX_YAW else MAX_YAW
+            val maxPitch = if (motion?.pitchAllowed == true) GateMotion.MAX_PITCH else MAX_PITCH
+            if (abs(p.yaw) >= maxYaw || abs(p.pitch) >= maxPitch || abs(p.roll) >= MAX_ROLL) {
                 failing += GateHint.LOOK_STRAIGHT
             }
         }
@@ -319,7 +340,8 @@ internal class QualityGate(
 
         // 9. Stillness over 300 ms.
         val still = isStill(frame.timestampMs, pts, n, eyeDist)
-        if (!still) failing += GateHint.HOLD_STILL
+        val moving = motion?.moving == true
+        if (!still && !moving) failing += GateHint.HOLD_STILL
 
         // 2b (continued). The change watch (scan only). Its baseline is taken only
         // from settled frames, the face still, in the oval, at the distance and
@@ -332,7 +354,7 @@ internal class QualityGate(
             it.check == GateCheck.FACE_FOUND || it.check == GateCheck.DISTANCE ||
                 it.check == GateCheck.IN_OVAL || it.check == GateCheck.POSE
         }
-        if (scanning && !watchOff) {
+        if (scanning && !watchOff && !moving) {
             val changed = coverWatch.covered(frame.regions, baselineAllowed = settled, counting = still)
             if (coverWatch.baselineJustTaken) coverStats?.changeWatchBaselineTaken(frame.timestampMs - scanStartedAt)
             if (coverWatch.compared) {

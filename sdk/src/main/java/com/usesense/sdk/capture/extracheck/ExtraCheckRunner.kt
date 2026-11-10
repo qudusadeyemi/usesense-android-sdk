@@ -44,8 +44,12 @@ internal data class ExtraCheckStep(
 
 /** What the screen measured on the latest gate frame. */
 internal data class ExtraCheckInput(
-    /** A face is found and sits in the oval. */
-    val faceInOval: Boolean,
+    /**
+     * The quality gate passes, as in the scan (face found, one person,
+     * uncovered, distance, in frame, sharp, eyes open; pose relaxed toward
+     * the movement asked for). False pauses the movement.
+     */
+    val gatePasses: Boolean,
     /**
      * Head turn as the person sees it in the mirrored preview: the nose's
      * offset from the cheek midpoint in half cheek-widths. Negative = turned
@@ -159,7 +163,7 @@ internal class ExtraCheckRunner(
         lastTick = now
 
         // Face in the oval, with a little hysteresis so one bad frame doesn't flash amber.
-        if (!input.faceInOval) {
+        if (!input.gatePasses) {
             goodSince = -1L
             if (badSince < 0) badSince = now
             if (!paused && now - badSince >= LOSE_MS) {
