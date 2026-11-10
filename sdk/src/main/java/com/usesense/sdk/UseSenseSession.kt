@@ -236,6 +236,10 @@ internal class UseSenseSession(
         frameCaptureManager?.getFrameBuffer()?.roundLimit = null
     }
 
+    /** Frames banked since the closer step began. */
+    val closerBankedFrames: Int
+        get() = if (closerStartIndex < 0) 0 else (bankedFrameCount - closerStartIndex).coerceAtLeast(0)
+
     /** Whether the closer step may still bank a frame. */
     val closerBudgetLeft: Boolean
         get() = frameCaptureManager?.getFrameBuffer()?.let { it.frameCount < it.limit } ?: false
@@ -697,6 +701,7 @@ internal class UseSenseSession(
             ?: return Result.failure(ApiException(UseSenseError.captureFailed("No frames captured")))
 
         val metadataJson = packageRound(sid, buffer, challengePresenter?.responseBuilder?.build())
+        com.usesense.sdk.internal.DebugCaptureHooks.load(context)?.onUpload(buffer.getJpegDataList(), metadataJson)
 
         return uploader.upload(
             sessionId = sid,

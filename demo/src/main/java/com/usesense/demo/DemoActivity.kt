@@ -186,7 +186,8 @@ class DemoActivity : AppCompatActivity() {
             activity = this,
             request = VerificationRequest(
                 sessionType = sessionType,
-                externalUserId = "demo_user_001",
+                // Launch extra `external_user_id` (device tests): a fresh user per run.
+                externalUserId = extras?.getStringExtra("external_user_id") ?: "demo_user_001",
                 identityId = identityId,
                 metadata = mapOf("source" to "demo_app"),
             ),

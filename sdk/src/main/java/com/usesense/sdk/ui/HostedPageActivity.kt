@@ -2140,6 +2140,7 @@ class HostedPageActivity : AppCompatActivity() {
             gatePasses = fresh && closerGatePasses,
             nearFrames = sess.closerNearFrames(),
             budgetLeft = sess.closerBudgetLeft,
+            bankedNear = sess.closerBankedFrames,
         )
         if (tick.bank) sess.resumeCapture() else sess.pauseCapture()
         showGuidance(getString(if (tick.needsCloser) R.string.usesense_hint_move_closer else R.string.usesense_hint_hold_still), null)

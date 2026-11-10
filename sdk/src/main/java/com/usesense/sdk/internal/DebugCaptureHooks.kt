@@ -39,6 +39,9 @@ internal interface DebugCaptureHooks {
 
     fun stop()
 
+    /** Debug rig `dumpUpload`: keep a copy of what round 1 uploads (frames and metadata) for offline checks. */
+    fun onUpload(frames: List<ByteArray>, metadataJson: ByteArray) {}
+
     companion object {
         private const val IMPL = "com.usesense.sdk.debug.FakeCameraHooks"
 

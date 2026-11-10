@@ -491,4 +491,12 @@ class EvidenceTest {
         assertNull(exposure.exposureElapsedMs(0L, 10_000_000_000L, 4_000_000_000L))
         assertNull(exposure.exposureElapsedMs(50_000_000_000L, 10_000_000_000L, 4_000_000_000L))
     }
+
+    @Test
+    fun `the closer step ends on banked frames without waiting for the mesh`() {
+        val c = CloserStepController(100.0, 1.25, 0)
+        c.tick(1000, 130.0, true, 0, true)
+        assertFalse(c.tick(1500, 130.0, true, nearFrames = 0, budgetLeft = true, bankedNear = 3).done)
+        assertTrue(c.tick(1600, 130.0, true, nearFrames = 0, budgetLeft = true, bankedNear = 4).done)
+    }
 }

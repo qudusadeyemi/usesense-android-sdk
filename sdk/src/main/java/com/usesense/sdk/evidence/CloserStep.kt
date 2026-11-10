@@ -31,8 +31,14 @@ internal class CloserStepController(
     private var shownNear = false
     private var holdingSince = -1L
 
-    /** [nearFrames]: near frames confirmed so far (from the uploaded frames' own mesh). */
-    fun tick(nowMs: Long, eye: Double?, gatePasses: Boolean, nearFrames: Int, budgetLeft: Boolean): Tick {
+    /**
+     * [nearFrames]: near frames confirmed so far by the uploaded frames' own mesh.
+     * [bankedNear]: frames banked by this step (each banked only while close
+     * enough). The mesh lags banking (about 1 s on a Galaxy A03), so waiting on
+     * it alone held people for the whole hold budget; [BANKED_ENOUGH] banked
+     * frames end the step and the upload confirms them.
+     */
+    fun tick(nowMs: Long, eye: Double?, gatePasses: Boolean, nearFrames: Int, budgetLeft: Boolean, bankedNear: Int = 0): Tick {
         val e = eye ?: 0.0
         // The copy switches at the threshold and only goes back a little below it, so it doesn't flicker.
         shownNear = if (shownNear) e >= threshold * RELEASE_SHARE else e >= threshold
@@ -42,13 +48,15 @@ internal class CloserStepController(
         }
         holdingSince = if (e >= threshold && gatePasses) (if (holdingSince < 0) nowMs else holdingSince) else -1L
         val bank = holdingSince >= 0 && nowMs - holdingSince >= SETTLE_MS
-        val done = nearFrames >= PHASE_FRAMES || !budgetLeft || nowMs >= deadline
+        val done = nearFrames >= PHASE_FRAMES || bankedNear >= BANKED_ENOUGH || !budgetLeft || nowMs >= deadline
         return Tick(bank = bank && !done, needsCloser = !shownNear, done = done)
     }
 
     companion object {
         /** Frames each phase needs (section 7: 3 or more). */
         const val PHASE_FRAMES = 3
+        /** Banked near frames that end the step: one spare over [PHASE_FRAMES] for a frame the mesh rejects. */
+        const val BANKED_ENOUGH = 4
         /** Frames the closer step may bank at most, out of `upload.max_frames`. */
         const val MAX_FRAMES = 6
         /** Section 7: the user didn't reach `min_scale` within 4 s. */

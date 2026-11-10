@@ -79,6 +79,17 @@ internal class FakeCameraHooks(context: Context) : DebugCaptureHooks, DebugCaptu
         running = false
     }
 
+    /** `"dumpUpload": true`: each upload's JPEGs and metadata.json under files/upload_dump/<time>/. */
+    override fun onUpload(frames: List<ByteArray>, metadataJson: ByteArray) {
+        if (config?.optBoolean("dumpUpload") != true) return
+        runCatching {
+            val out = File(dir, "upload_dump/${System.currentTimeMillis()}").apply { mkdirs() }
+            frames.forEachIndexed { i, bytes -> File(out, "frame_%02d.jpg".format(i)).writeBytes(bytes) }
+            File(out, "metadata.json").writeBytes(metadataJson)
+            Log.w(TAG, "Upload dumped to ${out.absolutePath} (debug build)")
+        }.onFailure { Log.e(TAG, "Upload dump failed", it) }
+    }
+
     private companion object {
         const val TAG = "UseSenseFakeCamera"
         const val CONFIG = "usesense_fake_camera.json"
