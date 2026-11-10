@@ -105,6 +105,21 @@ class DeviceSignalCollector(private val context: Context, cloudProjectNumber: Lo
         playIntegrityToken = playIntegrityManager.requestIntegrityToken(nonce)
     }
 
+    /** EVIDENCE-v1 binding v2: a Standard request can be made (a cloud project is configured). */
+    val standardIntegrityAvailable: Boolean = cloudProjectNumber > 0
+
+    /** Warm up the Standard provider ahead of the binding v2 request. */
+    fun prepareStandardIntegrity(scope: kotlinx.coroutines.CoroutineScope) {
+        if (standardIntegrityAvailable) playIntegrityManager.prepareStandard(scope)
+    }
+
+    /** A Standard token with `requestHash` = [requestHash] (EVIDENCE-v1 binding v2). */
+    suspend fun standardIntegrityToken(
+        scope: kotlinx.coroutines.CoroutineScope,
+        requestHash: String,
+        waitMs: Long,
+    ): PlayIntegrityManager.StandardResult = playIntegrityManager.requestStandardToken(scope, requestHash, waitMs)
+
     /**
      * Collect all channel integrity signals for the server's DeepSense scorer.
      * These go into the `channel_integrity` object in the metadata payload.

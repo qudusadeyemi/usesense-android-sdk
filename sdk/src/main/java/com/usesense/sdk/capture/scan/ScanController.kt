@@ -37,7 +37,19 @@ internal class ScanController(
     private var lastTick = 0L
     private var pausedSince = 0L
 
-    val progress: Float get() = (bankedMs.toFloat() / totalMs).coerceIn(0f, 1f)
+    /**
+     * Banked time the scan needs: [totalMs], or more while the EVIDENCE-v1
+     * colour sequence plays (it must finish inside the scan). Set by [require].
+     */
+    var targetMs: Long = totalMs
+        private set
+
+    val progress: Float get() = (bankedMs.toFloat() / targetMs).coerceIn(0f, 1f)
+
+    /** The scan needs at least [ms] banked (never less than [totalMs]). Call before [tick]. */
+    fun require(ms: Long) {
+        targetMs = maxOf(totalMs, ms)
+    }
     val isScanning: Boolean get() = state == State.SCANNING || state == State.PAUSED
 
     fun beginAlign(nowMs: Long) {
@@ -55,6 +67,7 @@ internal class ScanController(
         state = State.SCANNING
         this.manual = manual
         bankedMs = 0L
+        targetMs = totalMs
         lastTick = nowMs
     }
 
@@ -70,8 +83,8 @@ internal class ScanController(
                     return Event.PAUSED
                 }
                 bankedMs += dt
-                if (bankedMs >= totalMs) {
-                    bankedMs = totalMs
+                if (bankedMs >= targetMs) {
+                    bankedMs = targetMs
                     state = State.DONE
                     return Event.COMPLETED
                 }

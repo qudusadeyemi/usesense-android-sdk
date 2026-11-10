@@ -56,11 +56,29 @@ class FrameBuffer(private val maxFrames: Int) {
         nextIndex = 0
     }
 
-    @Synchronized
-    fun addFrame(jpegData: ByteArray, luminance: Double = 0.0): CapturedFrame? {
-        if (frames.size >= (roundLimit?.coerceAtMost(maxFrames) ?: maxFrames)) return null
+    /**
+     * The capture clock (EVIDENCE-v1 "one clock"): ms since this buffer's
+     * capture started, for an [SystemClock.elapsedRealtime] instant. Frame
+     * timestamps, colour segments and closer phases all use it.
+     */
+    fun clockMs(elapsedRealtimeMs: Long): Long = (elapsedRealtimeMs - captureStartMs).coerceAtLeast(0L)
 
-        val timestampMs = SystemClock.elapsedRealtime() - captureStartMs
+    /** The capture clock now. */
+    fun clockNowMs(): Long = clockMs(SystemClock.elapsedRealtime())
+
+    /** The frame cap now (a step-up round's or a reserve's limit, else [maxFrames]). */
+    val limit: Int get() = roundLimit?.coerceAtMost(maxFrames) ?: maxFrames
+
+    /**
+     * @param capturedAtMs when the camera delivered the frame
+     *   ([SystemClock.elapsedRealtime]), so the timestamp isn't late by the
+     *   JPEG encode; the colour scorer matches it against screen colours.
+     */
+    @Synchronized
+    fun addFrame(jpegData: ByteArray, luminance: Double = 0.0, capturedAtMs: Long? = null): CapturedFrame? {
+        if (frames.size >= limit) return null
+
+        val timestampMs = clockMs(capturedAtMs ?: SystemClock.elapsedRealtime())
         val hash = computeSha256(jpegData)
         // Header-only decode: reads the JPEG's SOF dimensions without
         // allocating any pixels, so it works whichever capture path produced

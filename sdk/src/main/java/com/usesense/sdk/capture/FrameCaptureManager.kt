@@ -81,13 +81,14 @@ class FrameCaptureManager(
                 return@Analyzer
             }
             lastFrameTimeMs = now
+            val capturedAt = android.os.SystemClock.elapsedRealtime()
 
             // Convert ImageProxy to non-mirrored JPEG and compute luminance in one pass
             val (jpegData, luminance) = imageProxyToJpegWithLuminance(imageProxy)
             imageProxy.close()
 
             if (jpegData != null) {
-                val frame = frameBuffer.addFrame(jpegData, luminance)
+                val frame = frameBuffer.addFrame(jpegData, luminance, capturedAt)
                 if (frame != null) {
                     onFrameCaptured?.invoke(frame)
                 }
@@ -108,9 +109,10 @@ class FrameCaptureManager(
         val now = System.currentTimeMillis()
         if (now - lastFrameTimeMs < frameIntervalMs) return
         lastFrameTimeMs = now
+        val capturedAt = android.os.SystemClock.elapsedRealtime()
         val luminance = computeLuminanceFromBitmap(upright)
         val jpegData = runCatching { FrameEncoder.bitmapToJpeg(upright) }.getOrNull() ?: return
-        val frame = frameBuffer.addFrame(jpegData, luminance)
+        val frame = frameBuffer.addFrame(jpegData, luminance, capturedAt)
         if (frame != null) onFrameCaptured?.invoke(frame)
         if (frameBuffer.frameCount >= uploadConfig.maxFrames) {
             stopCapture()

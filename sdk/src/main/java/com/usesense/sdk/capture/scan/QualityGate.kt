@@ -120,6 +120,8 @@ internal data class GateMetrics(
     /** Largest landmark radius in units of the margin-shrunk oval (<= 1 is inside). */
     val ovalFit: Float,
     val eyeDistanceRatio: Float,
+    /** Eye distance on screen, px (independent of the oval's size; the closer step compares it). */
+    val eyeDistancePx: Float = 0f,
     val jitter: Float,
     val pose: PoseAngles?,
     val luma: Double?,
@@ -372,6 +374,7 @@ internal class QualityGate(
         val metrics = GateMetrics(
             ovalFit = worstFit,
             eyeDistanceRatio = ratio,
+            eyeDistancePx = eyeDistView,
             jitter = lastJitter,
             pose = frame.pose,
             luma = region?.meanLuma,

@@ -15,6 +15,16 @@ import com.usesense.sdk.capture.CapturedFrame
 import com.usesense.sdk.capture.FrameBuffer
 import com.usesense.sdk.capture.FrameCaptureManager
 import com.usesense.sdk.challenge.*
+import com.usesense.sdk.evidence.BindingV2Evidence
+import com.usesense.sdk.evidence.CloserEvidence
+import com.usesense.sdk.evidence.CloserResolver
+import com.usesense.sdk.evidence.CloserStepController
+import com.usesense.sdk.evidence.ColourEvidence
+import com.usesense.sdk.evidence.Evidence
+import com.usesense.sdk.evidence.EvidenceCapability
+import com.usesense.sdk.evidence.EvidenceConfig
+import com.usesense.sdk.evidence.EvidenceDigest
+import com.usesense.sdk.evidence.EvidenceUploadBlock
 import com.usesense.sdk.internal.Bounded
 import com.usesense.sdk.internal.CapturePhase
 import com.usesense.sdk.internal.MultipartUploader
@@ -112,6 +122,9 @@ internal class UseSenseSession(
 
         /** Ceiling on the optional on-device antispoof pass during packaging. */
         const val CLASSIFIER_TIMEOUT_MS = 10_000L
+
+        /** Ceiling on the binding v2 Play Integrity Standard request, after the last frame. */
+        const val BINDING_V2_WAIT_MS = 6_000L
     }
 
     // v4.1: Liveness & PAD components
@@ -152,7 +165,106 @@ internal class UseSenseSession(
         get() = VerificationPackageSkipReason.meshRequested(
             sessionResponse?.geometricCoherence?.dualPathEnabled,
             sessionResponse?.geometricCoherence?.onDevice3dmmRequired,
-        )
+        ) || evidenceConfig?.landmarksRequired == true
+
+    // ─── EVIDENCE-v1 (capture redesign Phase 2) ─────────────────────────
+
+    /** What Phase 2 evidence the server asks for (null: old server, upload as before). */
+    val evidenceConfig: EvidenceConfig? get() = sessionResponse?.evidence
+
+    /** The guided scan runs (set by the capture screen); the closer step needs it. */
+    @Volatile var guidedScan: Boolean = false
+
+    /** The colour sequence as it played in the kept window (set by the capture screen). */
+    @Volatile var colourEvidence: ColourEvidence? = null
+
+    @Volatile private var captureClockStarted = false
+    private var closerStartIndex = -1
+    private var closerEndIndex = -1
+    private var closerStartedAtMs: Long? = null
+    private var closerEndedAtMs: Long? = null
+    /** Set when the step didn't run its frames (disabled, or no far frames to compare). */
+    private var closerSkipReason: String? = null
+    private var closerRan = false
+
+    /** The capture clock (ms since the kept window's first frame clock start), or null before capture. */
+    fun captureClockMs(elapsedRealtimeMs: Long): Long? =
+        frameCaptureManager?.getFrameBuffer()?.takeIf { captureClockStarted }?.clockMs(elapsedRealtimeMs)
+
+    /**
+     * Keep [CloserStepController.MAX_FRAMES] of `upload.max_frames` free for
+     * the closer step's near frames while the scan banks (section 7: count
+     * them within the budget).
+     */
+    private fun applyCloserReserve() {
+        val buffer = frameCaptureManager?.getFrameBuffer() ?: return
+        val max = uploadConfig?.maxFrames ?: return
+        buffer.roundLimit = if (evidenceConfig?.closerEnabled == true && guidedScan) {
+            (max - CloserStepController.MAX_FRAMES).coerceAtLeast(1)
+        } else null
+    }
+
+    /** Frames banked so far in this window. */
+    val bankedFrameCount: Int get() = frameCaptureManager?.getFrameBuffer()?.frameCount ?: 0
+
+    /** Step 5 begins: the next banked frames are near-phase candidates, at most MAX_FRAMES of them. */
+    fun beginCloserStep() {
+        val buffer = frameCaptureManager?.getFrameBuffer() ?: return
+        closerRan = true
+        closerSkipReason = null
+        closerStartIndex = buffer.frameCount
+        closerEndIndex = -1
+        closerStartedAtMs = buffer.clockNowMs()
+        closerEndedAtMs = null
+        val max = uploadConfig?.maxFrames ?: buffer.limit
+        buffer.roundLimit = (buffer.frameCount + CloserStepController.MAX_FRAMES).coerceAtMost(max)
+    }
+
+    /** Step 5 ends (enough near frames, or out of time); later frames are not near frames. */
+    fun endCloserStep() {
+        val buffer = frameCaptureManager?.getFrameBuffer() ?: return
+        if (closerStartIndex < 0) return
+        closerEndIndex = buffer.frameCount
+        closerEndedAtMs = buffer.clockNowMs()
+        buffer.roundLimit = null
+    }
+
+    /** The step didn't run (the server's flag is off, or the scan left nothing to compare). */
+    fun skipCloserStep(reason: String) {
+        closerRan = true
+        closerSkipReason = reason
+        frameCaptureManager?.getFrameBuffer()?.roundLimit = null
+    }
+
+    /** Whether the closer step may still bank a frame. */
+    val closerBudgetLeft: Boolean
+        get() = frameCaptureManager?.getFrameBuffer()?.let { it.frameCount < it.limit } ?: false
+
+    /**
+     * Near frames confirmed so far by the uploaded frames' own mesh (the
+     * resolver's rule), so the step ends when the upload will really have three.
+     */
+    fun closerNearFrames(): Int {
+        val step = evidenceConfig?.closerStep ?: return 0
+        if (closerStartIndex < 0) return 0
+        val end = frameCaptureManager?.getFrameBuffer()?.frameCount ?: return 0
+        val record = CloserResolver.resolve(meshedFrames(), closerStartIndex, end, step.minScale, null, null)
+        return record.nearFrames.size
+    }
+
+    private fun meshedFrames(): List<CloserResolver.MeshedFrame> = faceMeshManager.frameMeshData.map { m ->
+        val aspect = if (m.imageWidth > 0) m.imageHeight.toDouble() / m.imageWidth else 4.0 / 3.0
+        CloserResolver.MeshedFrame(m.frameIndex, Evidence.eyeDistance(m.landmarks, aspect))
+    }
+
+    private fun resetCloser() {
+        closerStartIndex = -1
+        closerEndIndex = -1
+        closerStartedAtMs = null
+        closerEndedAtMs = null
+        closerSkipReason = null
+        closerRan = false
+    }
     /** Fed by the scan's gate frames; its threshold is the policy's inline step-up threshold. */
     internal val suspicionEngine: SuspicionEngine by lazy {
         SuspicionEngine(
@@ -215,6 +327,7 @@ internal class UseSenseSession(
                     signalCollector.requestPlayIntegrityToken(response.nonce)
                 } catch (_: Exception) { }
             }
+            prepareBindingV2(response)
         }
         result.onFailure {
             stateMachine.transition(SessionState.ERROR)
@@ -244,6 +357,7 @@ internal class UseSenseSession(
                 // Play Integrity is best-effort; don't block verification.
             }
         }
+        prepareBindingV2(response)
     }
 
     suspend fun createSession(): Result<CreateSessionResponse> {
@@ -267,11 +381,17 @@ internal class UseSenseSession(
                     // Play Integrity is best-effort; don't block verification
                 }
             }
+            prepareBindingV2(response)
         }
         result.onFailure { e ->
             stateMachine.transition(SessionState.ERROR)
         }
         return result
+    }
+
+    /** Warm the Play Integrity Standard provider early: preparing can take seconds. */
+    private fun prepareBindingV2(response: CreateSessionResponse) {
+        if (response.evidence?.bindingV2Enabled == true) signalCollector.prepareStandardIntegrity(meshScope)
     }
 
     fun initCapture(): FrameCaptureManager {
@@ -411,7 +531,7 @@ internal class UseSenseSession(
         val buffer = frameCaptureManager?.getFrameBuffer()
             ?: return@withContext Result.failure(ApiException(UseSenseError.captureFailed("No frames captured")))
         drainFaceMesh()
-        val base = packageRound(sid, buffer, challengePresenter?.responseBuilder?.build())
+        val base = packageRound(sid, buffer, challengePresenter?.responseBuilder?.build(), round2 = true)
         val metadata = JSONObject(String(base, Charsets.UTF_8)).apply {
             put("capture_channel", "android")
             put("step_up_round", 2)
@@ -429,6 +549,9 @@ internal class UseSenseSession(
         captureStartTime = Date()
         signalCollector.startSensorCollection()
         frameCaptureManager?.startCapture()
+        captureClockStarted = true
+        resetCloser()
+        applyCloserReserve()
         // Default phase until the host UI advances the state machine.
         frameCaptureManager?.getFrameBuffer()?.setCapturePhase(
             com.usesense.sdk.capture.CapturePhase.BASELINE
@@ -491,6 +614,10 @@ internal class UseSenseSession(
         fcm.restartPaused()
         fcm.getFrameBuffer().setCapturePhase(com.usesense.sdk.capture.CapturePhase.BASELINE)
         captureStartTime = Date()
+        // The window's frames are gone, so is any closer record (the colour
+        // record is reset by the capture screen's player).
+        resetCloser()
+        applyCloserReserve()
     }
 
     /**
@@ -594,7 +721,12 @@ internal class UseSenseSession(
      * suspicion, the on-device classifier, frame hashes, the mesh
      * verification package), so the server can run the same checks on both.
      */
-    private suspend fun packageRound(sid: String, buffer: FrameBuffer, challengeResponse: JSONObject?): ByteArray {
+    private suspend fun packageRound(
+        sid: String,
+        buffer: FrameBuffer,
+        challengeResponse: JSONObject?,
+        round2: Boolean = false,
+    ): ByteArray {
         val channelIntegrity = signalCollector.collectSignals()
         val deviceTelemetry = signalCollector.collectDeviceTelemetry()
 
@@ -630,6 +762,10 @@ internal class UseSenseSession(
 
         // v4.1: Build verification package (when the server asks for mesh), or say why not
         val (verificationPackage, verificationPackageSkipReason) = buildVerificationPackage(buffer, playIntegrityToken)
+
+        // EVIDENCE-v1 metadata.evidence (round 1; absent when the server issued
+        // no contract, so an old server sees the upload as before).
+        val evidenceBlock = evidenceConfig?.takeIf { !round2 }?.let { buildEvidenceBlock(sid, it, verificationPackage) }
 
         // v4.1: Suspicion engine snapshot
         val suspicionSnapshot = suspicionEngine.getSnapshot()
@@ -679,8 +815,60 @@ internal class UseSenseSession(
             faceMeshInitResult = if (meshRequested) meshInitResult.value else null,
             faceMeshInitError = faceMeshManager.lastInitError ?: meshTimeoutError,
             coveredCheck = coveredCheckJson,
+            evidence = evidenceBlock,
         )
     }
+
+    /** What this build can do (EVIDENCE-v1 `capability`). */
+    private val evidenceCapability: EvidenceCapability
+        get() = EvidenceCapability.current(
+            meshAvailable = meshInitResult == FaceMeshInitResult.SUCCESS,
+            guided = guidedScan,
+            playIntegrity = signalCollector.standardIntegrityAvailable,
+        )
+
+    /**
+     * `metadata.evidence`: capability, the colour and closer records, and
+     * binding v2 (a Play Integrity Standard token whose requestHash is the
+     * evidence digest). Requested after the last frame, before the upload.
+     */
+    private suspend fun buildEvidenceBlock(sid: String, issued: EvidenceConfig, pkg: JSONObject?): JSONObject {
+        val capability = evidenceCapability
+        val colour = colourEvidence?.takeIf { issued.colourSequence != null }
+        val digestFrames = EvidenceDigest.frames(pkg)
+        val packaged = digestFrames.map { it.frameIndex }.toSet()
+        val closer: CloserEvidence? = when {
+            !guidedScan -> null
+            !issued.closerEnabled -> CloserEvidence.skipped(CloserEvidence.DISABLED)
+            closerSkipReason != null -> CloserEvidence.skipped(closerSkipReason!!, closerStartedAtMs, closerEndedAtMs)
+            !closerRan || closerStartIndex < 0 -> CloserEvidence.skipped(CloserEvidence.TIMEOUT)
+            else -> {
+                // Frame indices are buffer indices = upload positions (one buffer per window).
+                val meshed = meshedFrames().filter { it.index in packaged }
+                val end = if (closerEndIndex >= 0) closerEndIndex else buffer().frameCount
+                CloserResolver.resolve(meshed, closerStartIndex, end, issued.closerStep!!.minScale, closerStartedAtMs, closerEndedAtMs)
+            }
+        }
+        var binding: BindingV2Evidence? = null
+        val challenge = geometricCoherenceConfig?.meshBindingChallenge?.takeIf { it.isNotEmpty() }
+        if (issued.bindingV2Enabled && pkg != null && challenge != null) {
+            val digest = EvidenceDigest.digest(sid, challenge, digestFrames, colour, closer)
+            binding = if (!capability.bindingV2) {
+                BindingV2Evidence(digest, errorName = "NoCloudProject", errorMessage = "googleCloudProjectNumber not configured")
+            } else {
+                val r = signalCollector.standardIntegrityToken(meshScope, digest, BINDING_V2_WAIT_MS)
+                BindingV2Evidence(digest, integrityToken = r.token, errorName = r.errorName, errorMessage = r.errorMessage)
+            }
+        }
+        com.usesense.sdk.api.uploadTrace(
+            "evidence frames=${digestFrames.size} colour=${colour?.segments?.size ?: -1}/${colour?.completed} " +
+                "closer=${closer?.let { if (it.completed) "done ${it.farFrames}|${it.nearFrames}" else it.skippedReason } ?: "nil"} " +
+                "binding=${binding?.let { if (it.integrityToken != null) "token" else it.errorName } ?: "none"}",
+        )
+        return EvidenceUploadBlock(capability, colour, closer, binding).toJson()
+    }
+
+    private fun buffer(): FrameBuffer = frameCaptureManager!!.getFrameBuffer()
 
     /**
      * v4.2: Run the on-device antispoof classifier across the captured frames
@@ -819,18 +1007,22 @@ internal class UseSenseSession(
             )
             if (skipReason != null || gcConfig == null) return null to skipReason
 
-            val frameHashMap = mutableMapOf<Int, String>()
-            for (frame in buffer.getFrames()) {
-                frameHashMap[frame.index] = frame.hash
-            }
+            // Upload position i is frames[] part i (EVIDENCE-v1 section 3).
+            val frames = buffer.getFrames()
+            val positionOf = HashMap<Int, Int>(frames.size)
+            frames.forEachIndexed { position, frame -> positionOf.putIfAbsent(frame.index, position) }
 
             val builder = VerificationPackageBuilder()
             return builder.build(
-                fitter = threeDMMFitter,
-                frameHashes = frameHashMap,
+                fits = threeDMMFitter.results,
+                crossFrameConsistency = threeDMMFitter.computeCrossFrameConsistency(),
+                preliminaryScore = threeDMMFitter.computePreliminaryScore(),
+                uploadHashes = frames.map { it.hash },
+                uploadPositionOf = positionOf,
                 meshBindingChallenge = gcConfig.meshBindingChallenge,
                 meshDataList = faceMeshManager.frameMeshData,
                 playIntegrityToken = playIntegrityToken,
+                evidence = evidenceConfig != null,
             ) to null
         }
     }

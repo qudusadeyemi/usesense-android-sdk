@@ -111,6 +111,20 @@ internal class FaceMeshManager(private val context: Context) {
                 LandmarkPoint(lm.x().toDouble(), lm.y().toDouble(), lm.z().toDouble())
             }
 
+            // EVIDENCE-v1: the facial transformation matrix (row-major) and the
+            // eye blendshapes from this same result, for the upload's matrix
+            // pose and eyes-open record.
+            val matrix = result.facialTransformationMatrixes().orElse(null)?.getOrNull(0)
+                ?.let(com.usesense.sdk.capture.scan.HeadPoseMath::rowMajor)
+            var blinkL: Double? = null
+            var blinkR: Double? = null
+            result.faceBlendshapes().orElse(null)?.getOrNull(0)?.forEach { c ->
+                when (c.categoryName()) {
+                    "eyeBlinkLeft" -> blinkL = c.score().toDouble()
+                    "eyeBlinkRight" -> blinkR = c.score().toDouble()
+                }
+            }
+
             val data = FrameMeshData(
                 frameIndex = frameIndex,
                 timestampMs = timestampMs,
@@ -119,6 +133,11 @@ internal class FaceMeshManager(private val context: Context) {
                 rightEAR = rightEAR,
                 bbox = bbox,
                 landmarks = landmarkPoints,
+                transformMatrix = matrix,
+                eyeBlinkLeft = blinkL,
+                eyeBlinkRight = blinkR,
+                imageWidth = bitmap.width,
+                imageHeight = bitmap.height,
             )
 
             synchronized(_frameMeshData) {
@@ -265,6 +284,13 @@ data class FrameMeshData(
     val rightEAR: Double,
     val bbox: FaceBoundingBox,
     val landmarks: List<LandmarkPoint>,
+    /** EVIDENCE-v1: facial transformation matrix, 16 values, row-major; null when MediaPipe returned none. */
+    val transformMatrix: DoubleArray? = null,
+    val eyeBlinkLeft: Double? = null,
+    val eyeBlinkRight: Double? = null,
+    /** Size of the image the landmarks are normalised to (the decoded upload JPEG). */
+    val imageWidth: Int = 0,
+    val imageHeight: Int = 0,
 )
 
 data class HeadPose(
