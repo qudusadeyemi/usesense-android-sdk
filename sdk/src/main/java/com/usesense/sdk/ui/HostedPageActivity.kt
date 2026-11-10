@@ -70,6 +70,10 @@ import com.usesense.sdk.capture.extracheck.ExtraCheckRunner
 import com.usesense.sdk.capture.extracheck.ExtraCheckStep
 import com.usesense.sdk.capture.extracheck.ExtraCheckTiming
 import com.usesense.sdk.capture.extracheck.Guidance
+import com.usesense.sdk.capture.extracheck.MicroActionDetector
+import com.usesense.sdk.capture.extracheck.ExtraCheckMotion
+import com.usesense.sdk.liveness.HeadPose
+import com.usesense.sdk.liveness.StepUpOrchestrator
 import com.usesense.sdk.challenge.*
 import com.usesense.sdk.internal.Bounded
 import com.usesense.sdk.internal.CapturePhase
@@ -222,7 +226,8 @@ class HostedPageActivity : AppCompatActivity() {
     }
 
     /** Where the capture screen is in the scan flow. */
-    private enum class ScanStage { IDLE, ALIGN, PASSIVE, CHALLENGE }
+    /** INLINE: on-device attack detection's prompts after the scan (inline step-up). */
+    private enum class ScanStage { IDLE, ALIGN, PASSIVE, CHALLENGE, INLINE }
     private var scanStage = ScanStage.IDLE
 
     /** The quality gate's live face mesh (display and gating only; uploads nothing). */
@@ -292,8 +297,19 @@ class HostedPageActivity : AppCompatActivity() {
     private var extraCheckTiming = ExtraCheckTiming.BEFORE_SCAN
     private var extraCheckPresenter: ChallengePresenter? = null
     /** The latest gate frame's reading for the extra check, and when it came. */
-    private var extraCheckFace = ExtraCheckInput(faceInOval = true)
+    private var extraCheckFace = ExtraCheckInput(gatePasses = true)
     private var extraCheckFaceAt = 0L
+    /** The gate checks holding the movement on the latest frame. */
+    private var extraCheckBlocking: List<GateHint> = emptyList()
+    /** Inline step-up: its coroutine, the colour layer for Flash Reflection, the RMAS action being watched. */
+    private var inlineJob: Job? = null
+    private var flashView: View? = null
+    private var microAction: MicroActionDetector? = null
+    private var microActionSeen: CompletableDeferred<Unit>? = null
+
+    /** The step before the current one, and when the current one started (pose grace on a change of side). */
+    private var previousStep: ExtraCheckStep? = null
+    private var stepStartedAt = 0L
     /** The page on screen, if any. */
     private var pageShown: PageKind? = null
     /** "Try again" taps used after a rejection (UseSenseConfig.maxRetries). */
@@ -1415,7 +1431,7 @@ class HostedPageActivity : AppCompatActivity() {
         val dots = listOf(ExtraCheckStep(1500, x = 0.77f, y = 0.25f), ExtraCheckStep(1500, x = 0.24f, y = 0.56f),
             ExtraCheckStep(1500, x = 0.7f, y = 0.6f))
         val digits = listOf(ExtraCheckStep(4000))
-        val ok = ExtraCheckInput(faceInOval = true, turn = -0.4f, micLevel = 0.6f)
+        val ok = ExtraCheckInput(gatePasses = true, turn = -0.4f, micLevel = 0.6f)
         fun drive(kind: ExtraCheckKind, steps: List<ExtraCheckStep>, vararg inputs: Pair<Long, ExtraCheckInput>): ExtraCheckRunner {
             val r = ExtraCheckRunner(kind, steps)
             r.start(0L)
@@ -1426,11 +1442,13 @@ class HostedPageActivity : AppCompatActivity() {
         val runner: ExtraCheckRunner? = when (name) {
             "head_left" -> drive(ExtraCheckKind.HEAD_TURN, turn, 600L to ok)
             "head_right" -> drive(ExtraCheckKind.HEAD_TURN, turn, 2850L to ok)
-            "head_paused" -> drive(ExtraCheckKind.HEAD_TURN, turn, 1600L to ok, 2000L to ok.copy(faceInOval = false))
+            "head_paused" -> drive(ExtraCheckKind.HEAD_TURN, turn, 1600L to ok, 2000L to ok.copy(gatePasses = false))
+            "head_covered" -> drive(ExtraCheckKind.HEAD_TURN, turn, 1600L to ok, 2000L to ok.copy(gatePasses = false))
+                .also { extraCheckBlocking = listOf(GateHint.FACE_COVERED) }
             "head_again" -> drive(ExtraCheckKind.HEAD_TURN, turn, 2050L to ok.copy(turn = -0.05f))
             "dot_1" -> drive(ExtraCheckKind.FOLLOW_DOT, dots, 1000L to ok)
             "dot_2" -> drive(ExtraCheckKind.FOLLOW_DOT, dots, 2900L to ok)
-            "dot_lost" -> drive(ExtraCheckKind.FOLLOW_DOT, dots, 2000L to ok, 2500L to ok.copy(faceInOval = false))
+            "dot_lost" -> drive(ExtraCheckKind.FOLLOW_DOT, dots, 2000L to ok, 2500L to ok.copy(gatePasses = false))
             "digits" -> drive(ExtraCheckKind.SPEAK_DIGITS, digits, 1800L to ok)
             "digits_quiet" -> drive(ExtraCheckKind.SPEAK_DIGITS, digits, 2400L to ok.copy(micLevel = 0f))
             "xc_done" -> drive(ExtraCheckKind.HEAD_TURN, turn, 2000L to ok, 4200L to ok.copy(turn = 0.4f))
@@ -1446,6 +1464,21 @@ class HostedPageActivity : AppCompatActivity() {
                 getString(R.string.usesense_page_try_again),
             ) {}
             name == "leave" -> { showGuidance(getString(R.string.usesense_hint_hold_still), null); showLeaveDialog() }
+            name == "inline_flash" || name == "inline_rmas" -> {
+                faceGuideOverlay.visibility = View.VISIBLE
+                captureTopBar.visibility = View.VISIBLE
+                handler.removeCallbacks(scanBlurOn)
+                setScanBlur(false)
+                scanView.scanning = true
+                scanView.showLines = false
+                scanView.ringColorOverride = null
+                if (name == "inline_flash") {
+                    ensureFlashView().setBackgroundColor(Color.argb(153, 0, 255, 255))
+                    showGuidance(getString(R.string.usesense_hint_hold_still), getString(R.string.usesense_inline_flash_detail))
+                } else {
+                    showMicroAction(MicroActionDetector.SMILE, 2)
+                }
+            }
             runner != null -> {
                 faceGuideOverlay.visibility = View.VISIBLE
                 captureTopBar.visibility = View.VISIBLE
@@ -1528,16 +1561,49 @@ class HostedPageActivity : AppCompatActivity() {
     /** A gate frame from the live mesh (main thread), with its relief built on the gate thread. */
     private fun onGateFrame(frame: GateFrame, relief: Relief? = null) {
         if (scanStage == ScanStage.CHALLENGE) {
-            // The extra check only needs the face's place and the head's turn.
+            // The same quality gate as the scan (face, one person, covered,
+            // distance with the scan's margin, in frame, sharp, eyes open);
+            // only pose and stillness give way to the movement asked for.
             val oval = scanView.ovalSpec() ?: return
             val mapper = PreviewMapper(frame.imageWidth, frame.imageHeight, scanView.width.toFloat(), scanView.height.toFloat())
-            val (inOval, turn) = ExtraCheckFace.read(frame.points, frame.faceCount, mapper, oval)
-            extraCheckFace = ExtraCheckInput(faceInOval = inOval, turn = turn)
-            extraCheckFaceAt = SystemClock.elapsedRealtime()
+            val (_, turn) = ExtraCheckFace.read(frame.points, frame.faceCount, mapper, oval)
+            val now = SystemClock.elapsedRealtime()
+            val runner = extraCheck
+            val motion = runner?.let { ExtraCheckMotion.forStep(it, turn, previousStep, now - stepStartedAt) }
+            val result = qualityGate.evaluate(frame, mapper, oval, null, scanning = true, motion = motion)
+            lastGate = result
+            lastGateAt = now
+            if (now - lastGateLogAt >= 1000 && Log.isLoggable(GATE_TAG, Log.DEBUG)) {
+                lastGateLogAt = now
+                Log.d(GATE_TAG, "challenge failing=${result.failing} motion=$motion turn=$turn ${result.metrics ?: ""}")
+            }
+            extraCheckFace = ExtraCheckInput(gatePasses = result.allPass, turn = turn)
+            extraCheckBlocking = result.blocking
+            extraCheckFaceAt = now
+            return
+        }
+        if (scanStage == ScanStage.INLINE) {
+            // Inline step-up: watch for the prompted micro-action.
+            val oval = scanView.ovalSpec() ?: return
+            val mapper = PreviewMapper(frame.imageWidth, frame.imageHeight, scanView.width.toFloat(), scanView.height.toFloat())
+            val (_, turn) = ExtraCheckFace.read(frame.points, frame.faceCount, mapper, oval)
+            if (microAction?.feed(frame.points, frame.eyeBlinkLeft, frame.eyeBlinkRight, turn) == true) {
+                microActionSeen?.complete(Unit)
+            }
             return
         }
         if (scanStage != ScanStage.ALIGN && scanStage != ScanStage.PASSIVE) return
         val sess = session ?: return
+        // On-device attack detection watches the live face from align through
+        // the scan (pose tremor, smoothness, brightness, sharpness patterns).
+        frame.pose?.let { p ->
+            sess.suspicionEngine.analyzeFrame(
+                HeadPose(p.yaw, p.pitch, p.roll),
+                frame.faceRegion?.meanLuma ?: 0.0,
+                frame.faceRegion?.sharpness ?: 0.0,
+                frame.timestampMs,
+            )
+        }
         val oval = scanView.ovalSpec() ?: return
         val now = SystemClock.elapsedRealtime()
         val mapper = PreviewMapper(frame.imageWidth, frame.imageHeight, scanView.width.toFloat(), scanView.height.toFloat())
@@ -1582,9 +1648,11 @@ class HostedPageActivity : AppCompatActivity() {
         }
 
         val forced = debugHooks?.forceState
-        if (forced == "pass") {
+        if (forced == "pass" || forced == "pass_scan") {
             // Test rig: the whole flow with every check treated as passing.
-            if (scanStage == ScanStage.ALIGN && pts != null) startScan(sess, manual = false)
+            // A real person spends a moment aligning; so does the rig, so the
+            // suspicion engine has its frames before the scan.
+            if (scanStage == ScanStage.ALIGN && pts != null && now - alignStartedAt >= DEBUG_PASS_ALIGN_MS) startScan(sess, manual = false)
             return
         }
         if (scanStage == ScanStage.ALIGN && forced != null) {
@@ -1656,7 +1724,7 @@ class HostedPageActivity : AppCompatActivity() {
                     }
                     return
                 }
-                debugHooks?.forceProgress?.takeIf { debugHooks?.forceState.let { it != null && it != "pass" } }?.let { held ->
+                debugHooks?.forceProgress?.takeIf { debugHooks?.forceState.let { it != null && it != "pass" && it != "pass_scan" } }?.let { held ->
                     // Test rig: hold the ring for the golden screenshot.
                     scanView.paused = false
                     scanView.tone = ContourScanView.Tone.READY
@@ -1664,7 +1732,7 @@ class HostedPageActivity : AppCompatActivity() {
                     renderScanCopy(controller)
                     return
                 }
-                val pass = gateUnavailable || debugHooks?.forceState == "pass" || fresh?.allPass ?: true
+                val pass = gateUnavailable || debugHooks?.forceState.let { it == "pass" || it == "pass_scan" } || fresh?.allPass ?: true
                 val event = controller.tick(now, pass)
                 if (event != null) {
                     Log.i(TAG, "Scan $event: banked=${controller.bankedMs} ms blocking=${fresh?.blocking.orEmpty()} " +
@@ -1691,7 +1759,7 @@ class HostedPageActivity : AppCompatActivity() {
                     }
                     ScanController.Event.COMPLETED -> {
                         scanView.progress = 1f
-                        if (liveAnalyzer?.coverCheckOn == true && debugHooks?.forceState != "pass") {
+                        if (liveAnalyzer?.coverCheckOn == true && debugHooks?.forceState.let { it != "pass" && it != "pass_scan" }) {
                             // Covered-face segmentation lags ~1 s on slow phones:
                             // finish only once a result from after the last banked
                             // frame says the face is clear (onGateFrame).
@@ -1787,13 +1855,137 @@ class HostedPageActivity : AppCompatActivity() {
         stopScanLoop()
         restoreFillLight()
         hintPill.announceForAccessibility(getString(R.string.usesense_scan_complete))
-        val presenter = challengePresenter
-        if (presenter != null && !stepUpRoundActive) {
-            // Storyboard flow 5: the movement follows straight on, no sheet.
-            beginExtraCheck(ExtraCheckTiming.BEFORE_SCAN, presenter)
+        val sess = session ?: return
+        // On-device attack detection first (if the policy has it on and the
+        // scan looked off), then the movement or the upload. A round 2 the
+        // server asks for comes after the upload, so after this too.
+        runInlineStepUpIfNeeded(sess) {
+            val presenter = challengePresenter
+            if (presenter != null && !stepUpRoundActive) {
+                // Storyboard flow 5: the movement follows straight on, no sheet.
+                beginExtraCheck(ExtraCheckTiming.BEFORE_SCAN, presenter)
+            } else {
+                onCaptureComplete(captureRound)
+            }
+        }
+    }
+
+    // ─── On-device attack detection (inline step-up) on the scan screen ──
+
+    /**
+     * Policy `inline_step_up.enabled` (the dashboard's Sensei check "Unusual
+     * movement during the scan"): when the suspicion engine triggered during
+     * the scan, run Flash Reflection and/or RMAS here, in the guided style
+     * (plain guidance under the oval, amber ring while a prompt waits), and
+     * attach their evidence to round 1's upload. Bounded at 15 s by the
+     * orchestrator. Frames aren't banked meanwhile.
+     */
+    private fun runInlineStepUpIfNeeded(sess: UseSenseSession, then: () -> Unit) {
+        val cfg = sess.inlineStepUpConfig
+        if (cfg?.enabled != true || !sess.suspicionEngine.triggered || sess.stepUpEvidence != null) {
+            val snap = sess.suspicionEngine.getSnapshot()
+            Log.i(TAG, "Inline step-up not run: enabled=${cfg?.enabled} triggered=${sess.suspicionEngine.triggered} " +
+                "score=${snap?.score} frames=${snap?.framesAnalyzed}")
+            then()
             return
         }
-        onCaptureComplete(captureRound)
+        val score = sess.suspicionEngine.currentScore
+        Log.i(TAG, "Inline step-up: suspicion $score >= ${cfg.suspicionThreshold}, preferred=${cfg.preferredChallenge}")
+        scanStage = ScanStage.INLINE
+        sess.pauseCapture()
+        watchdog.disarm()
+        faceGuideOverlay.visibility = View.VISIBLE
+        captureTopBar.visibility = View.VISIBLE
+        handler.removeCallbacks(scanBlurOn)
+        setScanBlur(false)
+        scanView.scanning = true
+        scanView.showLines = false
+        scanView.ringColorOverride = null
+        scanView.paused = false
+        scanView.resetProgress()
+        extraCheckView.reset()
+        liveAnalyzer?.active = true
+        val overlay = ensureFlashView()
+        eventEmitter.emit(EventType.CHALLENGE_STARTED, mapOf("type" to "inline_step_up", "suspicion" to score))
+        inlineJob?.cancel()
+        inlineJob = mainScope.launch {
+            val orchestrator = StepUpOrchestrator(cfg.suspicionThreshold, cfg.preferredChallenge)
+            orchestrator.execute(
+                suspicionScore = score,
+                overlayView = overlay,
+                sampleFrame = { previewBitmap() },
+                showAction = { type, _, step -> showMicroAction(type, step) },
+                detectAction = { type, windowMs -> watchMicroAction(type, windowMs) },
+                getReactionTimeMs = { 0L },
+                onShowIntro = {
+                    showGuidance(getString(R.string.usesense_inline_intro), getString(R.string.usesense_inline_intro_detail))
+                    hintPill.announceForAccessibility(getString(R.string.usesense_inline_intro))
+                    // Flash Reflection runs right after the intro: say the screen will change.
+                    handler.postDelayed({
+                        if (scanStage == ScanStage.INLINE && microAction == null) {
+                            showGuidance(getString(R.string.usesense_hint_hold_still), getString(R.string.usesense_inline_flash_detail))
+                        }
+                    }, INLINE_INTRO_MS)
+                },
+                onShowComplete = {
+                    overlay.setBackgroundColor(Color.TRANSPARENT)
+                    scanView.paused = false
+                    scanView.ringColorOverride = ExtraCheckOverlayView.GREEN
+                    scanView.progress = 1f
+                    extraCheckView.tick = true
+                    showGuidance(getString(R.string.usesense_xc_done), null)
+                },
+            )
+            sess.stepUpEvidence = orchestrator.toJson()
+            Log.i(TAG, "Inline step-up done: ${sess.stepUpEvidence}")
+            overlay.setBackgroundColor(Color.TRANSPARENT)
+            microAction = null
+            liveAnalyzer?.active = false
+            scanStage = ScanStage.IDLE
+            extraCheckView.reset()
+            scanView.ringColorOverride = null
+            then()
+        }
+    }
+
+    /** A full-screen colour layer over the camera, under the guide (Flash Reflection). */
+    private fun ensureFlashView(): View =
+        flashView ?: View(this).also { v ->
+            v.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            videoContainer.addView(
+                v,
+                videoContainer.indexOfChild(faceGuideOverlay).coerceAtLeast(0),
+                FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT),
+            )
+            flashView = v
+        }
+
+    /** The camera image alone (no overlays), for Flash Reflection's face sample. */
+    private fun previewBitmap(): android.graphics.Bitmap? {
+        fakePreview?.takeIf { it.visibility == View.VISIBLE }?.let { iv ->
+            val bmp = (iv.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap ?: return null
+            return runCatching { bmp.copy(android.graphics.Bitmap.Config.ARGB_8888, false) }.getOrNull()
+        }
+        return runCatching { cameraPreview.bitmap }.getOrNull()
+    }
+
+    /** An RMAS prompt: plain guidance under the oval, the ring amber while it waits. */
+    private fun showMicroAction(type: String, step: Int) {
+        showGuidance(getString(MicroActionDetector.prompt(type)), null)
+        hintPill.announceForAccessibility(getString(MicroActionDetector.prompt(type)))
+        scanView.paused = true
+        scanView.progress = ((step - 1) / RMAS_STEPS).coerceIn(0f, 1f).let { if (it == 0f) 0.004f else it }
+    }
+
+    /** Wait up to [windowMs] for the gate's mesh to show [type]. */
+    private suspend fun watchMicroAction(type: String, windowMs: Long): Boolean {
+        val seen = CompletableDeferred<Unit>()
+        microActionSeen = seen
+        microAction = MicroActionDetector(type)
+        val ok = withTimeoutOrNull(windowMs) { seen.await() } != null
+        microAction = null
+        if (ok) haptic()
+        return ok
     }
 
     // ─── Extra check on the scan screen (storyboard flows 4 and 5) ───────
@@ -1816,8 +2008,12 @@ class HostedPageActivity : AppCompatActivity() {
         extraCheck = runner
         extraCheckTiming = timing
         extraCheckPresenter = presenter
-        extraCheckFace = ExtraCheckInput(faceInOval = true)
+        extraCheckFace = ExtraCheckInput(gatePasses = true)
         extraCheckFaceAt = 0L
+        extraCheckBlocking = emptyList()
+        previousStep = null
+        stepStartedAt = SystemClock.elapsedRealtime()
+        hintScheduler.reset()
 
         if (kind == ExtraCheckKind.SPEAK_DIGITS) {
             val recordMs = (runner.steps.sumOf { it.durationMs } + ExtraCheckRunner.MAX_QUIET_HOLD_MS + DIGITS_RECORD_SLACK_MS).toInt()
@@ -1877,7 +2073,9 @@ class HostedPageActivity : AppCompatActivity() {
         // No gate (MediaPipe missing) or a stalled one can't see the face: never block on it.
         val fresh = extraCheckFaceAt > 0L && now - extraCheckFaceAt < GATE_STALE_MS
         val forcedPass = debugHooks?.forceState == "pass"
-        val face = if (fresh && !forcedPass) extraCheckFace else ExtraCheckInput(faceInOval = true, turn = extraCheckFace.turn)
+        val face = if (fresh && !forcedPass) extraCheckFace else ExtraCheckInput(gatePasses = true, turn = extraCheckFace.turn)
+        // The paused guidance names the check, with the scan's hint timing.
+        hintScheduler.update(now, if (face.gatePasses) emptyList() else extraCheckBlocking)
         val level = if (runner.kind == ExtraCheckKind.SPEAK_DIGITS) sess.audioLevel() else null
         if (level != null) extraCheckView.pushLevel(level)
         handleExtraCheckEvents(runner, runner.tick(now, face.copy(micLevel = level)))
@@ -1890,6 +2088,8 @@ class HostedPageActivity : AppCompatActivity() {
             Log.i(TAG, "Extra check ${runner.kind}: $event step=${runner.stepIndex} retry=${runner.retrying} progress=%.2f".format(java.util.Locale.US, runner.progress))
             when (event) {
                 is ExtraCheckEvent.Step -> {
+                    if (!event.retry) previousStep = runner.steps.getOrNull(event.index - 1)
+                    stepStartedAt = SystemClock.elapsedRealtime()
                     extraCheckPresenter?.driveStep(event.index)
                     runner.currentStep?.let { step ->
                         if (runner.kind == ExtraCheckKind.FOLLOW_DOT) extraCheckView.moveDot(step.x, step.y)
@@ -1920,15 +2120,18 @@ class HostedPageActivity : AppCompatActivity() {
             else -> null
         }
         extraCheckView.quiet = runner.quiet
-        showGuidance(ExtraCheckCopy.guidance(runner, words = isWordsPhrase()))
+        showGuidance(ExtraCheckCopy.guidance(runner, words = isWordsPhrase(), pausedBy = pausingHint()))
     }
+
+    /** The check a paused movement waits on: the scheduled hint, else the latest frame's first. */
+    private fun pausingHint(): GateHint? = hintScheduler.current ?: extraCheckBlocking.firstOrNull()
 
     private fun isWordsPhrase() = extraCheckPresenter?.spec?.phrase?.any { it.isLetter() } == true
 
     private fun showGuidance(g: Guidance) = showGuidance(getString(g.title), g.detail?.let { getString(it) })
 
     private fun announceExtraCheck(runner: ExtraCheckRunner) {
-        val g = ExtraCheckCopy.guidance(runner, words = isWordsPhrase())
+        val g = ExtraCheckCopy.guidance(runner, words = isWordsPhrase(), pausedBy = pausingHint())
         hintPill.announceForAccessibility(listOfNotNull(getString(g.title), g.detail?.let { getString(it) }).joinToString(". "))
     }
 
@@ -2675,6 +2878,10 @@ class HostedPageActivity : AppCompatActivity() {
         finalizationJob = null
         handler.removeCallbacksAndMessages(null)
         challengePresenter?.stop()
+        inlineJob?.cancel()
+        inlineJob = null
+        microAction = null
+        flashView?.setBackgroundColor(Color.TRANSPARENT)
         extraCheckPresenter?.endDriven()
         extraCheckPresenter = null
         extraCheck = null
@@ -2965,6 +3172,10 @@ class HostedPageActivity : AppCompatActivity() {
         private const val EXTRA_REMOTE_ID = "remote_id"
         private const val EXTRA_DIRECT_MODE = "direct_mode"
         private const val BASELINE_MS = 2000L
+        /** Inline step-up: the orchestrator's intro, before Flash Reflection starts. */
+        private const val INLINE_INTRO_MS = 1_500L
+        private const val RMAS_STEPS = 3f
+
         /** The scan before a movement in the same capture (the old baseline). */
         private const val BEFORE_CHECK_SCAN_MS = 2_000L
         /** The green tick after an extra check, before the upload sheet. */
@@ -2986,6 +3197,7 @@ class HostedPageActivity : AppCompatActivity() {
         private const val DEBUG_UPLOAD_PROGRESS = 0.64f
         /** Test rig: time for the fake camera's face to settle before a forced screen. */
         private const val DEBUG_SCREEN_DELAY_MS = 1_500L
+        private const val DEBUG_PASS_ALIGN_MS = 3_000L
 
         /** Face mesh points (468 + 10 iris). */
         private const val MAX_LANDMARKS = 478

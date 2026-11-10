@@ -19,6 +19,11 @@ import kotlin.math.sqrt
  */
 internal class SuspicionEngine(
     private val suspicionThreshold: Int = 55,
+    /**
+     * Analyse every Nth frame. 2 for a camera-rate stream; the scan feeds it
+     * the quality gate's frames (2 to 5 fps on a budget phone), so 1.
+     */
+    private val everyNthFrame: Int = 2,
 ) {
     // Sliding window of last 30 analysis frames
     private val windowSize = 30
@@ -57,7 +62,7 @@ internal class SuspicionEngine(
     ) {
         frameCounter++
         // Only analyze every 2nd frame
-        if (frameCounter % 2 != 0) return
+        if (frameCounter % everyNthFrame != 0) return
 
         addToWindow(pose, luminance, sharpness, timestampMs)
         framesAnalyzed++

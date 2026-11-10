@@ -49,6 +49,27 @@ Samsung Galaxy A03 against the demo's mock server with the debug fake camera.
   camera stopped, You're offline, This check timed out, Something went wrong.
   An upload whose retries ran out shows "Couldn't send your scan" over the
   camera; "Try again" sends the kept scan again.
+- **Same checks during a movement as during the scan.** Head Turn, Follow Dot
+  and Speak Digits (before the scan or in round 2) run the full quality gate:
+  face found, one person, covered face (segmenter), distance with the scan's
+  margin, in frame, sharpness, eyes open. A failing check pauses the movement
+  with an amber ring, the guidance names it ("Keep your face uncovered / Then
+  keep turning"), and no frames are banked. Only pose is relaxed, toward the
+  side the step asks for; stillness and the region change watch are off while
+  the head is meant to move (Speak Digits keeps stillness).
+- **Round 2 carries round 1's signals.** The step-up upload now has the same
+  metadata keys as round 1 (`channel_integrity`, `suspicion`,
+  `deep_classifier_on_device` when on, `frame_hashes`, the mesh
+  `verification_package` or its skip reason, `covered_check`), with the face
+  mesh fitted again on round 2's frames.
+- **On-device attack detection** (policy `inline_step_up.enabled`, the Sensei
+  check "Unusual movement during the scan"): the suspicion engine watches the
+  live face from align through the scan; when it triggers, Flash Reflection
+  and/or RMAS run on the scan screen in the guided style (plain guidance under
+  the oval, amber ring while a prompt waits), before the movement or the
+  upload, and their evidence goes in `inline_step_up`. This was never wired to
+  a screen on Android before. The engine now uses the policy's threshold and
+  reads every gate frame.
 - `UseSenseConfig.showResultScreens` (default `true`): `false` hands the decision
   straight to `onSuccess` with no result page.
 - `UseSenseConfig.maxRetries` (default `0`): how many times "Try again" is offered
@@ -57,7 +78,9 @@ Samsung Galaxy A03 against the demo's mock server with the debug fake camera.
   screen for its screenshot (the extra-check states come from the real state
   machine). Demo app: launch extras for automated mock runs (`mock_step_up`,
   `mock_challenge`, `mock_decision`, `max_retries`, `show_results`,
-  `mock_fallback_status`) and the mock server answers step-up and challenge-fallback.
+  `mock_fallback_status`, `mock_inline_threshold`, `mock_inline_challenge`), the
+  mock server answers step-up and challenge-fallback and logs each round's
+  metadata keys, and the rig's `forceState: "pass_scan"` passes only the scan.
 
 ### Changed
 

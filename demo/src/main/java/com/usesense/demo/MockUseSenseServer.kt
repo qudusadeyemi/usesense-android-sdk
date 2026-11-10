@@ -31,6 +31,10 @@ class MockUseSenseServer {
 
     private var fallbackApplied = false
 
+    /** On-device attack detection (policy inline_step_up): its threshold, or null for off. */
+    var inlineThreshold: Int? = null
+    var inlineChallenge: String = "auto"
+
     private var lastSessionId: String? = null
 
     // MockWebServer resolves its host name when it binds, which is a network
@@ -71,8 +75,11 @@ class MockUseSenseServer {
                 val path = request.requestUrl?.encodedPath ?: ""
                 return when {
                     path == "/v1/sessions" && request.method == "POST" -> handleCreateSession()
-                    path.matches(Regex("/v1/sessions/.+/signals")) && request.method == "POST" ->
-                        handleUploadSignals(round = request.requestUrl?.queryParameter("round")?.toIntOrNull() ?: 1)
+                    path.matches(Regex("/v1/sessions/.+/signals")) && request.method == "POST" -> {
+                        val round = request.requestUrl?.queryParameter("round")?.toIntOrNull() ?: 1
+                        logMetadataKeys(request, round)
+                        handleUploadSignals(round = round)
+                    }
                     path.matches(Regex("/v1/sessions/.+/challenge-fallback")) && request.method == "POST" -> handleFallback()
                     path.matches(Regex("/v1/sessions/.+/complete")) && request.method == "POST" -> handleComplete()
                     path.matches(Regex("/v1/sessions/.+/status")) && request.method == "GET" -> handleStatus()
@@ -110,6 +117,9 @@ class MockUseSenseServer {
                 }
                 if (audioChallenge != null) put("audio_challenge", audioChallenge)
                 put("policy_source", "sensei")
+                inlineThreshold?.let { t ->
+                    put("inline_step_up", JSONObject().put("enabled", true).put("suspicion_threshold", t).put("preferred_challenge", inlineChallenge))
+                }
             })
             put("upload", JSONObject().apply {
                 put("max_frames", 30)
@@ -128,6 +138,29 @@ class MockUseSenseServer {
             .setResponseCode(201)
             .setHeader("Content-Type", "application/json")
             .setBody(response.toString())
+    }
+
+    /** Debug: the top-level metadata keys of each round's upload (logcat UseSenseMock). */
+    private fun logMetadataKeys(request: RecordedRequest, round: Int) {
+        runCatching {
+            val body = request.body.readByteArray()
+            val marker = "name=\"metadata\"".toByteArray()
+            val at = indexOf(body, marker)
+            if (at < 0) return
+            val start = indexOf(body, "\r\n\r\n".toByteArray(), at) + 4
+            val gz = body.copyOfRange(start, body.size)
+            val json = java.util.zip.GZIPInputStream(gz.inputStream()).readBytes().toString(Charsets.UTF_8)
+            val keys = JSONObject(json).keys().asSequence().toList().sorted()
+            Log.i("UseSenseMock", "round $round metadata keys: $keys")
+        }.onFailure { Log.w("UseSenseMock", "metadata not read: $it") }
+    }
+
+    private fun indexOf(hay: ByteArray, needle: ByteArray, from: Int = 0): Int {
+        outer@ for (i in from..hay.size - needle.size) {
+            for (j in needle.indices) if (hay[i + j] != needle[j]) continue@outer
+            return i
+        }
+        return -1
     }
 
     private fun handleUploadSignals(round: Int): MockResponse {

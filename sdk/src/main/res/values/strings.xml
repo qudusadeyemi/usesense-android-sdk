@@ -293,4 +293,13 @@
     <string name="usesense_page_mic_body">This check needs your microphone. Turn it on for %s in Settings, or do a head movement instead.</string>
     <string name="usesense_page_mic_instead">Do a head movement instead</string>
     <string name="usesense_this_app">this app</string>
+
+    <!-- On-device attack detection (inline step-up): guided prompts on the scan screen -->
+    <string name="usesense_inline_intro">A few quick prompts</string>
+    <string name="usesense_inline_intro_detail">Keep your face in the oval</string>
+    <string name="usesense_inline_flash_detail">Your screen will change colour</string>
+    <string name="usesense_inline_blink">Blink twice</string>
+    <string name="usesense_inline_smile">Smile</string>
+    <string name="usesense_inline_eyebrows">Raise your eyebrows</string>
+    <string name="usesense_inline_mouth">Open your mouth</string>
 </resources>

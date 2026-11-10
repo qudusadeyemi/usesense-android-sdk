@@ -19,6 +19,7 @@ import kotlin.concurrent.thread
  *   { "video": "face-portrait.mp4", "freezeAt": 4.0, "forceState": "scan", "forceProgress": 0.5, "forceHint": "CENTRE" }
  * or a storyboard screen held for a screenshot (extra check, sheets, pages):
  *   { "video": "face-portrait.mp4", "freezeAt": 4.0, "forceScreen": "head_left" }
+  * forceState "pass_scan": the scan passes, an extra check after it meets the real gate.
  * All keys are optional: without "video" the real camera runs and only the forced
  * state applies. Delete the json to get the normal flow back.
  */

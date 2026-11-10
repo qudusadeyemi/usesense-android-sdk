@@ -125,6 +125,8 @@ class DemoActivity : AppCompatActivity() {
                 extras?.getStringExtra("mock_decision")?.let { mockDecision = it }
                 stepUpType = extras?.getStringExtra("mock_step_up")
                 fallbackStatus = extras?.getIntExtra("mock_fallback_status", 200) ?: 200
+                inlineThreshold = extras?.takeIf { it.hasExtra("mock_inline_threshold") }?.getIntExtra("mock_inline_threshold", 55)
+                extras?.getStringExtra("mock_inline_challenge")?.let { inlineChallenge = it }
                 requireAudio = challengeType == "speak_phrase"
                 start()
             }
