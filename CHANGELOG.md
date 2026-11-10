@@ -6,7 +6,7 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [4.12.0] - 2026-11-09
+## [4.12.0] - 2026-11-10
 
 Guided face capture (LiveSense capture redesign, Phase 1). Tested on a Samsung
 Galaxy A03 (Android 13): mock captures, a sandbox Flow run to a verdict, hands
