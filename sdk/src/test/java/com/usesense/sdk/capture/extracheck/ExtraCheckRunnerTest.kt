@@ -17,10 +17,17 @@ class ExtraCheckRunnerTest {
     private val away = ExtraCheckInput(faceInOval = false)
 
     /** Tick every 50 ms from [from] up to [to]; returns every event. */
-    private fun ExtraCheckRunner.run(from: Long, to: Long, input: ExtraCheckInput): List<ExtraCheckEvent> {
+    private fun ExtraCheckRunner.run(
+        from: Long,
+        to: Long,
+        input: ExtraCheckInput,
+    ): List<ExtraCheckEvent> {
         val events = mutableListOf<ExtraCheckEvent>()
         var t = from
-        while (t < to) { t += 50; events += tick(t, input) }
+        while (t < to) {
+            t += 50
+            events += tick(t, input)
+        }
         return events
     }
 
@@ -156,13 +163,21 @@ class ExtraCheckRunnerTest {
 
     @Test
     fun `steps come from the spec in index order, and an empty spec still runs`() {
-        val head = ChallengeSpec(
-            type = "head_turn", seed = "s", totalDurationMs = 3000,
-            sequence = listOf(HeadTurnStep("right", 1500, 1), HeadTurnStep("left", 1500, 0)),
-        )
+        val head =
+            ChallengeSpec(
+                type = "head_turn",
+                seed = "s",
+                totalDurationMs = 3000,
+                sequence = listOf(HeadTurnStep("right", 1500, 1), HeadTurnStep("left", 1500, 0)),
+            )
         assertEquals(listOf("left", "right"), ExtraCheckRunner.stepsFor(head).map { it.direction })
-        val dot = ChallengeSpec(type = "follow_dot", seed = "s", totalDurationMs = 1000,
-            waypoints = listOf(Waypoint(0.1f, 0.9f, 1000, 0)))
+        val dot =
+            ChallengeSpec(
+                type = "follow_dot",
+                seed = "s",
+                totalDurationMs = 1000,
+                waypoints = listOf(Waypoint(0.1f, 0.9f, 1000, 0)),
+            )
         assertEquals(0.9f, ExtraCheckRunner.stepsFor(dot).single().y)
         val digits = ChallengeSpec(type = "speak_phrase", seed = "s", totalDurationMs = 5000, phrase = "4 7 2 9 1")
         assertEquals(5000L, ExtraCheckRunner.stepsFor(digits).single().durationMs)

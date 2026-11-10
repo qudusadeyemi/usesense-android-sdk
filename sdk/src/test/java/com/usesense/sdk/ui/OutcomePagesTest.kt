@@ -33,12 +33,18 @@ class OutcomePagesTest {
     @Test
     fun `errors map to the storyboard pages`() {
         assertEquals(PageKind.EXPIRED, OutcomePages.forError(UseSenseError.sessionExpired(), beforeUpload = false))
-        assertEquals(PageKind.EXPIRED, OutcomePages.forError(UseSenseError.fromServerError(401, "session_expired", "x"), beforeUpload = true))
+        assertEquals(
+            PageKind.EXPIRED,
+            OutcomePages.forError(UseSenseError.fromServerError(401, "session_expired", "x"), beforeUpload = true),
+        )
         assertEquals(PageKind.OFFLINE, OutcomePages.forError(UseSenseError.networkError("no route"), beforeUpload = true))
         assertEquals(PageKind.ERROR, OutcomePages.forError(UseSenseError.networkError("no route"), beforeUpload = false))
         assertEquals(PageKind.CAMERA_DENIED, OutcomePages.forError(UseSenseError.cameraPermissionDenied(), beforeUpload = true))
         assertEquals(PageKind.CAMERA_ERROR, OutcomePages.forError(UseSenseError.cameraUnavailable(), beforeUpload = true))
-        assertEquals(PageKind.ERROR, OutcomePages.forError(UseSenseError.fromServerError(409, "fallback_not_allowed", "x"), beforeUpload = true))
+        assertEquals(
+            PageKind.ERROR,
+            OutcomePages.forError(UseSenseError.fromServerError(409, "fallback_not_allowed", "x"), beforeUpload = true),
+        )
         assertEquals(PageKind.ERROR, OutcomePages.forError(null, beforeUpload = true))
     }
 

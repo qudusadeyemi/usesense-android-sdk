@@ -11,18 +11,30 @@ class ExtraCheckCopyTest {
     @Test
     fun `the sheet sentence follows the challenge`() {
         assertEquals(R.string.usesense_xc_sheet_head_left_right, ExtraCheckCopy.sheetBody(ExtraCheckKind.HEAD_TURN, steps("left", "right")))
-        assertEquals(R.string.usesense_xc_sheet_head_right_left, ExtraCheckCopy.sheetBody(ExtraCheckKind.HEAD_TURN, steps("right", "left", "right")))
+        assertEquals(
+            R.string.usesense_xc_sheet_head_right_left,
+            ExtraCheckCopy.sheetBody(ExtraCheckKind.HEAD_TURN, steps("right", "left", "right")),
+        )
         assertEquals(R.string.usesense_xc_sheet_head_left, ExtraCheckCopy.sheetBody(ExtraCheckKind.HEAD_TURN, steps("left", "center")))
         assertEquals(R.string.usesense_xc_sheet_head_other, ExtraCheckCopy.sheetBody(ExtraCheckKind.HEAD_TURN, steps("left", "up")))
         assertEquals(R.string.usesense_xc_sheet_dot, ExtraCheckCopy.sheetBody(ExtraCheckKind.FOLLOW_DOT, emptyList()))
         assertEquals(R.string.usesense_xc_sheet_digits, ExtraCheckCopy.sheetBody(ExtraCheckKind.SPEAK_DIGITS, emptyList()))
     }
 
-    private fun runner(kind: ExtraCheckKind, steps: List<ExtraCheckStep>) = ExtraCheckRunner(kind, steps).also { it.start(0) }
+    private fun runner(
+        kind: ExtraCheckKind,
+        steps: List<ExtraCheckStep>,
+    ) = ExtraCheckRunner(kind, steps).also { it.start(0) }
 
-    private fun ExtraCheckRunner.at(ms: Long, input: ExtraCheckInput): ExtraCheckRunner {
+    private fun ExtraCheckRunner.at(
+        ms: Long,
+        input: ExtraCheckInput,
+    ): ExtraCheckRunner {
         var t = 0L
-        while (t < ms) { t += 50; tick(t, input) }
+        while (t < ms) {
+            t += 50
+            tick(t, input)
+        }
         return this
     }
 

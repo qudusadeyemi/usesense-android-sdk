@@ -9,14 +9,33 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ExtraCheckFaceTest {
-    private val identity = PointMapper { x, y, out -> out[0] = x; out[1] = y }
+    private val identity =
+        PointMapper { x, y, out ->
+            out[0] = x
+            out[1] = y
+        }
     private val oval = OvalSpec(cx = 200f, cy = 300f, rx = 140f, ry = 200f)
 
     /** 478 points; the ones the reading uses placed for a face centred at (cx, cy) with the nose at [noseX]. */
-    private fun face(cx: Float, cy: Float, noseX: Float): FloatArray {
+    private fun face(
+        cx: Float,
+        cy: Float,
+        noseX: Float,
+    ): FloatArray {
         val p = FloatArray(478 * 3)
-        fun set(i: Int, x: Float, y: Float) { p[i * 3] = x; p[i * 3 + 1] = y }
-        set(10, cx, cy - 120); set(152, cx, cy + 120); set(234, cx - 90, cy); set(454, cx + 90, cy)
+
+        fun set(
+            i: Int,
+            x: Float,
+            y: Float,
+        ) {
+            p[i * 3] = x
+            p[i * 3 + 1] = y
+        }
+        set(10, cx, cy - 120)
+        set(152, cx, cy + 120)
+        set(234, cx - 90, cy)
+        set(454, cx + 90, cy)
         set(1, noseX, cy + 10)
         return p
     }
