@@ -97,6 +97,9 @@ Samsung Galaxy A03 against the demo's mock server with the debug fake camera.
 
 - Debug fake camera: frames a decoder returns as RGB_565 are converted, so the
   gate sees a face in unfrozen playback.
+- `covered_check.final.outcome` said `"skipped"` when the debug test rig forced
+  the gate to pass, the value COVER-v1 keeps for a missing model. It now says
+  `"rig_forced"`; release builds never take that path.
 
 ## [4.12.0] - 2026-11-10
 

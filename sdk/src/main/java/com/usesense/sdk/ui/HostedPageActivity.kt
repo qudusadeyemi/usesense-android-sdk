@@ -47,6 +47,7 @@ import com.usesense.sdk.api.UseSenseApiClient
 import com.usesense.sdk.api.models.*
 import com.usesense.sdk.capture.FrameCaptureManager
 import com.usesense.sdk.capture.ImageQualityAnalyzer
+import com.usesense.sdk.capture.scan.CoveredCheckStats
 import com.usesense.sdk.capture.scan.FaceRegions
 import com.usesense.sdk.capture.scan.FillLightLatch
 import com.usesense.sdk.capture.scan.GateFrame
@@ -1759,14 +1760,19 @@ class HostedPageActivity : AppCompatActivity() {
                     }
                     ScanController.Event.COMPLETED -> {
                         scanView.progress = 1f
-                        if (liveAnalyzer?.coverCheckOn == true && debugHooks?.forceState.let { it != "pass" && it != "pass_scan" }) {
+                        val plan = CoveredCheckStats.finalPlan(
+                            coverCheckOn = liveAnalyzer?.coverCheckOn == true,
+                            rigForcesPass = debugHooks?.forceState.let { it == "pass" || it == "pass_scan" },
+                        )
+                        if (plan == CoveredCheckStats.FinalPlan.WAIT) {
                             // Covered-face segmentation lags ~1 s on slow phones:
                             // finish only once a result from after the last banked
                             // frame says the face is clear (onGateFrame).
                             finalCoverSince = now
                             return
                         }
-                        liveAnalyzer?.coverStats?.finalCheck(null, null, "skipped")
+                        // "skipped" only for a missing model; the debug rig says so itself.
+                        liveAnalyzer?.coverStats?.finalCheck(null, null, CoveredCheckStats.skipOutcome(plan))
                         finishPassiveScan()
                         return
                     }
