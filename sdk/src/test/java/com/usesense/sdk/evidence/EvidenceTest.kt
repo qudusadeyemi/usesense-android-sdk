@@ -479,4 +479,16 @@ class EvidenceTest {
         assertFalse(json.has("binding"))
         assertNotNull(json.getJSONObject("colour").getJSONArray("segments"))
     }
+
+    @Test
+    fun `camera timestamps map to the capture clock from either clock base`() {
+        val exposure = com.usesense.sdk.capture.FrameCaptureManager.Companion
+        // Realtime base: exposure 120 ms before now.
+        assertEquals(9_880L, exposure.exposureElapsedMs(9_880_000_000L, realtimeNs = 10_000_000_000L, monotonicNs = 4_000_000_000L))
+        // Monotonic base (System.nanoTime), realtime 6 s ahead of it.
+        assertEquals(9_880L, exposure.exposureElapsedMs(3_880_000_000L, realtimeNs = 10_000_000_000L, monotonicNs = 4_000_000_000L))
+        // Neither (or not set): the caller falls back to the delivery time.
+        assertNull(exposure.exposureElapsedMs(0L, 10_000_000_000L, 4_000_000_000L))
+        assertNull(exposure.exposureElapsedMs(50_000_000_000L, 10_000_000_000L, 4_000_000_000L))
+    }
 }
