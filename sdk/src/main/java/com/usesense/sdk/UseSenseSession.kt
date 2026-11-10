@@ -859,18 +859,12 @@ internal class UseSenseSession(
         }
     }
 
-    fun isExpired(): Boolean {
-        val expires = sessionResponse?.expiresAt ?: return false
-        return try {
-            val fmt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
-                timeZone = TimeZone.getTimeZone("UTC")
-            }
-            val expiryDate = fmt.parse(expires) ?: return false
-            Date().after(expiryDate)
-        } catch (_: Exception) {
-            false
-        }
-    }
+    fun isExpired(): Boolean =
+        com.usesense.sdk.internal.SessionExpiry.endsWithin(sessionResponse?.expiresAt, System.currentTimeMillis(), marginMs = 0L)
+
+    /** Ended, or ends before a capture could finish (the person sat on the primer). */
+    internal fun endsSoon(): Boolean =
+        com.usesense.sdk.internal.SessionExpiry.endsWithin(sessionResponse?.expiresAt, System.currentTimeMillis())
 
     fun release() {
         integrityJob?.cancel()

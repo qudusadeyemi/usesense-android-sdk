@@ -102,6 +102,11 @@ Samsung Galaxy A03 against the demo's mock server with the debug fake camera.
   the quality gate's landmarker and the covered-face segmenter built their
   MediaPipe graphs on three threads at once. Graph creation is now one at a
   time, process-wide. Likely present since 4.12.0.
+- **A session that ran out on the primer** (15 minutes) was only found out at
+  upload, after the whole scan ("This check timed out"). Start now checks the
+  session's `expires_at` and, when under 2 minutes are left, quietly gets a
+  fresh session first (once per attempt). `isExpired()` reads any ISO 8601
+  form of `expires_at`; it used to need exactly three fraction digits.
 - `covered_check.final.outcome` said `"skipped"` when the debug test rig forced
   the gate to pass, the value COVER-v1 keeps for a missing model. It now says
   `"rig_forced"`; release builds never take that path.

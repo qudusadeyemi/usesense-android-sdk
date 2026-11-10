@@ -316,6 +316,8 @@ class HostedPageActivity : AppCompatActivity() {
     /** "Try again" taps used after a rejection (UseSenseConfig.maxRetries). */
     private var retriesUsed = 0
     private var primerShown = false
+    /** This attempt already swapped an expired session for a fresh one. */
+    private var expiryRefreshed = false
     /** The mic page was left for Settings: check the permission again on return. */
     private var awaitingMicSettings = false
 
@@ -1026,6 +1028,17 @@ class HostedPageActivity : AppCompatActivity() {
     }
 
     private fun requestCapturePermissions() {
+        // A session that ran out while the person sat on the primer (15 min)
+        // would only fail at upload, after the whole scan. Get a fresh one now,
+        // quietly; once per attempt, so a wrong device clock can't loop.
+        val sess = session
+        if (sess != null && !expiryRefreshed && sess.endsSoon() && (!isFlowRun || pendingSessionFactory != null)) {
+            expiryRefreshed = true
+            Log.i(TAG, "Session ${sess.sessionId} expires at ${sess.expiresAt}; starting a fresh one")
+            restartCapture()
+            return
+        }
+        expiryRefreshed = false
         eventEmitter.emit(EventType.PERMISSIONS_REQUESTED)
         checkAndRequestPermissions()
     }
