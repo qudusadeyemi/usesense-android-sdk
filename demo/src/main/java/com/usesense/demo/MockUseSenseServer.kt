@@ -23,6 +23,18 @@ class MockUseSenseServer {
     var mockDecision: String = "APPROVE"
     var requireAudio: Boolean = false
 
+    /** Ask for an extra check after the scan (server step-up round 2): head_turn, follow_dot or null. */
+    var stepUpType: String? = null
+
+    /** The challenge-fallback endpoint answers with this HTTP status (200 = swap to Follow Dot). */
+    var fallbackStatus: Int = 200
+
+    private var fallbackApplied = false
+
+    /** On-device attack detection (policy inline_step_up): its threshold, or null for off. */
+    var inlineThreshold: Int? = null
+    var inlineChallenge: String = "auto"
+
     private var lastSessionId: String? = null
 
     // MockWebServer resolves its host name when it binds, which is a network
@@ -63,7 +75,12 @@ class MockUseSenseServer {
                 val path = request.requestUrl?.encodedPath ?: ""
                 return when {
                     path == "/v1/sessions" && request.method == "POST" -> handleCreateSession()
-                    path.matches(Regex("/v1/sessions/.+/signals")) && request.method == "POST" -> handleUploadSignals()
+                    path.matches(Regex("/v1/sessions/.+/signals")) && request.method == "POST" -> {
+                        val round = request.requestUrl?.queryParameter("round")?.toIntOrNull() ?: 1
+                        logMetadataKeys(request, round)
+                        handleUploadSignals(round = round)
+                    }
+                    path.matches(Regex("/v1/sessions/.+/challenge-fallback")) && request.method == "POST" -> handleFallback()
                     path.matches(Regex("/v1/sessions/.+/complete")) && request.method == "POST" -> handleComplete()
                     path.matches(Regex("/v1/sessions/.+/status")) && request.method == "GET" -> handleStatus()
                     else -> {
@@ -100,6 +117,9 @@ class MockUseSenseServer {
                 }
                 if (audioChallenge != null) put("audio_challenge", audioChallenge)
                 put("policy_source", "sensei")
+                inlineThreshold?.let { t ->
+                    put("inline_step_up", JSONObject().put("enabled", true).put("suspicion_threshold", t).put("preferred_challenge", inlineChallenge))
+                }
             })
             put("upload", JSONObject().apply {
                 put("max_frames", 30)
@@ -120,11 +140,43 @@ class MockUseSenseServer {
             .setBody(response.toString())
     }
 
-    private fun handleUploadSignals(): MockResponse {
+    /** Debug: the top-level metadata keys of each round's upload (logcat UseSenseMock). */
+    private fun logMetadataKeys(request: RecordedRequest, round: Int) {
+        runCatching {
+            val body = request.body.readByteArray()
+            val marker = "name=\"metadata\"".toByteArray()
+            val at = indexOf(body, marker)
+            if (at < 0) return
+            val start = indexOf(body, "\r\n\r\n".toByteArray(), at) + 4
+            val gz = body.copyOfRange(start, body.size)
+            val json = java.util.zip.GZIPInputStream(gz.inputStream()).readBytes().toString(Charsets.UTF_8)
+            val keys = JSONObject(json).keys().asSequence().toList().sorted()
+            Log.i("UseSenseMock", "round $round metadata keys: $keys")
+        }.onFailure { Log.w("UseSenseMock", "metadata not read: $it") }
+    }
+
+    private fun indexOf(hay: ByteArray, needle: ByteArray, from: Int = 0): Int {
+        outer@ for (i in from..hay.size - needle.size) {
+            for (j in needle.indices) if (hay[i + j] != needle[j]) continue@outer
+            return i
+        }
+        return -1
+    }
+
+    private fun handleUploadSignals(round: Int): MockResponse {
         // Simulate processing delay
         Thread.sleep(500)
 
         val response = JSONObject().apply {
+            val stepUp = stepUpType
+            if (round == 1 && stepUp != null) {
+                // As the server's step_up_v1: one more challenge in the same session.
+                put("step_up", JSONObject().apply {
+                    put("round", 2)
+                    put("challenge", buildChallengeSpec(stepUp))
+                    put("upload", JSONObject().put("max_frames", 20))
+                })
+            }
             put("received", true)
             put("session_id", lastSessionId ?: "sess_mock")
             put("frames_count", 45)
@@ -192,6 +244,30 @@ class MockUseSenseServer {
             .setBody(response.toString())
     }
 
+    /** Speak Digits -> Follow Dot (POST /v1/sessions/:id/challenge-fallback). */
+    private fun handleFallback(): MockResponse {
+        if (fallbackStatus != 200) {
+            val code = if (fallbackStatus == 409) "fallback_not_allowed" else "invalid_request"
+            return MockResponse().setResponseCode(fallbackStatus)
+                .setHeader("Content-Type", "application/json")
+                .setBody("""{"error":{"code":"$code","message":"mock"}}""")
+        }
+        fallbackApplied = true
+        val response = JSONObject().apply {
+            put("session_id", lastSessionId ?: "sess_mock")
+            put("policy", JSONObject().apply {
+                put("requires_audio", false)
+                put("requires_stepup", true)
+                put("challenge_type", "follow_dot")
+                put("challenge", buildChallengeSpec("follow_dot"))
+                put("policy_source", "sensei+fallback")
+            })
+        }
+        return MockResponse().setResponseCode(200)
+            .setHeader("Content-Type", "application/json")
+            .setBody(response.toString())
+    }
+
     private fun handleStatus(): MockResponse {
         val response = JSONObject().apply {
             put("session_id", lastSessionId ?: "sess_mock")
@@ -204,8 +280,8 @@ class MockUseSenseServer {
             .setBody(response.toString())
     }
 
-    private fun buildChallengeSpec(): JSONObject {
-        return when (challengeType) {
+    private fun buildChallengeSpec(type: String = challengeType): JSONObject {
+        return when (type) {
             "follow_dot" -> JSONObject().apply {
                 put("type", "follow_dot")
                 put("seed", UUID.randomUUID().toString().take(12))
@@ -223,21 +299,21 @@ class MockUseSenseServer {
             "head_turn" -> JSONObject().apply {
                 put("type", "head_turn")
                 put("seed", UUID.randomUUID().toString().take(12))
-                put("total_duration_ms", 5500)
+                put("total_duration_ms", 4000)
                 put("frames_per_step", 2)
                 put("capture_fps_hint", 10)
                 put("sequence", JSONArray().apply {
                     put(JSONObject().apply { put("direction", "left"); put("duration_ms", 2000); put("index", 0) })
-                    put(JSONObject().apply { put("direction", "up"); put("duration_ms", 2000); put("index", 1) })
-                    put(JSONObject().apply { put("direction", "center"); put("duration_ms", 1500); put("index", 2) })
+                    put(JSONObject().apply { put("direction", "right"); put("duration_ms", 2000); put("index", 1) })
                 })
             }
             "speak_phrase" -> JSONObject().apply {
                 put("type", "speak_phrase")
                 put("seed", UUID.randomUUID().toString().take(12))
-                put("total_duration_ms", 3000)
-                put("phrase", "I am verifying my identity")
-                put("phrase_language", "en")
+                // As the server: 4 to 6 spaced digits, about a second each.
+                put("total_duration_ms", 4000)
+                put("phrase", "4 7 2 9")
+                put("phrase_language", "numeric")
             }
             else -> JSONObject()
         }

@@ -558,6 +558,13 @@
                             android:layout_height="match_parent"
                             android:importantForAccessibility="no" />
 
+                        <!-- Extra check on the scan screen: arrow, dot and trail, digits and meter, tick. -->
+                        <com.usesense.sdk.ui.ExtraCheckOverlayView
+                            android:id="@+id/hostedExtraCheckView"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:importantForAccessibility="no" />
+
                         <!-- Guidance: plain centred text under the oval (SPEC v1.1), and the
                              shutter. HostedPageActivity.placeHint puts its top 28dp below the oval. -->
                         <LinearLayout
@@ -737,6 +744,7 @@
                         android:visibility="gone">
 
                         <LinearLayout
+                            android:id="@+id/hostedUploadSheet"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_gravity="bottom"
@@ -786,6 +794,60 @@
                                 android:textSize="14sp"
                                 android:textColor="#FFA3A9B8"
                                 android:text="@string/usesense_upload_detail" />
+                        </LinearLayout>
+
+                        <!-- Action sheet, same styling as the upload sheet (storyboard: xc_head,
+                             xc_dot, xc_digits, upload_failed): icon, title, one sentence, a button. -->
+                        <LinearLayout
+                            android:id="@+id/hostedActionSheet"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="bottom"
+                            android:layout_margin="8dp"
+                            android:background="@drawable/usesense_upload_sheet_bg"
+                            android:orientation="vertical"
+                            android:paddingHorizontal="24dp"
+                            android:paddingTop="26dp"
+                            android:paddingBottom="24dp"
+                            android:visibility="gone">
+
+                            <com.usesense.sdk.ui.StrokeIconView
+                                android:id="@+id/hostedActionSheetIcon"
+                                android:layout_width="52dp"
+                                android:layout_height="52dp"
+                                android:layout_marginBottom="12dp"
+                                android:importantForAccessibility="no" />
+
+                            <TextView
+                                android:id="@+id/hostedActionSheetTitle"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:accessibilityHeading="true"
+                                android:fontFamily="sans-serif-medium"
+                                android:textColor="@android:color/white"
+                                android:textSize="20sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/hostedActionSheetBody"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="12dp"
+                                android:lineSpacingMultiplier="1.2"
+                                android:textColor="#C7FFFFFF"
+                                android:textSize="15sp" />
+
+                            <TextView
+                                android:id="@+id/hostedActionSheetPrimary"
+                                android:layout_width="match_parent"
+                                android:layout_height="54dp"
+                                android:layout_marginTop="18dp"
+                                android:background="@drawable/usesense_page_button_bg"
+                                android:fontFamily="sans-serif-medium"
+                                android:gravity="center"
+                                android:textColor="@android:color/white"
+                                android:textSize="17sp"
+                                android:textStyle="bold" />
                         </LinearLayout>
                     </FrameLayout>
 
@@ -1111,4 +1173,168 @@
             android:textSize="12sp"
             android:textColor="#64748B" />
     </LinearLayout>
+
+    <!-- Dark full-screen page (storyboard): primer, results and errors. -->
+    <ScrollView
+        android:id="@+id/hostedPage"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#FF12141B"
+        android:fillViewport="true"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingHorizontal="28dp"
+            android:paddingTop="76dp"
+            android:paddingBottom="40dp">
+
+            <com.usesense.sdk.ui.StrokeIconView
+                android:id="@+id/hostedPageIcon"
+                android:layout_width="72dp"
+                android:layout_height="72dp"
+                android:importantForAccessibility="no" />
+
+            <TextView
+                android:id="@+id/hostedPageTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:accessibilityHeading="true"
+                android:fontFamily="sans-serif"
+                android:letterSpacing="-0.01"
+                android:lineSpacingMultiplier="1.05"
+                android:textColor="@android:color/white"
+                android:textSize="28sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/hostedPageBody"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:lineSpacingMultiplier="1.25"
+                android:textColor="#BFFFFFFF"
+                android:textSize="16sp" />
+
+            <LinearLayout
+                android:id="@+id/hostedPageTips"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:orientation="vertical" />
+
+            <Space
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:minHeight="32dp" />
+
+            <TextView
+                android:id="@+id/hostedPagePrimary"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:background="@drawable/usesense_page_button_bg"
+                android:fontFamily="sans-serif-medium"
+                android:gravity="center"
+                android:textColor="@android:color/white"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/hostedPageSecondary"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="16dp"
+                android:background="?android:attr/selectableItemBackground"
+                android:fontFamily="sans-serif-medium"
+                android:gravity="center"
+                android:textColor="#CCFFFFFF"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- "Leave verification?" (storyboard: leave), over the capture. -->
+    <FrameLayout
+        android:id="@+id/hostedLeaveDialog"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#80000000"
+        android:clickable="true"
+        android:focusable="true"
+        android:padding="32dp"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="290dp"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:background="@drawable/usesense_leave_dialog_bg"
+            android:orientation="vertical"
+            android:paddingHorizontal="16dp"
+            android:paddingTop="20dp"
+            android:paddingBottom="14dp">
+
+            <TextView
+                android:id="@+id/hostedLeaveTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:accessibilityHeading="true"
+                android:fontFamily="sans-serif-medium"
+                android:gravity="center"
+                android:text="@string/usesense_leave_title"
+                android:textColor="@android:color/white"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center"
+                android:lineSpacingMultiplier="1.15"
+                android:text="@string/usesense_leave_body"
+                android:textColor="#CCFFFFFF"
+                android:textSize="14sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/hostedLeaveButton"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_marginEnd="4dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/usesense_leave_no_bg"
+                    android:fontFamily="sans-serif-medium"
+                    android:gravity="center"
+                    android:text="@string/usesense_leave"
+                    android:textColor="@android:color/white"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/hostedKeepGoingButton"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_marginStart="4dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/usesense_leave_yes_bg"
+                    android:fontFamily="sans-serif-medium"
+                    android:gravity="center"
+                    android:text="@string/usesense_keep_going"
+                    android:textColor="@android:color/white"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </LinearLayout>
+    </FrameLayout>
 </FrameLayout>

@@ -152,4 +152,14 @@ class CoveredCheckStatsTest {
         assertEquals("cover-v1", build(filled().toJson()).getJSONObject("covered_check").getString("version"))
         assertFalse(build(null).has("covered_check"))
     }
+
+    @Test
+    fun `final check waits whenever the model is loaded, skipped means no model, the rig says rig_forced`() {
+        assertEquals(CoveredCheckStats.FinalPlan.WAIT, CoveredCheckStats.finalPlan(coverCheckOn = true, rigForcesPass = false))
+        assertEquals(CoveredCheckStats.FinalPlan.SKIP_NO_MODEL, CoveredCheckStats.finalPlan(coverCheckOn = false, rigForcesPass = false))
+        assertEquals(CoveredCheckStats.FinalPlan.SKIP_NO_MODEL, CoveredCheckStats.finalPlan(coverCheckOn = false, rigForcesPass = true))
+        assertEquals(CoveredCheckStats.FinalPlan.SKIP_RIG_FORCED, CoveredCheckStats.finalPlan(coverCheckOn = true, rigForcesPass = true))
+        assertEquals("skipped", CoveredCheckStats.skipOutcome(CoveredCheckStats.FinalPlan.SKIP_NO_MODEL))
+        assertEquals("rig_forced", CoveredCheckStats.skipOutcome(CoveredCheckStats.FinalPlan.SKIP_RIG_FORCED))
+    }
 }

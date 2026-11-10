@@ -44,6 +44,26 @@ class HeadTurnChallenge(
         showStep(0)
     }
 
+    override fun beginDriven() {
+        handler.removeCallbacksAndMessages(null)
+        isActive = true
+        currentStepIndex = 0
+        responseBuilder.markStarted()
+        responseBuilder.setCurrentStep(0)
+    }
+
+    override fun driveStep(index: Int) {
+        currentStepIndex = index
+        responseBuilder.setCurrentStep(index)
+        onStepChanged?.invoke(index)
+    }
+
+    override fun endDriven() {
+        if (!isActive) return
+        isActive = false
+        responseBuilder.markCompleted()
+    }
+
     override fun stop() {
         isActive = false
         handler.removeCallbacksAndMessages(null)

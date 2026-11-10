@@ -376,4 +376,57 @@ class QualityGateTest {
             regions(), handOver, false, 2200), identity, oval, scanning = true)
         assertTrue(still.coverDrop)
     }
+
+    // ─── During an extra check (the same gate; only pose and stillness give way) ───
+
+    private val turning = GateMotion(yawAllowed = true, pitchAllowed = false, moving = true)
+
+    private fun turningFrame(t: Long, yaw: Double, pts: FloatArray? = face(jitter = (t % 300).toFloat() / 25f), cover: FaceCover? = null) =
+        GateFrame(t, 480, 640, 1, pts, PoseAngles(yaw, 0.0, 0.0), goodRegion, 0.1f, 0.1f, cover = cover)
+
+    @Test fun `during a head turn yaw toward the step passes, the scan limit doesn't`() {
+        val gate = QualityGate()
+        warm(gate)
+        val r = gate.evaluate(turningFrame(500, yaw = 35.0), identity, oval, scanning = true, motion = turning)
+        assertTrue(r.failing.toString(), r.allPass)
+        val strict = gate.evaluate(turningFrame(600, yaw = 35.0), identity, oval, scanning = true,
+            motion = turning.copy(yawAllowed = false))
+        assertTrue(GateHint.LOOK_STRAIGHT in strict.failing)
+        val tooFar = gate.evaluate(turningFrame(700, yaw = 55.0), identity, oval, scanning = true, motion = turning)
+        assertTrue(GateHint.LOOK_STRAIGHT in tooFar.failing)
+    }
+
+    @Test fun `a moving head isn't told to hold still, but a still-only check is`() {
+        val gate = QualityGate()
+        warm(gate)
+        var moving: GateResult? = null
+        var t = 500L
+        while (t < 1200) { moving = gate.evaluate(turningFrame(t, yaw = 10.0), identity, oval, scanning = true, motion = turning); t += 100 }
+        assertFalse(GateHint.HOLD_STILL in moving!!.failing)
+        assertTrue(moving.moving)
+        val gate2 = QualityGate()
+        warm(gate2)
+        var still: GateResult? = null
+        t = 500L
+        while (t < 1200) { still = gate2.evaluate(turningFrame(t, yaw = 10.0), identity, oval, scanning = true, motion = null); t += 100 }
+        assertTrue(GateHint.HOLD_STILL in still!!.failing)
+    }
+
+    @Test fun `a covered face, a second face, distance and frame still pause a movement`() {
+        val gate = QualityGate()
+        warm(gate)
+        val covered = gate.evaluate(turningFrame(500, yaw = 20.0, cover = handOver), identity, oval, scanning = true, motion = turning)
+        assertTrue(GateHint.FACE_COVERED in covered.blocking)
+        val two = gate.evaluate(GateFrame(600, 480, 640, 2, face(), PoseAngles(20.0, 0.0, 0.0), goodRegion, 0.1f, 0.1f),
+            identity, oval, scanning = true, motion = turning)
+        assertTrue(GateHint.ONE_PERSON in two.blocking)
+        val far = gate.evaluate(turningFrame(700, yaw = 20.0, pts = face(rx = 50f, ry = 70f, eyeDist = 40f)), identity, oval,
+            scanning = true, motion = turning)
+        assertTrue(GateHint.MOVE_CLOSER in far.blocking)
+        val off = gate.evaluate(turningFrame(800, yaw = 20.0, pts = face(cx = 380f)), identity, oval, scanning = true, motion = turning)
+        assertTrue(GateHint.CENTRE in off.blocking)
+        val shut = gate.evaluate(GateFrame(900, 480, 640, 1, face(), PoseAngles(20.0, 0.0, 0.0), goodRegion, 0.9f, 0.9f),
+            identity, oval, scanning = true, motion = turning)
+        assertTrue(GateHint.EYES_OPEN in shut.blocking)
+    }
 }

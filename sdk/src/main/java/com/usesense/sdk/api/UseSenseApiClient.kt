@@ -403,6 +403,11 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
         return executeCall { service.completeSession(sessionId) }
     }
 
+    /** Swap the session's Speak Digits challenge for Follow Dot (the microphone can't be used). */
+    suspend fun challengeFallback(sessionId: String): Result<ChallengeFallbackResponse> {
+        return executeCall { service.challengeFallback(sessionId, ChallengeFallbackRequest()) }
+    }
+
     suspend fun getSessionStatus(sessionId: String): Result<SessionStatusResponse> {
         return executeCall { service.getSessionStatus(sessionId) }
     }

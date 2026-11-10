@@ -207,4 +207,99 @@
     <string name="usesense_ok">OK</string>
     <string name="usesense_upload_title">Checking it\'s you</string>
     <string name="usesense_upload_detail">Usually under 10 seconds</string>
+
+    <!-- Extra check (LiveSense capture redesign, phase 2: storyboard flows 4 to 6) -->
+    <string name="usesense_xc_sheet_title">One more quick check</string>
+    <string name="usesense_xc_sheet_head_left_right">Slowly turn your head to the left, then to the right.</string>
+    <string name="usesense_xc_sheet_head_right_left">Slowly turn your head to the right, then to the left.</string>
+    <string name="usesense_xc_sheet_head_left">Slowly turn your head to the left.</string>
+    <string name="usesense_xc_sheet_head_right">Slowly turn your head to the right.</string>
+    <string name="usesense_xc_sheet_head_other">Slowly turn your head the way the arrows show.</string>
+    <string name="usesense_xc_sheet_dot">Keep your face in the oval and follow the dot with your head.</string>
+    <string name="usesense_xc_sheet_digits">Say the numbers you see out loud. We\'ll need your microphone.</string>
+    <string name="usesense_xc_continue">Continue</string>
+    <string name="usesense_xc_turn_left">Turn your head to the left</string>
+    <string name="usesense_xc_turn_right">Turn your head to the right</string>
+    <string name="usesense_xc_turn_up">Tilt your head up</string>
+    <string name="usesense_xc_turn_down">Tilt your head down</string>
+    <string name="usesense_xc_turn_centre">Look straight ahead</string>
+    <string name="usesense_xc_slowly">Slowly</string>
+    <string name="usesense_xc_now_left">Now to the left</string>
+    <string name="usesense_xc_now_right">Now to the right</string>
+    <string name="usesense_xc_now_up">Now up</string>
+    <string name="usesense_xc_now_down">Now down</string>
+    <string name="usesense_xc_now_centre">Now look straight ahead</string>
+    <string name="usesense_xc_again">Let\'s try that again</string>
+    <string name="usesense_xc_further_left">Turn a little further to the left</string>
+    <string name="usesense_xc_further_right">Turn a little further to the right</string>
+    <string name="usesense_xc_paused_turn_detail">Then keep turning</string>
+    <string name="usesense_xc_dot_wait">The dot will wait for you</string>
+    <string name="usesense_xc_follow_dot">Follow the dot with your head</string>
+    <string name="usesense_xc_keep_following">Keep following</string>
+    <string name="usesense_xc_say_numbers">Say these numbers</string>
+    <string name="usesense_xc_say_words">Say these words</string>
+    <string name="usesense_xc_paused_digits_detail">Then say the numbers</string>
+    <string name="usesense_xc_cant_hear">We can\'t hear you</string>
+    <string name="usesense_xc_louder">Speak a little louder</string>
+    <string name="usesense_xc_done">Done</string>
+
+    <!-- Primer -->
+    <string name="usesense_primer_title">Take a quick selfie</string>
+    <string name="usesense_primer_body">Hold your phone at eye level and look at the screen for a few seconds.</string>
+    <string name="usesense_primer_two_title">Two quick steps</string>
+    <string name="usesense_primer_two_body">A selfie scan, then a short movement. About 10 seconds.</string>
+    <string name="usesense_primer_tip_light">Good light on your face</string>
+    <string name="usesense_primer_tip_uncovered">Take off sunglasses, hats and masks</string>
+    <string name="usesense_primer_tip_alone">Only you in the picture</string>
+    <string name="usesense_start">Start</string>
+
+    <!-- Leave -->
+    <string name="usesense_leave_title">Leave verification?</string>
+    <string name="usesense_leave_body">You\'re nearly done. If you leave, you\'ll need to start again.</string>
+    <string name="usesense_leave">Leave</string>
+    <string name="usesense_keep_going">Keep going</string>
+
+    <!-- Upload failed (retries ran out) -->
+    <string name="usesense_upload_failed_title">Couldn\'t send your scan</string>
+    <string name="usesense_upload_failed_body">Check your connection. Your scan is kept, so you won\'t need to do it again.</string>
+
+    <!-- Results and errors (dark pages). %s is the host app\'s name. -->
+    <string name="usesense_page_approved_title">You\'re verified</string>
+    <string name="usesense_page_approved_body">Thanks. You can carry on in %s.</string>
+    <string name="usesense_page_review_title">Thanks, we\'re checking</string>
+    <string name="usesense_page_review_body">This can take a few minutes. %s will let you know.</string>
+    <string name="usesense_page_rejected_title">We couldn\'t verify you</string>
+    <string name="usesense_page_rejected_retry_body">This sometimes happens with poor light or movement. You can try once more.</string>
+    <string name="usesense_page_rejected_retry_body_many">This sometimes happens with poor light or movement. You can try again.</string>
+    <string name="usesense_page_rejected_tip_light">Face a window or a lamp</string>
+    <string name="usesense_page_rejected_tip_level">Hold your phone at eye level</string>
+    <string name="usesense_page_rejected_body">Please contact %s for help.</string>
+    <string name="usesense_not_now">Not now</string>
+    <string name="usesense_page_done">Done</string>
+    <string name="usesense_page_try_again">Try again</string>
+    <string name="usesense_start_again">Start again</string>
+    <string name="usesense_open_settings">Open Settings</string>
+    <string name="usesense_page_camera_denied_title">Camera access needed</string>
+    <string name="usesense_page_camera_denied_body">We use the camera only for this check. Turn on camera access for %s in Settings, then come back.</string>
+    <string name="usesense_page_camera_error_title">The camera stopped</string>
+    <string name="usesense_page_camera_error_body">Another app may be using it. Close other apps that use the camera, then try again.</string>
+    <string name="usesense_page_offline_title">You\'re offline</string>
+    <string name="usesense_page_offline_body">Check your internet connection, then try again.</string>
+    <string name="usesense_page_expired_title">This check timed out</string>
+    <string name="usesense_page_expired_body">For your security, each check is only open for 15 minutes.</string>
+    <string name="usesense_page_error_title">Something went wrong</string>
+    <string name="usesense_page_error_body">It\'s not you. Please try again in a moment.</string>
+    <string name="usesense_page_mic_title">Microphone needed</string>
+    <string name="usesense_page_mic_body">This check needs your microphone. Turn it on for %s in Settings, or do a head movement instead.</string>
+    <string name="usesense_page_mic_instead">Do a head movement instead</string>
+    <string name="usesense_this_app">this app</string>
+
+    <!-- On-device attack detection (inline step-up): guided prompts on the scan screen -->
+    <string name="usesense_inline_intro">A few quick prompts</string>
+    <string name="usesense_inline_intro_detail">Keep your face in the oval</string>
+    <string name="usesense_inline_flash_detail">Your screen will change colour</string>
+    <string name="usesense_inline_blink">Blink twice</string>
+    <string name="usesense_inline_smile">Smile</string>
+    <string name="usesense_inline_eyebrows">Raise your eyebrows</string>
+    <string name="usesense_inline_mouth">Open your mouth</string>
 </resources>

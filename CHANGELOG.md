@@ -6,6 +6,111 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [4.13.0] - Unreleased
+
+The extra check (LiveSense capture redesign, Phase 2): the approved end-user
+storyboard (flows 4 to 6) replaces the old challenge screens. Tested on a
+Samsung Galaxy A03 against the demo's mock server with the debug fake camera.
+
+### Added
+
+- **Extra check after the scan.** When the /signals response asks for a step-up
+  (round 2, `step_up_v1`), a "One more quick check" sheet (the upload sheet's
+  styling) says what is coming in one sentence, and Continue runs the movement
+  on the scan screen: full-bleed camera, the ring round the oval in purple.
+  Head Turn shows an arrow on the side to turn to ("Turn your head to the left",
+  "Now to the right"); Follow Dot shows an amber dot with a dashed trail
+  ("Follow the dot with your head"). A green tick ("Done"), then the upload
+  sheet, then the result. Replaces the round-2 screens of 4.12.0.
+- **Extra check before the scan.** When the session's policy already has a
+  challenge, the primer says "Two quick steps" and the movement follows straight
+  on from a 2 s scan on the same screen, in the same capture, with no sheet.
+- **Speak Digits on the scan screen**: the digits in a pill at the top, a live
+  microphone meter under the oval, "Say these numbers"; "We can't hear you /
+  Speak a little louder" after 2 s of a flat meter (it holds the timer for at
+  most 6 s in all).
+- **Microphone needed.** If the microphone is refused or can't record:
+  "Open Settings" or "Do a head movement instead". The second calls the new
+  `POST /v1/sessions/:id/challenge-fallback` (`{"reason":"microphone_unavailable"}`,
+  session-token auth) and carries on with the Follow Dot it returns.
+- **Never fails on the device.** The face leaving the oval pauses the movement
+  (amber ring; "Move your face to the centre / Then keep turning", or "Show your
+  face in the oval / The dot will wait for you") and it carries on when the face
+  is back. A missed left or right turn gets one more go with a hint ("Let's try
+  that again / Turn a little further to the left"); after that the server decides.
+- **Leave verification?** Back (system or the top bar) from the camera to the
+  upload asks first: "Leave" ends the verification (`onCancelled`, no resume),
+  "Keep going" carries on where it was.
+- **Primer**: "Take a quick selfie" with three tips, once per verification (not
+  on "Try again", and not inside a Flow, which has its own).
+- **Result and error pages** (dark, as the storyboard): You're verified, Thanks,
+  we're checking, We couldn't verify you (with "Try again" and tips only while
+  retries are allowed), Camera access needed (Open Settings / Try again), The
+  camera stopped, You're offline, This check timed out, Something went wrong.
+  An upload whose retries ran out shows "Couldn't send your scan" over the
+  camera; "Try again" sends the kept scan again.
+- **Same checks during a movement as during the scan.** Head Turn, Follow Dot
+  and Speak Digits (before the scan or in round 2) run the full quality gate:
+  face found, one person, covered face (segmenter), distance with the scan's
+  margin, in frame, sharpness, eyes open. A failing check pauses the movement
+  with an amber ring, the guidance names it ("Keep your face uncovered / Then
+  keep turning"), and no frames are banked. Only pose is relaxed, toward the
+  side the step asks for; stillness and the region change watch are off while
+  the head is meant to move (Speak Digits keeps stillness).
+- **Round 2 carries round 1's signals.** The step-up upload now has the same
+  metadata keys as round 1 (`channel_integrity`, `suspicion`,
+  `deep_classifier_on_device` when on, `frame_hashes`, the mesh
+  `verification_package` or its skip reason, `covered_check`), with the face
+  mesh fitted again on round 2's frames.
+- **On-device attack detection** (policy `inline_step_up.enabled`, the Sensei
+  check "Unusual movement during the scan"): the suspicion engine watches the
+  live face from align through the scan; when it triggers, Flash Reflection
+  and/or RMAS run on the scan screen in the guided style (plain guidance under
+  the oval, amber ring while a prompt waits), before the movement or the
+  upload, and their evidence goes in `inline_step_up`. This was never wired to
+  a screen on Android before. The engine now uses the policy's threshold and
+  reads every gate frame.
+- `UseSenseConfig.showResultScreens` (default `true`): `false` hands the decision
+  straight to `onSuccess` with no result page.
+- `UseSenseConfig.maxRetries` (default `0`): how many times "Try again" is offered
+  after a rejection.
+- Debug test rig: `forceScreen` in `usesense_fake_camera.json` holds any storyboard
+  screen for its screenshot (the extra-check states come from the real state
+  machine). Demo app: launch extras for automated mock runs (`mock_step_up`,
+  `mock_challenge`, `mock_decision`, `max_retries`, `show_results`,
+  `mock_fallback_status`, `mock_inline_threshold`, `mock_inline_challenge`), the
+  mock server answers step-up and challenge-fallback and logs each round's
+  metadata keys, and the rig's `forceState: "pass_scan"` passes only the scan.
+
+### Changed
+
+- "Try again" after a rejection is now off by default (it was always shown in
+  session mode). Set `maxRetries` to offer it.
+- A session with a challenge no longer shows the instructions overlay, the
+  baseline badge or the 3-2-1 countdown: it scans first, then runs the movement.
+- Remote hosted links (`startEnrollment` / `startVerification`) keep their intro,
+  white result and error screens; the new pages are for SDK sessions and Flows.
+- `ChallengePresenter` gains `beginDriven()`, `driveStep()` and `endDriven()`
+  (with default bodies) so the scan screen can own the challenge's timing.
+
+### Fixed
+
+- Debug fake camera: frames a decoder returns as RGB_565 are converted, so the
+  gate sees a face in unfrozen playback.
+- **Native crash as the capture opens** (SIGBUS in MediaPipe, seen on a Galaxy
+  A03 with the face mesh on, as production policies have it): the session mesh,
+  the quality gate's landmarker and the covered-face segmenter built their
+  MediaPipe graphs on three threads at once. Graph creation is now one at a
+  time, process-wide. Likely present since 4.12.0.
+- **A session that ran out on the primer** (15 minutes) was only found out at
+  upload, after the whole scan ("This check timed out"). Start now checks the
+  session's `expires_at` and, when under 2 minutes are left, quietly gets a
+  fresh session first (once per attempt). `isExpired()` reads any ISO 8601
+  form of `expires_at`; it used to need exactly three fraction digits.
+- `covered_check.final.outcome` said `"skipped"` when the debug test rig forced
+  the gate to pass, the value COVER-v1 keeps for a missing model. It now says
+  `"rig_forced"`; release builds never take that path.
+
 ## [4.12.0] - 2026-11-10
 
 Guided face capture (LiveSense capture redesign, Phase 1). Tested on a Samsung

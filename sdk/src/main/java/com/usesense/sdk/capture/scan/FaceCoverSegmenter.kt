@@ -173,7 +173,7 @@ internal class FaceCoverSegmenter(
                 .setOutputCategoryMask(true)
                 .setOutputConfidenceMasks(false)
                 .build()
-            segmenter = ImageSegmenter.createFromOptions(context, options)
+            segmenter = com.usesense.sdk.liveness.MediaPipeGraphs.create { ImageSegmenter.createFromOptions(context, options) }
             available = true
             stats?.modelLoaded(SystemClock.elapsedRealtime() - t0)
             Log.i(TAG, "Face cover segmentation on ($MODEL)")

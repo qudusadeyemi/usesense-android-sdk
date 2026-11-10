@@ -51,6 +51,10 @@ class DemoActivity : AppCompatActivity() {
         val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
         apiKeyInput.setText(prefs.getString(PREF_API_KEY, ""))
         flowIdInput.setText(prefs.getString(PREF_FLOW_ID, ""))
+        // Test automation (adb): start straight away with the given mock setup, e.g.
+        //   adb shell am start -n com.usesense.demo/.DemoActivity --ez autostart true \
+        //     --es mock_challenge none --es mock_step_up follow_dot --es mock_decision APPROVE
+        if (intent.getBooleanExtra(EXTRA_AUTOSTART, false)) startVerification()
     }
 
     private fun bindViews() {
@@ -94,7 +98,8 @@ class DemoActivity : AppCompatActivity() {
     }
 
     private fun startVerification() {
-        val isMockMode = modeGroup.checkedRadioButtonId == R.id.modeMock
+        val extras = intent.takeIf { it.getBooleanExtra(EXTRA_AUTOSTART, false) }
+        val isMockMode = if (extras != null) extras.getStringExtra("base_url") == null else modeGroup.checkedRadioButtonId == R.id.modeMock
 
         val baseUrl: String
         val apiKey: String
@@ -116,6 +121,12 @@ class DemoActivity : AppCompatActivity() {
                     R.id.verdictManualReview -> "MANUAL_REVIEW"
                     else -> "APPROVE"
                 }
+                extras?.getStringExtra("mock_challenge")?.let { challengeType = it }
+                extras?.getStringExtra("mock_decision")?.let { mockDecision = it }
+                stepUpType = extras?.getStringExtra("mock_step_up")
+                fallbackStatus = extras?.getIntExtra("mock_fallback_status", 200) ?: 200
+                inlineThreshold = extras?.takeIf { it.hasExtra("mock_inline_threshold") }?.getIntExtra("mock_inline_threshold", 55)
+                extras?.getStringExtra("mock_inline_challenge")?.let { inlineChallenge = it }
                 requireAudio = challengeType == "speak_phrase"
                 start()
             }
@@ -127,7 +138,8 @@ class DemoActivity : AppCompatActivity() {
                 Toast.makeText(this, "Enter an API key for sandbox mode", Toast.LENGTH_SHORT).show()
                 return
             }
-            baseUrl = UseSenseConfig.DEFAULT_BASE_URL
+            // Staging: --es base_url https://staging.api.usesense.ai (the saved key is used).
+            baseUrl = extras?.getStringExtra("base_url") ?: UseSenseConfig.DEFAULT_BASE_URL
             apiKey = key
             getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(PREF_API_KEY, key).apply()
         }
@@ -139,6 +151,8 @@ class DemoActivity : AppCompatActivity() {
                 apiKey = apiKey,
                 environment = UseSenseEnvironment.SANDBOX,
                 baseUrl = baseUrl,
+                maxRetries = extras?.getIntExtra("max_retries", 0) ?: 0,
+                showResultScreens = extras?.getBooleanExtra("show_results", true) ?: true,
             ),
         )
 
@@ -290,6 +304,7 @@ class DemoActivity : AppCompatActivity() {
     private companion object {
         const val PREFS = "demo"
         const val PREF_API_KEY = "api_key"
+        const val EXTRA_AUTOSTART = "autostart"
         const val PREF_FLOW_ID = "flow_id"
     }
 

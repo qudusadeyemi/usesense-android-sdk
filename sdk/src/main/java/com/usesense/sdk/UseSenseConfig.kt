@@ -37,6 +37,20 @@ data class UseSenseConfig(
      * Same switch as iOS `guidedCaptureEnabled` and the web SDK option.
      */
     val guidedCaptureEnabled: Boolean = true,
+
+    /**
+     * Show the SDK's result pages (default true). False: the decision goes
+     * straight to the callback and the SDK closes, so the app shows its own
+     * screens. Error pages still show: the person can fix those here.
+     */
+    val showResultScreens: Boolean = true,
+
+    /**
+     * How many times the person may try again after a rejection, from the
+     * result page (default 0: no "Try again", the page points back to the app).
+     * Session mode only; a Flow follows its own retry policy.
+     */
+    val maxRetries: Int = 0,
 ) {
     companion object {
         /**

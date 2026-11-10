@@ -78,9 +78,16 @@ The server selects challenges dynamically. The SDK handles all challenge present
 
 - **Follow Dot**: An animated dot traces a path on screen. The user tracks it with their face. Tests facial dynamics and liveness.
 - **Head Turn**: The user is asked to turn their head in specified directions (left, right, up, down). Tests 3D presence and presentation attack resistance.
-- **Speak Phrase**: The user reads a displayed phrase aloud. Tests audio authenticity and deepfake detection via DSP analysis.
+- **Speak Digits** (`speak_phrase`): The user reads 4 to 6 digits aloud. Tests audio authenticity and deepfake detection via DSP analysis. If the microphone is refused or can't record, the person can choose "Do a head movement instead": the SDK asks the server (`POST /v1/sessions/:id/challenge-fallback`) to swap it for a Follow Dot of the same strength.
 
 Challenge selection is controlled server-side. The SDK presents whatever challenge the server assigns.
+
+Since 4.13.0 every session starts with the selfie scan, and a movement runs on the same scan screen (the ring around the oval turns purple):
+
+- **Before the scan** (the session's policy already has a challenge): the primer says "Two quick steps", and the movement follows straight on from the scan.
+- **After the scan** (the server asks for an extra check in the /signals response): a "One more quick check" sheet, then the movement, then a second upload.
+
+If the face leaves the oval, the movement pauses and says what to fix; it never fails on the device. A missed head turn gets one more go with a hint, then the server decides. The back button asks "Leave verification?" first; leaving cancels the verification (`onCancelled`).
 
 ## Handling the Verdict
 
@@ -109,6 +116,20 @@ override fun onSuccess(result: UseSenseResult) {
 
 **NEVER** gate access based solely on the SDK result.
 
+The SDK shows its own result page (verified, being checked, couldn't verify) and calls `onSuccess` when the person taps Done. Two options change this:
+
+```kotlin
+UseSenseConfig(
+    apiKey = "...",
+    // Your app shows its own screens: the decision goes straight to onSuccess.
+    showResultScreens = false,
+    // "Try again" on a rejection, with tips, up to this many times (default 0).
+    maxRetries = 1,
+)
+```
+
+With `maxRetries = 0` (the default) a rejection says "Please contact [your app] for help" and offers no retry. Each retry is a new session. Inside a Flow, the Flow's own retry policy applies instead.
+
 ### On your backend (webhook)
 
 The webhook is the authoritative source. It contains the full scoring breakdown:
@@ -125,7 +146,7 @@ The webhook is the authoritative source. It contains the full scoring breakdown:
 |----------|--------|
 | Network/timeout failure | Start a new session |
 | User cancelled | Allow immediate retry |
-| Rejected | Allow retry (recommend max 3 attempts) |
+| Rejected | Allow retry (recommend max 3 attempts; `maxRetries` lets the SDK offer it) |
 
 Each retry creates a new session and consumes one credit (if the session completes).
 

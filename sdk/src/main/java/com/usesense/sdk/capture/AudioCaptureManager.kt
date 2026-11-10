@@ -44,6 +44,16 @@ class AudioCaptureManager(
         }
     }
 
+    /**
+     * Loudness since the last call, 0..1, on a log scale so speech at arm's
+     * length reads around the middle. 0 when not recording.
+     */
+    fun level(): Float {
+        if (!isRecording) return 0f
+        val amp = runCatching { recorder?.maxAmplitude ?: 0 }.getOrDefault(0)
+        return AudioLevel.normalise(amp)
+    }
+
     fun stopRecording(): ByteArray? {
         if (!isRecording) return null
         return try {
@@ -74,5 +84,18 @@ class AudioCaptureManager(
         } else {
             MediaRecorder()
         }
+    }
+}
+
+/** MediaRecorder amplitude (0..32767) to a 0..1 meter level. Pure, so it is unit tested. */
+internal object AudioLevel {
+    /** Below this amplitude the meter reads flat (room noise). */
+    const val FLOOR = 200
+
+    fun normalise(amplitude: Int): Float {
+        if (amplitude <= FLOOR) return 0f
+        val db = 20.0 * kotlin.math.log10(amplitude.toDouble() / FLOOR)
+        // FLOOR..32767 is about 44 dB.
+        return (db / 44.0).toFloat().coerceIn(0f, 1f)
     }
 }

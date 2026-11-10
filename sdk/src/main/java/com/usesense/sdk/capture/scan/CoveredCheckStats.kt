@@ -185,7 +185,29 @@ internal class CoveredCheckStats {
         runCatching { if (android.util.Log.isLoggable("UseSenseGate", android.util.Log.DEBUG)) android.util.Log.d("UseSenseGate", message) }
     }
 
+    /** What a finished scan does about the final covered-face check. */
+    enum class FinalPlan {
+        /** Wait for a segmenter result from after the last banked frame (clear, covered or timeout). */
+        WAIT,
+        /** No segmenter (model missing or failed to load): outcome "skipped", as COVER-v1 defines it. */
+        SKIP_NO_MODEL,
+        /** Debug test rig forced the gate to pass: outcome "rig_forced", so the upload never passes for a real skip. */
+        SKIP_RIG_FORCED,
+    }
+
     companion object {
         const val VERSION = "cover-v1"
+        const val OUTCOME_SKIPPED = "skipped"
+        const val OUTCOME_RIG_FORCED = "rig_forced"
+
+        fun finalPlan(coverCheckOn: Boolean, rigForcesPass: Boolean): FinalPlan =
+            when {
+                !coverCheckOn -> FinalPlan.SKIP_NO_MODEL
+                rigForcesPass -> FinalPlan.SKIP_RIG_FORCED
+                else -> FinalPlan.WAIT
+            }
+
+        fun skipOutcome(plan: FinalPlan): String =
+            if (plan == FinalPlan.SKIP_RIG_FORCED) OUTCOME_RIG_FORCED else OUTCOME_SKIPPED
     }
 }

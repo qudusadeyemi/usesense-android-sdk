@@ -17,6 +17,9 @@ import kotlin.concurrent.thread
  *   adb push usesense_fake_camera.json /sdcard/Android/data/<app id>/files/
  * with
  *   { "video": "face-portrait.mp4", "freezeAt": 4.0, "forceState": "scan", "forceProgress": 0.5, "forceHint": "CENTRE" }
+ * or a storyboard screen held for a screenshot (extra check, sheets, pages):
+ *   { "video": "face-portrait.mp4", "freezeAt": 4.0, "forceScreen": "head_left" }
+  * forceState "pass_scan": the scan passes, an extra check after it meets the real gate.
  * All keys are optional: without "video" the real camera runs and only the forced
  * state applies. Delete the json to get the normal flow back.
  */
@@ -37,6 +40,7 @@ internal class FakeCameraHooks(context: Context) : DebugCaptureHooks, DebugCaptu
     override val forceState: String? = config?.optString("forceState")?.takeIf { it.isNotBlank() }
     override val forceProgress: Float? = config?.takeIf { it.has("forceProgress") }?.optDouble("forceProgress")?.toFloat()
     override val forceHint: String? = config?.optString("forceHint")?.takeIf { it.isNotBlank() }
+    override val forceScreen: String? = config?.optString("forceScreen")?.takeIf { it.isNotBlank() }
     override val frozen: Boolean get() = freezeAtS != null
 
     override fun start(onFrame: (Bitmap) -> Unit) {
@@ -52,8 +56,11 @@ internal class FakeCameraHooks(context: Context) : DebugCaptureHooks, DebugCaptu
                 var t = 0L
                 while (running) {
                     val started = System.nanoTime()
+                    // The gate's MediaPipe input must be ARGB_8888; some decoders return RGB_565.
                     val frame = held?.copy(Bitmap.Config.ARGB_8888, false)
-                        ?: mmr.getFrameAtTime(t, MediaMetadataRetriever.OPTION_CLOSEST)
+                        ?: mmr.getFrameAtTime(t, MediaMetadataRetriever.OPTION_CLOSEST)?.let { f ->
+                            if (f.config == Bitmap.Config.ARGB_8888) f else f.copy(Bitmap.Config.ARGB_8888, false).also { f.recycle() }
+                        }
                     if (frame != null) onFrame(frame)
                     val spentMs = (System.nanoTime() - started) / 1_000_000
                     Thread.sleep((FRAME_MS - spentMs).coerceAtLeast(5))

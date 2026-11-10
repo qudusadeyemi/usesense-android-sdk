@@ -36,6 +36,16 @@ internal interface UseSenseApiService {
         @Path("sessionId") sessionId: String,
     ): Response<VerdictResponse>
 
+    /**
+     * Speak Digits -> Follow Dot when the microphone can't be used. Session-token
+     * auth (the client's X-Session-Token header), as /signals.
+     */
+    @POST("v1/sessions/{sessionId}/challenge-fallback")
+    suspend fun challengeFallback(
+        @Path("sessionId") sessionId: String,
+        @Body request: ChallengeFallbackRequest,
+    ): Response<ChallengeFallbackResponse>
+
     @GET("v1/sessions/{sessionId}/status")
     suspend fun getSessionStatus(
         @Path("sessionId") sessionId: String,
