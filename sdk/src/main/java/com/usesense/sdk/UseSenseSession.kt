@@ -153,7 +153,13 @@ internal class UseSenseSession(
             sessionResponse?.geometricCoherence?.dualPathEnabled,
             sessionResponse?.geometricCoherence?.onDevice3dmmRequired,
         )
-    internal val suspicionEngine = SuspicionEngine()
+    /** Fed by the scan's gate frames; its threshold is the policy's inline step-up threshold. */
+    internal val suspicionEngine: SuspicionEngine by lazy {
+        SuspicionEngine(
+            suspicionThreshold = sessionResponse?.policy?.inlineStepUp?.suspicionThreshold ?: 55,
+            everyNthFrame = 1,
+        )
+    }
     internal val screenDetectionAnalyzer = ScreenDetectionAnalyzer()
     internal var stepUpEvidence: JSONObject? = null
 
@@ -376,37 +382,41 @@ internal class UseSenseSession(
     fun beginStepUpRound(instruction: StepUpInstruction): ChallengePresenter? {
         challengePresenter = presenterFor(instruction.challenge)
         stepUpRoundStartTime = Date()
+        // Round 2 is scored as round 1 was: a fresh mesh fit for its frames
+        // (unless the landmarker wedged in round 1), sensors running again,
+        // and its own capture clock for the frames manifest.
+        meshGeneration.incrementAndGet()
+        faceMeshManager.reset()
+        synchronized(fitterLock) { threeDMMFitter.reset() }
+        meshFramesProcessed.set(0)
+        meshFramesDetected.set(0)
+        if (meshTimeoutError == null) meshClosed = false
+        captureStartTime = Date()
+        captureEndTime = null
+        signalCollector.startSensorCollection()
         frameCaptureManager?.startStepUpCapture(instruction.maxFrames)
         frameCaptureManager?.getFrameBuffer()?.setCapturePhase(com.usesense.sdk.capture.CapturePhase.CHALLENGE)
         return challengePresenter
     }
 
-    /** Upload the step-up round (`?round=2`): its frames and challenge response only. */
-    suspend fun uploadStepUpRound(): Result<UploadSignalsResponse> {
+    /**
+     * Upload the step-up round (`?round=2`): its frames, its challenge
+     * response, and the same signals as round 1 under the same keys.
+     */
+    suspend fun uploadStepUpRound(): Result<UploadSignalsResponse> = withContext(Dispatchers.Default) {
         frameCaptureManager?.stopCapture()
-        val sid = sessionId ?: return Result.failure(ApiException(UseSenseError.invalidConfig("No session ID")))
+        captureEndTime = Date()
+        signalCollector.stopSensorCollection()
+        val sid = sessionId ?: return@withContext Result.failure(ApiException(UseSenseError.invalidConfig("No session ID")))
         val buffer = frameCaptureManager?.getFrameBuffer()
-            ?: return Result.failure(ApiException(UseSenseError.captureFailed("No frames captured")))
-        val startMs = stepUpRoundStartTime?.time ?: 0L
-        val metadata = JSONObject().apply {
-            put("session_id", sid)
-            put("sdk_version", DeviceSignalCollector.SDK_VERSION)
-            put("platform", "android")
-            put("source", "sdk")
+            ?: return@withContext Result.failure(ApiException(UseSenseError.captureFailed("No frames captured")))
+        drainFaceMesh()
+        val base = packageRound(sid, buffer, challengePresenter?.responseBuilder?.build())
+        val metadata = JSONObject(String(base, Charsets.UTF_8)).apply {
             put("capture_channel", "android")
             put("step_up_round", 2)
-            put("client_capabilities", org.json.JSONArray(StepUpCapability.ALL))
-            challengePresenter?.responseBuilder?.build()?.let { put("challenge_response", it) }
-            put("frame_hashes", org.json.JSONArray(buffer.frameHashes))
-            put("frames_manifest", org.json.JSONArray(buffer.getFrames().map { f ->
-                JSONObject()
-                    .put("frame_index", f.index)
-                    .put("capture_timestamp_ms", startMs + f.timestampMs)
-                    .put("resolution_w", f.width)
-                    .put("resolution_h", f.height)
-            }))
         }
-        return uploader.upload(
+        uploader.upload(
             sessionId = sid,
             frames = buffer.getJpegDataList(),
             metadataJson = metadata.toString().toByteArray(Charsets.UTF_8),
@@ -551,13 +561,7 @@ internal class UseSenseSession(
         // alone can strand the subject.
         withTimeoutOrNull(INTEGRITY_JOIN_TIMEOUT_MS) { integrityJob?.join() }
 
-        // Let queued face mesh work finish (bounded), then stop fitting so the
-        // package is built from a stable set of frames.
-        withTimeoutOrNull(MESH_DRAIN_TIMEOUT_MS) {
-            meshInitJob?.join()
-            synchronized(meshJobs) { meshJobs.toList() }.joinAll()
-        }
-        meshClosed = true
+        drainFaceMesh()
 
         val sid = sessionId ?: return Result.failure(
             ApiException(UseSenseError.invalidConfig("No session ID"))
@@ -565,7 +569,32 @@ internal class UseSenseSession(
         val buffer = frameCaptureManager?.getFrameBuffer()
             ?: return Result.failure(ApiException(UseSenseError.captureFailed("No frames captured")))
 
-        val challengeResponse = challengePresenter?.responseBuilder?.build()
+        val metadataJson = packageRound(sid, buffer, challengePresenter?.responseBuilder?.build())
+
+        return uploader.upload(
+            sessionId = sid,
+            frames = buffer.getJpegDataList(),
+            metadataJson = metadataJson,
+            audioData = audioData,
+        ).onSuccess { response -> pendingStepUp = StepUpParser.parse(response.stepUp) }
+    }
+
+    /** Let queued face mesh work finish (bounded), then stop fitting so the package is built from a stable set of frames. */
+    private suspend fun drainFaceMesh() {
+        withTimeoutOrNull(MESH_DRAIN_TIMEOUT_MS) {
+            meshInitJob?.join()
+            synchronized(meshJobs) { meshJobs.toList() }.joinAll()
+        }
+        meshClosed = true
+    }
+
+    /**
+     * The upload metadata for one round's frames. Round 1 and the step-up
+     * round 2 carry the same signals under the same keys (channel integrity,
+     * suspicion, the on-device classifier, frame hashes, the mesh
+     * verification package), so the server can run the same checks on both.
+     */
+    private suspend fun packageRound(sid: String, buffer: FrameBuffer, challengeResponse: JSONObject?): ByteArray {
         val channelIntegrity = signalCollector.collectSignals()
         val deviceTelemetry = signalCollector.collectDeviceTelemetry()
 
@@ -622,7 +651,7 @@ internal class UseSenseSession(
 
         val coveredCheckJson = runCatching { coveredCheck?.invoke() }.getOrNull()
         com.usesense.sdk.api.uploadTrace("covered_check ${coveredCheckJson ?: "absent"}")
-        val metadataJson = metadataBuilder.build(
+        return metadataBuilder.build(
             sessionId = sid,
             source = "sdk",
             challengeResponse = challengeResponse,
@@ -651,13 +680,6 @@ internal class UseSenseSession(
             faceMeshInitError = faceMeshManager.lastInitError ?: meshTimeoutError,
             coveredCheck = coveredCheckJson,
         )
-
-        return uploader.upload(
-            sessionId = sid,
-            frames = buffer.getJpegDataList(),
-            metadataJson = metadataJson,
-            audioData = audioData,
-        ).onSuccess { response -> pendingStepUp = StepUpParser.parse(response.stepUp) }
     }
 
     /**
