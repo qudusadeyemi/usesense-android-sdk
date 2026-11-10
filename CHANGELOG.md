@@ -6,7 +6,7 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [4.13.0] - Unreleased
+## [4.13.0] - 2026-11-10
 
 The extra check (LiveSense capture redesign, Phase 2): the approved end-user
 storyboard (flows 4 to 6) replaces the old challenge screens. Tested on a
@@ -14,6 +14,44 @@ Samsung Galaxy A03 against the demo's mock server with the debug fake camera.
 
 ### Added
 
+- **LiveSense evidence contract (EVIDENCE-v1, capture redesign Phase 2).**
+  The server scores depth and binding itself; the SDK collects and uploads the
+  raw evidence. Everything is additive: a session whose server sends no
+  `evidence` block (or another contract version) uploads exactly as before.
+  - The optional `evidence` block is read on every init path (session create,
+    token exchange, Flows init-session). It is kept untyped on the response and
+    parsed by hand: every key is optional, unknown keys are ignored, and a
+    malformed key reads as absent, so it can never fail the session decode.
+  - Per frame in `verification_package.frames`: raw MediaPipe `landmarks`
+    (478 points, from the uploaded JPEG itself, so upright and unmirrored,
+    5 decimals, bound into `meshDigest`), `transformMatrix` (row-major) and the
+    matrix pose under `poseNormalizationMethod: "matrix_zyx_v3"`, and
+    `blendshapes.eyeBlinkLeft/Right`. Frame timestamps are the sensor's exposure
+    time on the capture clock (a Galaxy A03 delivers frames ~140 ms late,
+    which paired frames with the previous colour).
+  - Frame rules: `frameIndex` is the upload position, entries are in ascending
+    order, at most one per uploaded frame, and a frame with no mesh has no entry.
+  - Colour sequence: during the scan the screen is tinted with the server's
+    colours (over the camera, under the oval and ring, full brightness, auto
+    white balance locked with `CONTROL_AWB_LOCK` when the camera supports it),
+    no new copy. Segment starts are Choreographer frame times on the capture
+    clock. A gate pause stops the tint and drops the partly shown colour; the
+    sequence resumes at that colour when the scan does, so the segments keep
+    the issued order the server checks. A dropped scan window clears them. The
+    scan holds until a running play has finished.
+  - Closer step: when the ring completes, the oval grows by the server's
+    `target_scale` (height in full, width capped to the screen) and "Move a
+    little closer" shows until the face reaches `min_scale` times the scan's
+    eye distance; near frames bank once the face holds still and the gate's
+    pose, stillness and sharpness pass. Far and near frames are confirmed on the
+    uploaded frames' own mesh. It ends after four such frames; after 4 s without
+    reaching `min_scale` the capture carries on (`skipped_reason: "timeout"`). Its frames count within `upload.max_frames`.
+  - Binding v2: a Play Integrity Standard token whose `requestHash` is the
+    evidence digest, requested after the last frame and before the upload
+    (`metadata.evidence.binding`), alongside the v1 `bindingProof`. The
+    Standard provider is prepared when the session starts.
+  - `metadata.evidence.capability` says what this build can do. The metadata
+    part is now compact JSON (it was indented; still gzipped).
 - **Extra check after the scan.** When the /signals response asks for a step-up
   (round 2, `step_up_v1`), a "One more quick check" sheet (the upload sheet's
   styling) says what is coming in one sentence, and Continue runs the movement

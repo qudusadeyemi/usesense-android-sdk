@@ -68,6 +68,8 @@ class FrameCaptureManager(
 
     fun getFrameBuffer(): FrameBuffer = frameBuffer
 
+    @Volatile private var latencyLogged = false
+
     fun createAnalyzer(): ImageAnalysis.Analyzer {
         return ImageAnalysis.Analyzer { imageProxy ->
             if (!isCapturing.get() || isPaused) {
@@ -81,13 +83,22 @@ class FrameCaptureManager(
                 return@Analyzer
             }
             lastFrameTimeMs = now
+            // The sensor's exposure time, not the delivery time: on a Galaxy A03
+            // frames arrive well after exposure, which paired frames with the
+            // previous colour of the EVIDENCE-v1 sequence.
+            val delivered = android.os.SystemClock.elapsedRealtime()
+            val capturedAt = exposureElapsedMs(imageProxy.imageInfo.timestamp) ?: delivered
+            if (!latencyLogged) {
+                latencyLogged = true
+                android.util.Log.i("UseSenseCapture", "frame exposure-to-delivery ${delivered - capturedAt} ms")
+            }
 
             // Convert ImageProxy to non-mirrored JPEG and compute luminance in one pass
             val (jpegData, luminance) = imageProxyToJpegWithLuminance(imageProxy)
             imageProxy.close()
 
             if (jpegData != null) {
-                val frame = frameBuffer.addFrame(jpegData, luminance)
+                val frame = frameBuffer.addFrame(jpegData, luminance, capturedAt)
                 if (frame != null) {
                     onFrameCaptured?.invoke(frame)
                 }
@@ -108,9 +119,10 @@ class FrameCaptureManager(
         val now = System.currentTimeMillis()
         if (now - lastFrameTimeMs < frameIntervalMs) return
         lastFrameTimeMs = now
+        val capturedAt = android.os.SystemClock.elapsedRealtime()
         val luminance = computeLuminanceFromBitmap(upright)
         val jpegData = runCatching { FrameEncoder.bitmapToJpeg(upright) }.getOrNull() ?: return
-        val frame = frameBuffer.addFrame(jpegData, luminance)
+        val frame = frameBuffer.addFrame(jpegData, luminance, capturedAt)
         if (frame != null) onFrameCaptured?.invoke(frame)
         if (frameBuffer.frameCount >= uploadConfig.maxFrames) {
             stopCapture()
@@ -183,5 +195,27 @@ class FrameCaptureManager(
     fun release() {
         isCapturing.set(false)
         frameBuffer.clear()
+    }
+
+    companion object {
+        /**
+         * A camera timestamp (ns) as an [android.os.SystemClock.elapsedRealtime] instant.
+         * Camera2 reports either the realtime clock (SENSOR_INFO_TIMESTAMP_SOURCE
+         * REALTIME) or the monotonic one (UNKNOWN, System.nanoTime's base); which
+         * one is read from the value itself. Null when it matches neither.
+         */
+        internal fun exposureElapsedMs(
+            sensorNs: Long,
+            realtimeNs: Long = android.os.SystemClock.elapsedRealtimeNanos(),
+            monotonicNs: Long = System.nanoTime(),
+        ): Long? {
+            if (sensorNs <= 0L) return null
+            val window = 2_000_000_000L
+            return when {
+                sensorNs in (realtimeNs - window)..realtimeNs -> sensorNs / 1_000_000L
+                sensorNs in (monotonicNs - window)..monotonicNs -> (sensorNs + (realtimeNs - monotonicNs)) / 1_000_000L
+                else -> null
+            }
+        }
     }
 }

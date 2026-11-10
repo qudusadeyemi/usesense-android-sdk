@@ -78,6 +78,19 @@ internal class ContourScanView @JvmOverloads constructor(
     /** Debug screenshots: lines fully swept in, field converged. */
     var frozen: Boolean = false
 
+    /**
+     * EVIDENCE-v1 closer step: the oval grows about its centre to this scale
+     * (eased). The height grows by the full scale; the width is capped so the
+     * ring stays [GROWN_EDGE_MARGIN_DP] inside the screen (as iOS).
+     */
+    var ovalScale: Float = 1f
+        set(value) {
+            if (field == value) return
+            field = value
+            kick()
+        }
+    private var shownScale = 1f
+
     val depthGrid = DepthGrid()
 
     private var shownProgress = 0f
@@ -151,13 +164,7 @@ internal class ContourScanView @JvmOverloads constructor(
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        ovalRect.set(ovalFor(w.toFloat(), h.toFloat()))
-        val gap = -RING_GAP_DP * dp
-        ringRect.set(ovalRect)
-        ringRect.inset(gap, gap)
-        ringPath.reset()
-        ringPath.addArc(ringRect, -90f, 359.9f) // from 12 o'clock, clockwise
-        ringMeasure.setPath(ringPath, false)
+        layoutOval(w.toFloat(), h.toFloat())
         depthGrid.resize(w.toFloat(), h.toFloat())
         reliefWidth = w.toFloat()
         reliefHeight = h.toFloat()
@@ -165,11 +172,30 @@ internal class ContourScanView @JvmOverloads constructor(
         prevY = FloatArray(samples); curY = FloatArray(samples)
     }
 
+    private fun layoutOval(w: Float, h: Float) {
+        ovalRect.set(ovalFor(w, h, shownScale, (GROWN_EDGE_MARGIN_DP + RING_GAP_DP + 3f) * dp))
+        val gap = -RING_GAP_DP * dp
+        ringRect.set(ovalRect)
+        ringRect.inset(gap, gap)
+        ringPath.reset()
+        ringPath.addArc(ringRect, -90f, 359.9f) // from 12 o'clock, clockwise
+        ringMeasure.setPath(ringPath, false)
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val w = width.toFloat()
         val h = height.toFloat()
         var animating = false
+
+        if (kotlin.math.abs(ovalScale - shownScale) > 0.002f) {
+            shownScale += (ovalScale - shownScale) * 0.12f
+            layoutOval(w, h)
+            animating = true
+        } else if (shownScale != ovalScale) {
+            shownScale = ovalScale
+            layoutOval(w, h)
+        }
 
         val dProgress = progress - shownProgress
         if (kotlin.math.abs(dProgress) > 0.002f) {
@@ -337,11 +363,22 @@ internal class ContourScanView @JvmOverloads constructor(
         /** Veil opacity: lights the face while the camera still shows through. */
         const val FILL_LIGHT_ALPHA = 0.38f
 
-        fun ovalFor(w: Float, h: Float): RectF {
+        /** Space kept between a grown oval's ring and the screen edge. */
+        const val GROWN_EDGE_MARGIN_DP = 16f
+
+        /**
+         * The kit oval, grown by [scale] about its centre: the height by the
+         * full scale, the width capped so the oval stays [edgePx] inside the
+         * screen (a phone's oval at 1.4x would be wider than the screen).
+         */
+        fun ovalFor(w: Float, h: Float, scale: Float = 1f, edgePx: Float = 0f): RectF {
             val cx = w * OVAL_CX
             val cy = h * OVAL_CY
-            val rx = w * OVAL_RX_OF_W
-            val ry = h * OVAL_RY_OF_H
+            val base = w * OVAL_RX_OF_W
+            val fit = if (base > 0f) (w / 2f - edgePx) / base else 1f
+            val sx = if (scale > 1f) scale.coerceAtMost(fit).coerceAtLeast(1f) else scale
+            val rx = base * sx
+            val ry = h * OVAL_RY_OF_H * scale
             return RectF(cx - rx, cy - ry, cx + rx, cy + ry)
         }
     }

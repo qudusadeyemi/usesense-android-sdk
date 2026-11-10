@@ -45,6 +45,8 @@ class MetadataBuilder {
         faceMeshInitError: String? = null,
         /** Covered-face check numbers (COVER-v1 section 3); null when the check never ran. */
         coveredCheck: JSONObject? = null,
+        /** EVIDENCE-v1 `metadata.evidence` (round 1, when the server issued the contract). */
+        evidence: JSONObject? = null,
     ): ByteArray {
         val metadata = JSONObject()
 
@@ -58,6 +60,7 @@ class MetadataBuilder {
         // can say it can run a server step-up round.
         metadata.put("client_capabilities", org.json.JSONArray(com.usesense.sdk.finalization.StepUpCapability.ALL))
         coveredCheck?.let { metadata.put("covered_check", it) }
+        evidence?.let { metadata.put("evidence", it) }
 
         // Capture config
         val captureConfigJson = JSONObject().apply {
@@ -167,7 +170,8 @@ class MetadataBuilder {
             metadata.put("zoom_motion", zoomMotion)
         }
 
-        return metadata.toString(2).toByteArray(Charsets.UTF_8)
+        // Compact: EVIDENCE-v1 landmarks are ~35k numbers, one line each when indented.
+        return metadata.toString().toByteArray(Charsets.UTF_8)
     }
 }
 

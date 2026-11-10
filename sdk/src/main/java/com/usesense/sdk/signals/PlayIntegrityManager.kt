@@ -4,6 +4,8 @@ import android.content.Context
 import android.util.Log
 import com.google.android.play.core.integrity.IntegrityManagerFactory
 import com.google.android.play.core.integrity.IntegrityTokenRequest
+import com.google.android.play.core.integrity.StandardIntegrityManager
+import kotlinx.coroutines.async
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
@@ -42,6 +44,9 @@ class PlayIntegrityManager(private val context: Context, private val cloudProjec
          * capture that precedes it.
          */
         internal const val TOKEN_TIMEOUT_MS = 5_000L
+
+        /** Ceiling on preparing the Standard provider (done ahead, at session start). */
+        internal const val PREPARE_TIMEOUT_MS = 15_000L
     }
 
     /**
@@ -82,5 +87,71 @@ class PlayIntegrityManager(private val context: Context, private val cloudProjec
             Log.w(TAG, "Play Integrity not available", e)
             null
         }
+    }
+
+    // ─── Standard request (EVIDENCE-v1 binding v2) ──────────────────────────
+
+    /** The result of a Standard request: a token, or why there is none. */
+    data class StandardResult(val token: String?, val errorName: String?, val errorMessage: String?)
+
+    @Volatile private var providerJob: kotlinx.coroutines.Deferred<Result<StandardIntegrityManager.StandardIntegrityTokenProvider>>? = null
+
+    /**
+     * Warm up the Standard token provider (Google: prepare ahead, it can take
+     * seconds). Safe to call more than once; the first call wins.
+     */
+    fun prepareStandard(scope: kotlinx.coroutines.CoroutineScope) {
+        if (providerJob != null) return
+        synchronized(this) {
+            if (providerJob != null) return
+            providerJob = scope.async {
+                runCatching {
+                    val manager = IntegrityManagerFactory.createStandard(context)
+                    val request = StandardIntegrityManager.PrepareIntegrityTokenRequest.builder()
+                        .setCloudProjectNumber(cloudProjectNumber)
+                        .build()
+                    withTimeoutOrNull(PREPARE_TIMEOUT_MS) {
+                        suspendCancellableCoroutine<StandardIntegrityManager.StandardIntegrityTokenProvider> { cont ->
+                            manager.prepareIntegrityToken(request)
+                                .addOnSuccessListener { cont.resume(it) }
+                                .addOnFailureListener { cont.resumeWith(Result.failure(it)) }
+                        }
+                    } ?: throw java.util.concurrent.TimeoutException("prepareIntegrityToken took over ${PREPARE_TIMEOUT_MS}ms")
+                }
+            }
+        }
+    }
+
+    /**
+     * A Standard token whose `requestHash` is [requestHash] (the binding v2
+     * digest, 64 hex characters, as is). Never throws; bounded by [waitMs].
+     */
+    suspend fun requestStandardToken(scope: kotlinx.coroutines.CoroutineScope, requestHash: String, waitMs: Long): StandardResult {
+        prepareStandard(scope)
+        val outcome = withTimeoutOrNull(waitMs) {
+            val provider = providerJob!!.await().getOrElse { return@withTimeoutOrNull failure(it) }
+            runCatching {
+                suspendCancellableCoroutine<String> { cont ->
+                    provider.request(
+                        StandardIntegrityManager.StandardIntegrityTokenRequest.builder()
+                            .setRequestHash(requestHash)
+                            .build(),
+                    )
+                        .addOnSuccessListener { cont.resume(it.token()) }
+                        .addOnFailureListener { cont.resumeWith(Result.failure(it)) }
+                }
+            }.fold(
+                onSuccess = { StandardResult(it, null, null) },
+                onFailure = { failure(it) },
+            )
+        }
+        return outcome ?: StandardResult(null, "Timeout", "Play Integrity standard request took over ${waitMs}ms")
+    }
+
+    private fun failure(e: Throwable): StandardResult {
+        Log.w(TAG, "Play Integrity standard request failed", e)
+        val code = (e as? com.google.android.play.core.integrity.StandardIntegrityException)?.errorCode
+        val name = e.javaClass.simpleName + (code?.let { "#$it" } ?: "")
+        return StandardResult(null, name, e.message.orEmpty())
     }
 }

@@ -39,6 +39,13 @@ internal object HeadPoseMath {
     private fun at(m: FloatArray, row: Int, col: Int, columnMajor: Boolean): Double =
         (if (columnMajor) m[col * 4 + row] else m[row * 4 + col]).toDouble()
 
+    /** The 16 values row-major (EVIDENCE-v1 `transformMatrix`), whichever layout MediaPipe packed. */
+    fun rowMajor(m: FloatArray): DoubleArray? {
+        if (m.size < 16) return null
+        val cm = isColumnMajor(m)
+        return DoubleArray(16) { i -> at(m, i / 4, i % 4, cm) }
+    }
+
     fun fromMatrix(m: FloatArray): PoseAngles? {
         if (m.size < 16) return null
         val cm = isColumnMajor(m)

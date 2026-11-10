@@ -50,6 +50,7 @@ import com.usesense.sdk.capture.ImageQualityAnalyzer
 import com.usesense.sdk.capture.scan.CoveredCheckStats
 import com.usesense.sdk.capture.scan.FaceRegions
 import com.usesense.sdk.capture.scan.FillLightLatch
+import com.usesense.sdk.capture.scan.GateCheck
 import com.usesense.sdk.capture.scan.GateFrame
 import com.usesense.sdk.capture.scan.GateHint
 import com.usesense.sdk.capture.scan.GateResult
@@ -228,7 +229,8 @@ class HostedPageActivity : AppCompatActivity() {
 
     /** Where the capture screen is in the scan flow. */
     /** INLINE: on-device attack detection's prompts after the scan (inline step-up). */
-    private enum class ScanStage { IDLE, ALIGN, PASSIVE, CHALLENGE, INLINE }
+    /** CLOSER: EVIDENCE-v1 step 5, the oval grows and the face follows it (after the scan). */
+    private enum class ScanStage { IDLE, ALIGN, PASSIVE, CLOSER, CHALLENGE, INLINE }
     private var scanStage = ScanStage.IDLE
 
     /** The quality gate's live face mesh (display and gating only; uploads nothing). */
@@ -267,7 +269,9 @@ class HostedPageActivity : AppCompatActivity() {
     private val scanTicker = object : Runnable {
         override fun run() {
             onScanTick()
-            if (scanStage == ScanStage.ALIGN || scanStage == ScanStage.PASSIVE || scanStage == ScanStage.CHALLENGE) {
+            if (scanStage == ScanStage.ALIGN || scanStage == ScanStage.PASSIVE || scanStage == ScanStage.CLOSER ||
+                scanStage == ScanStage.CHALLENGE
+            ) {
                 handler.postDelayed(this, SCAN_TICK_MS)
             }
         }
@@ -305,6 +309,102 @@ class HostedPageActivity : AppCompatActivity() {
     /** Inline step-up: its coroutine, the colour layer for Flash Reflection, the RMAS action being watched. */
     private var inlineJob: Job? = null
     private var flashView: View? = null
+
+    // ─── EVIDENCE-v1: colour sequence and closer step ────────────────────
+    /** The bound front camera, for the white balance lock. */
+    private var boundCamera: androidx.camera.core.Camera? = null
+    /** The server's colour sequence for this attempt (round 1, guided scan). */
+    private var colourPlayer: com.usesense.sdk.evidence.ColourSequencePlayer? = null
+    /** Banked scan time when the current play started; -1 when not playing. */
+    private var colourFromBankedMs = -1L
+    private var colourView: View? = null
+    private var colourTintShowing = false
+    private var colourSavedBrightness: Float? = null
+    private var colourHoldsBrightness = false
+    private val colourFrameCallback = object : android.view.Choreographer.FrameCallback {
+        override fun doFrame(frameTimeNanos: Long) {
+            val player = colourPlayer ?: return
+            player.advance(frameTimeNanos)
+            if (player.isPlaying) android.view.Choreographer.getInstance().postFrameCallback(this)
+            session?.colourEvidence = player.record
+        }
+    }
+    /** Screen eye distance (px) of the scan's last passing gate frames: the far phase. */
+    private val farEyePx = ArrayDeque<Float>()
+    private var closerStep: com.usesense.sdk.evidence.CloserStepController? = null
+    /** The closer step already ran (or was skipped) for this scan. */
+    private var closerHandled = false
+    @Volatile private var closerEyePx: Float? = null
+    @Volatile private var closerGatePasses = false
+
+    private val colourHost = object : com.usesense.sdk.evidence.ColourTintHost {
+        override fun showTint(colour: String?, opacity: Double) {
+            val v = colourView ?: View(this@HostedPageActivity).also { v ->
+                v.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                // Over the camera, under the oval, ring and guidance.
+                videoContainer.addView(
+                    v,
+                    videoContainer.indexOfChild(faceGuideOverlay).coerceAtLeast(0),
+                    FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT),
+                )
+                colourView = v
+            }
+            if (colour == null) {
+                colourTintShowing = false
+                v.visibility = View.GONE
+                scanView.fillLight = fillLightSince != null
+                return
+            }
+            colourTintShowing = true
+            v.setBackgroundColor(Color.parseColor(colour))
+            v.alpha = opacity.toFloat()
+            v.visibility = View.VISIBLE
+            // The colour replaces the fill light veil while it shows, so it stays pure.
+            scanView.fillLight = false
+        }
+
+        override fun holdFullBrightness(): Double? {
+            val lp = window.attributes
+            if (lp.screenBrightness != WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_FULL) {
+                colourSavedBrightness = lp.screenBrightness
+                colourHoldsBrightness = true
+                lp.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_FULL
+                window.attributes = lp
+            }
+            return window.attributes.screenBrightness.toDouble().takeIf { it in 0.0..1.0 }
+        }
+
+        override fun releaseFullBrightness() {
+            if (!colourHoldsBrightness) return
+            colourHoldsBrightness = false
+            // The fill light, if it came on meanwhile, keeps the brightness.
+            if (fillLightSince != null) return
+            val lp = window.attributes
+            lp.screenBrightness = colourSavedBrightness ?: WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+            window.attributes = lp
+            colourSavedBrightness = null
+        }
+
+        @androidx.annotation.OptIn(androidx.camera.camera2.interop.ExperimentalCamera2Interop::class)
+        override fun lockWhiteBalance(locked: Boolean): Boolean {
+            val camera = boundCamera ?: return false
+            return runCatching {
+                val info = androidx.camera.camera2.interop.Camera2CameraInfo.from(camera.cameraInfo)
+                val available = info.getCameraCharacteristic(
+                    android.hardware.camera2.CameraCharacteristics.CONTROL_AWB_LOCK_AVAILABLE,
+                ) == true
+                if (!available) return@runCatching false
+                val options = androidx.camera.camera2.interop.CaptureRequestOptions.Builder()
+                    .setCaptureRequestOption(android.hardware.camera2.CaptureRequest.CONTROL_AWB_LOCK, locked)
+                    .build()
+                androidx.camera.camera2.interop.Camera2CameraControl.from(camera.cameraControl).addCaptureRequestOptions(options)
+                locked
+            }.getOrElse {
+                Log.w(TAG, "White balance lock failed", it)
+                false
+            }
+        }
+    }
     private var microAction: MicroActionDetector? = null
     private var microActionSeen: CompletableDeferred<Unit>? = null
 
@@ -1213,6 +1313,10 @@ class HostedPageActivity : AppCompatActivity() {
         challengePresenter = sess.createChallengePresenter()
 
         // A fresh attempt: fresh scan clock, gate history and hints.
+        sess.guidedScan = pendingConfig?.guidedCaptureEnabled != false
+        cancelColour()
+        colourPlayer = null
+        sess.colourEvidence = null
         scanController = null
         sessionCaptureStarted = false
         gateUnavailable = false
@@ -1321,7 +1425,7 @@ class HostedPageActivity : AppCompatActivity() {
 
             try {
                 cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalysis)
+                boundCamera = cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalysis)
 
                 val resolutionInfo = imageAnalysis.resolutionInfo
                 val resolution = if (resolutionInfo != null) {
@@ -1395,6 +1499,12 @@ class HostedPageActivity : AppCompatActivity() {
     private fun enterAlign(sess: UseSenseSession) {
         // Back to align (first time, or a dropped scan): the scan is over.
         fillLightLatch.scanEnded()
+        // A dropped window takes its frames, so its colour segments go too.
+        colourPlayer?.resetForNewWindow()
+        colourFromBankedMs = -1L
+        sess.colourEvidence = null
+        endCloserVisuals()
+        farEyePx.clear()
         // The covered-face numbers ride in metadata.covered_check (COVER-v1 section 3).
         sess.coveredCheck = { liveAnalyzer?.takeIf { it.coverCheckOn || it.coverStatsTouched }?.coverStats?.toJson() }
         finalCoverSince = 0L
@@ -1596,6 +1706,24 @@ class HostedPageActivity : AppCompatActivity() {
             extraCheckFaceAt = now
             return
         }
+        if (scanStage == ScanStage.CLOSER) {
+            // EVIDENCE-v1 near phase: the gate's pose, stillness and sharpness
+            // (with a face, one person, eyes open). Distance and in-frame are
+            // left out (coming closer is the point, and a near face overflows
+            // the oval), as are light and covered: the change watch compares
+            // regions with the scan's baseline, which all change as the face
+            // grows (iOS device run), and the final cover check already ran.
+            val oval = scanView.ovalSpec() ?: return
+            val mapper = PreviewMapper(frame.imageWidth, frame.imageHeight, scanView.width.toFloat(), scanView.height.toFloat())
+            val result = qualityGate.evaluate(frame, mapper, oval, null, scanning = true)
+            val now = SystemClock.elapsedRealtime()
+            lastGate = result
+            lastGateAt = now
+            closerGatePasses = result.failing.all { it.check in CLOSER_IGNORED_CHECKS }
+            closerEyePx = result.metrics?.eyeDistancePx?.takeIf { it > 0f }
+            if (relief != null) scanView.updateRelief(relief) else if (frame.points == null) scanView.clearFace()
+            return
+        }
         if (scanStage == ScanStage.INLINE) {
             // Inline step-up: watch for the prompted micro-action.
             val oval = scanView.ovalSpec() ?: return
@@ -1640,6 +1768,11 @@ class HostedPageActivity : AppCompatActivity() {
 
         if (scanStage == ScanStage.PASSIVE && finalCoverSince == 0L) {
             frame.cover?.let { liveAnalyzer?.coverStats?.scanFrame(it) }
+            // The closer step's far phase: the last passing scan frames' eye distance.
+            result.metrics?.eyeDistancePx?.takeIf { it > 0f && result.allPass }?.let {
+                farEyePx.addLast(it)
+                while (farEyePx.size > FAR_EYE_SAMPLES) farEyePx.removeFirst()
+            }
         }
 
         // The scan's final covered-face check: a result from after the scan.
@@ -1702,6 +1835,10 @@ class HostedPageActivity : AppCompatActivity() {
                 onExtraCheckTick(sess, now)
                 return
             }
+            ScanStage.CLOSER -> {
+                onCloserTick(sess, now, fresh != null)
+                return
+            }
             ScanStage.ALIGN -> {
                 val rigHoldsAlign = debugHooks?.forceState == "align"
                 if (!rigHoldsAlign && (gateUnavailable || slowGate || shutterKept || controller.shutterAvailable(now))) {
@@ -1747,6 +1884,7 @@ class HostedPageActivity : AppCompatActivity() {
                     return
                 }
                 val pass = gateUnavailable || debugHooks?.forceState.let { it == "pass" || it == "pass_scan" } || fresh?.allPass ?: true
+                driveColour(controller, pass)
                 val event = controller.tick(now, pass)
                 if (event != null) {
                     Log.i(TAG, "Scan $event: banked=${controller.bankedMs} ms blocking=${fresh?.blocking.orEmpty()} " +
@@ -1773,6 +1911,12 @@ class HostedPageActivity : AppCompatActivity() {
                     }
                     ScanController.Event.COMPLETED -> {
                         scanView.progress = 1f
+                        colourPlayer?.let { p ->
+                            p.interrupt(com.usesense.sdk.evidence.ColourSequencePlayer.SCAN_ENDED)
+                            sess.colourEvidence = p.record
+                            Log.i(TAG, "Colour: completed=${p.record.completed} segments=${p.record.segments.size} " +
+                                "awb=${p.record.awbLocked} runs=${p.runs}")
+                        }
                         val plan = CoveredCheckStats.finalPlan(
                             coverCheckOn = liveAnalyzer?.coverCheckOn == true,
                             rigForcesPass = debugHooks?.forceState.let { it == "pass" || it == "pass_scan" },
@@ -1794,7 +1938,8 @@ class HostedPageActivity : AppCompatActivity() {
                 if (controller.bankedMs >= BASELINE_MS && sess.capturePhase == CapturePhase.BASELINE) {
                     sess.setCapturePhase(CapturePhase.CHALLENGE)
                 }
-                scanView.progress = controller.progress
+                // Monotonic: a colour replay extends the scan, the ring never runs back.
+                scanView.progress = maxOf(scanView.progress, controller.progress)
                 if (controller.state == ScanController.State.PAUSED) {
                     // Paused for a blocking check: say that one, not the light advice.
                     val failing = fresh?.blocking.orEmpty()
@@ -1847,6 +1992,9 @@ class HostedPageActivity : AppCompatActivity() {
         }
         sess.setCapturePhase(CapturePhase.BASELINE)
         ++captureRound
+        closerHandled = false
+        farEyePx.clear()
+        prepareColourPlayer(sess)
         controller.start(now, manual)
         scanView.resetProgress()
         scanView.scanning = true
@@ -1870,6 +2018,13 @@ class HostedPageActivity : AppCompatActivity() {
     }
 
     private fun finishPassiveScan() {
+        val sess = session ?: return
+        // EVIDENCE-v1 step 5 first, on the scan screen, with the gate still running.
+        if (startCloserStepIfNeeded(sess)) return
+        completePassiveScan()
+    }
+
+    private fun completePassiveScan() {
         haptic()
         stopScanLoop()
         restoreFillLight()
@@ -1887,6 +2042,123 @@ class HostedPageActivity : AppCompatActivity() {
                 onCaptureComplete(captureRound)
             }
         }
+    }
+
+    // ─── EVIDENCE-v1: colour sequence (section 6) and closer step (section 7) ──
+
+    /** The colour player for this session's sequence, made once (round 1 only; one sequence id per session). */
+    private fun prepareColourPlayer(sess: UseSenseSession) {
+        if (stepUpRoundActive || colourPlayer != null) return
+        val sequence = sess.evidenceConfig?.colourSequence ?: return
+        colourPlayer = com.usesense.sdk.evidence.ColourSequencePlayer(sequence) { frameNanos ->
+            // Choreographer time is System.nanoTime; the capture clock is elapsedRealtime.
+            val offsetMs = (SystemClock.elapsedRealtimeNanos() - System.nanoTime()) / 1_000_000L
+            sess.captureClockMs(frameNanos / 1_000_000L + offsetMs)
+        }.also { it.host = colourHost }
+    }
+
+    /**
+     * The colours play inside the scan, after the lead-in, while the gate
+     * passes. A pause stops them (the partly shown colour is dropped) and the
+     * replay starts once the scan resumes; while a play runs the scan holds
+     * until it has finished, so frames land in every segment.
+     */
+    private fun driveColour(controller: ScanController, pass: Boolean) {
+        val player = colourPlayer ?: return
+        val choreographer = android.view.Choreographer.getInstance()
+        if (!pass && player.isPlaying) {
+            player.interrupt(com.usesense.sdk.evidence.ColourSequencePlayer.GATE_PAUSE)
+            choreographer.removeFrameCallback(colourFrameCallback)
+            colourFromBankedMs = -1L
+            session?.colourEvidence = player.record
+            Log.i(TAG, "Colour: paused by the gate at ${controller.bankedMs} ms, resumes at colour ${player.nextIndex}")
+        } else if (pass && controller.state == ScanController.State.SCANNING && !player.isPlaying && !player.finished &&
+            player.runs < com.usesense.sdk.evidence.ColourSequencePlayer.MAX_RUNS
+        ) {
+            player.play(System.nanoTime())
+            colourFromBankedMs = controller.bankedMs
+            choreographer.removeFrameCallback(colourFrameCallback)
+            choreographer.postFrameCallback(colourFrameCallback)
+            Log.i(TAG, "Colour: play ${player.runs + 1} at ${controller.bankedMs} ms")
+        }
+        val playing = player.isPlaying && colourFromBankedMs >= 0
+        controller.require(if (playing) colourFromBankedMs + player.sequence.totalMs + COLOUR_TAIL_MS else 0L)
+    }
+
+    /** Stop the colours for good (attempt aborted, screen gone): tint off, brightness and white balance back. */
+    private fun cancelColour() {
+        android.view.Choreographer.getInstance().removeFrameCallback(colourFrameCallback)
+        colourPlayer?.interrupt(com.usesense.sdk.evidence.ColourSequencePlayer.CANCELLED)
+        colourFromBankedMs = -1L
+    }
+
+    /**
+     * Step 5 of the scan: the oval grows by the server's `target_scale` and the
+     * face follows it. Far frames are the scan's last banked frames; near
+     * frames bank once the face is `min_scale` times closer, holds still and
+     * the gate passes. Returns false when it doesn't run (recorded as skipped).
+     */
+    private fun startCloserStepIfNeeded(sess: UseSenseSession): Boolean {
+        if (closerHandled || stepUpRoundActive) return false
+        val evidence = sess.evidenceConfig ?: return false
+        if (!sess.guidedScan) return false
+        closerHandled = true
+        val step = evidence.closerStep
+        if (step == null || !step.enabled) {
+            sess.skipCloserStep(com.usesense.sdk.evidence.CloserEvidence.DISABLED)
+            return false
+        }
+        val far = com.usesense.sdk.evidence.Evidence.median(farEyePx.map { it.toDouble() })
+        if (gateUnavailable || far == null || farEyePx.size < com.usesense.sdk.evidence.CloserStepController.PHASE_FRAMES) {
+            // No live mesh to guide the face: carry on, the server records the step as missing.
+            Log.i(TAG, "Closer: not run (gate=${!gateUnavailable}, far samples=${farEyePx.size})")
+            sess.skipCloserStep(com.usesense.sdk.evidence.CloserEvidence.TIMEOUT)
+            return false
+        }
+        val now = SystemClock.elapsedRealtime()
+        closerStep = com.usesense.sdk.evidence.CloserStepController(far, step.minScale, now)
+        closerEyePx = null
+        closerGatePasses = false
+        sess.pauseCapture()
+        sess.beginCloserStep()
+        scanStage = ScanStage.CLOSER
+        scanView.paused = false
+        scanView.tone = ContourScanView.Tone.READY
+        scanView.ovalScale = step.targetScale.toFloat()
+        placeHint()
+        showGuidance(getString(R.string.usesense_hint_move_closer), null)
+        hintPill.announceForAccessibility(getString(R.string.usesense_hint_move_closer))
+        Log.i(TAG, "Closer: started, far eye %.1f px, need %.1f px".format(java.util.Locale.US, far, far * step.minScale))
+        return true
+    }
+
+    private fun onCloserTick(sess: UseSenseSession, now: Long, fresh: Boolean) {
+        val step = closerStep ?: return
+        val tick = step.tick(
+            nowMs = now,
+            eye = if (fresh) closerEyePx?.toDouble() else null,
+            gatePasses = fresh && closerGatePasses,
+            nearFrames = sess.closerNearFrames(),
+            budgetLeft = sess.closerBudgetLeft,
+            bankedNear = sess.closerBankedFrames,
+        )
+        if (tick.bank) sess.resumeCapture() else sess.pauseCapture()
+        showGuidance(getString(if (tick.needsCloser) R.string.usesense_hint_move_closer else R.string.usesense_hint_hold_still), null)
+        if (tick.done) {
+            sess.pauseCapture()
+            sess.endCloserStep()
+            Log.i(TAG, "Closer: ended, near frames=${sess.closerNearFrames()} banked=${sess.bankedFrameCount}")
+            endCloserVisuals()
+            scanStage = ScanStage.PASSIVE
+            completePassiveScan()
+        }
+    }
+
+    private fun endCloserVisuals() {
+        closerStep = null
+        if (!::scanView.isInitialized) return
+        scanView.ovalScale = 1f
+        placeHint()
     }
 
     // ─── On-device attack detection (inline step-up) on the scan screen ──
@@ -2189,7 +2461,9 @@ class HostedPageActivity : AppCompatActivity() {
         handler.removeCallbacks(scanTicker)
         liveAnalyzer?.active = false
         lastGate = null
-        if (scanStage == ScanStage.ALIGN || scanStage == ScanStage.PASSIVE || scanStage == ScanStage.CHALLENGE) scanStage = ScanStage.IDLE
+        if (scanStage == ScanStage.ALIGN || scanStage == ScanStage.PASSIVE || scanStage == ScanStage.CLOSER ||
+            scanStage == ScanStage.CHALLENGE
+        ) scanStage = ScanStage.IDLE
     }
 
     private fun showShutter(sess: UseSenseSession) {
@@ -2275,7 +2549,8 @@ class HostedPageActivity : AppCompatActivity() {
     private fun placeHint() {
         val h = faceGuideOverlay.height
         if (h == 0) return
-        val ovalBottom = h * (ContourScanView.OVAL_CY + ContourScanView.OVAL_RY_OF_H)
+        // The closer step's grown oval pushes the guidance down with it.
+        val ovalBottom = h * (ContourScanView.OVAL_CY + ContourScanView.OVAL_RY_OF_H * scanView.ovalScale)
         hintGroup.y = ovalBottom + GUIDANCE_GAP_DP * resources.displayMetrics.density - hintPill.top
     }
 
@@ -2889,6 +3164,8 @@ class HostedPageActivity : AppCompatActivity() {
      * wedged native call cannot hold the UI.
      */
     private fun abortAttempt() {
+        cancelColour()
+        endCloserVisuals()
         stopScanLoop()
         scanStage = ScanStage.IDLE
         restoreFillLight()
@@ -3170,6 +3447,7 @@ class HostedPageActivity : AppCompatActivity() {
         }
         if (::watchdog.isInitialized) watchdog.disarm()
         finalizationJob?.cancel()
+        cancelColour()
         super.onDestroy()
         mainScope.cancel()
         handler.removeCallbacksAndMessages(null)
@@ -3227,6 +3505,12 @@ class HostedPageActivity : AppCompatActivity() {
         private const val MIN_SCAN_MS = 1500L
         /** The passive scan's target length (shared spec: "about 3 s", as on web). */
         private const val TARGET_SCAN_MS = 3_000L
+        /** EVIDENCE-v1: banked time kept after the last colour, so its frames land in the segment. */
+        private const val COLOUR_TAIL_MS = 150L
+        /** Passing scan gate frames kept for the closer step's far eye distance. */
+        private const val FAR_EYE_SAMPLES = 5
+        /** Checks the closer step's near phase doesn't apply (see onGateFrame). */
+        private val CLOSER_IGNORED_CHECKS = setOf(GateCheck.DISTANCE, GateCheck.IN_OVAL, GateCheck.LIGHT, GateCheck.COVERED)
         /** Past this, a gate still loading counts as unavailable: offer the shutter. */
         private const val GATE_INIT_TIMEOUT_MS = 8_000L
         /** A gate result older than this is ignored (the gate thread stalled). */

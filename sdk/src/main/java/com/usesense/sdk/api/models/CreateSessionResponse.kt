@@ -14,7 +14,16 @@ data class CreateSessionResponse(
     @Json(name = "geometric_coherence") val geometricCoherence: GeometricCoherenceConfig? = null,
     /** The dashboard's branding for this session (null/absent on older servers). */
     @Json(name = "branding") val branding: SessionBranding? = null,
-)
+    /**
+     * EVIDENCE-v1 `evidence` block, kept untyped so a shape this SDK doesn't
+     * know can never fail the session decode; read it through [evidence].
+     */
+    @Json(name = "evidence") val evidenceRaw: Any? = null,
+) {
+    /** The evidence the server asks for, or null (absent, malformed, other contract). */
+    val evidence: com.usesense.sdk.evidence.EvidenceConfig?
+        get() = com.usesense.sdk.evidence.EvidenceConfig.parse(evidenceRaw)
+}
 
 /**
  * Same wire shape as the Flows run-view branding. Every field is nullable and

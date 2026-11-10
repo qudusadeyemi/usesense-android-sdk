@@ -18,7 +18,8 @@ import javax.crypto.spec.SecretKeySpec
  * - The canonical JSON MUST be byte-identical to the server's
  *   `computeMeshDigest` (usesense-watchtower mesh-integrity-validator.tsx),
  *   which is `JSON.stringify({ s, p: [yaw, pitch, roll], d, l: "none" })`:
- *   `p` is an array, `l` is the literal "none" (landmarks are not uploaded),
+ *   `p` is an array, `l` is the hex SHA-256 of the uploaded landmarks as
+ *   Float64 when the frame carries them (EVIDENCE-v1), else the literal "none",
  *   and every number is formatted as JavaScript would format it.
  *   Until 2026-11 this built `p` as an object and `l` as the landmark count,
  *   so every Android binding proof failed server-side with
@@ -35,8 +36,10 @@ internal object MeshBindingProof {
         shapeParams: DoubleArray,
         pose: HeadPose,
         depthPlausibility: Int,
+        /** Hex SHA-256 of the uploaded landmarks as Float64 (EVIDENCE-v1), or null for the literal "none". */
+        landmarksHash: String? = null,
     ): String {
-        val canonical = buildCanonicalJson(shapeParams, pose, depthPlausibility)
+        val canonical = buildCanonicalJson(shapeParams, pose, depthPlausibility, landmarksHash)
         return sha256Hex(canonical.toByteArray(Charsets.UTF_8))
     }
 
@@ -72,6 +75,7 @@ internal object MeshBindingProof {
         shapeParams: DoubleArray,
         pose: HeadPose,
         depthPlausibility: Int,
+        landmarksHash: String? = null,
     ): String {
         val sb = StringBuilder()
         sb.append("{\"s\":[")
@@ -85,7 +89,7 @@ internal object MeshBindingProof {
         sb.append(jsNumber(pose.roll))
         sb.append("],\"d\":")
         sb.append(depthPlausibility)
-        sb.append(",\"l\":\"none\"}")
+        sb.append(",\"l\":\"").append(landmarksHash ?: "none").append("\"}")
         return sb.toString()
     }
 
