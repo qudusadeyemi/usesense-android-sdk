@@ -97,6 +97,11 @@ Samsung Galaxy A03 against the demo's mock server with the debug fake camera.
 
 - Debug fake camera: frames a decoder returns as RGB_565 are converted, so the
   gate sees a face in unfrozen playback.
+- **Native crash as the capture opens** (SIGBUS in MediaPipe, seen on a Galaxy
+  A03 with the face mesh on, as production policies have it): the session mesh,
+  the quality gate's landmarker and the covered-face segmenter built their
+  MediaPipe graphs on three threads at once. Graph creation is now one at a
+  time, process-wide. Likely present since 4.12.0.
 - `covered_check.final.outcome` said `"skipped"` when the debug test rig forced
   the gate to pass, the value COVER-v1 keeps for a missing model. It now says
   `"rig_forced"`; release builds never take that path.

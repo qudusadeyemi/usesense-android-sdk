@@ -89,7 +89,7 @@ internal class LiveFaceAnalyzer(
                     .setOutputFaceBlendshapes(FaceLandmarkerOutputs.BLENDSHAPES)
                     .setOutputFacialTransformationMatrixes(FaceLandmarkerOutputs.TRANSFORMATION_MATRICES)
                     .build()
-                if (!released) landmarker = FaceLandmarker.createFromOptions(context, options)
+                if (!released) landmarker = com.usesense.sdk.liveness.MediaPipeGraphs.create { FaceLandmarker.createFromOptions(context, options) }
                 landmarker != null
             } catch (e: Throwable) {
                 // Without MediaPipe the capture still works: the activity

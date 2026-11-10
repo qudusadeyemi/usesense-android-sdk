@@ -17,3 +17,18 @@ internal object FaceLandmarkerOutputs {
     const val BLENDSHAPES = true
     const val TRANSFORMATION_MATRICES = true
 }
+
+/**
+ * One MediaPipe graph is built at a time, process-wide. The session mesh, the
+ * quality gate's landmarker and the covered-face segmenter start on three
+ * threads as the capture opens; building their graphs at once crashed a Galaxy
+ * A03 in native code (SIGBUS in strncmp under Graph.startRunningGraph, during
+ * FaceLandmarker.createFromOptions) with the face mesh on (production
+ * policies). Graph setup touches process-wide registries that aren't safe to
+ * build concurrently; running a built graph is unaffected.
+ */
+internal object MediaPipeGraphs {
+    private val lock = Any()
+
+    fun <T> create(build: () -> T): T = synchronized(lock) { build() }
+}

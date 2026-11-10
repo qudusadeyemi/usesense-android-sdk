@@ -56,7 +56,7 @@ internal class FaceMeshManager(private val context: Context) {
                 .setOutputFacialTransformationMatrixes(FaceLandmarkerOutputs.TRANSFORMATION_MATRICES)
                 .build()
 
-            faceLandmarker = FaceLandmarker.createFromOptions(context, options)
+            faceLandmarker = MediaPipeGraphs.create { FaceLandmarker.createFromOptions(context, options) }
             lastInitError = null
             true
         } catch (e: kotlinx.coroutines.CancellationException) {
