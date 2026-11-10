@@ -6,6 +6,75 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [4.13.0] - Unreleased
+
+The extra check (LiveSense capture redesign, Phase 2): the approved end-user
+storyboard (flows 4 to 6) replaces the old challenge screens. Tested on a
+Samsung Galaxy A03 against the demo's mock server with the debug fake camera.
+
+### Added
+
+- **Extra check after the scan.** When the /signals response asks for a step-up
+  (round 2, `step_up_v1`), a "One more quick check" sheet (the upload sheet's
+  styling) says what is coming in one sentence, and Continue runs the movement
+  on the scan screen: full-bleed camera, the ring round the oval in purple.
+  Head Turn shows an arrow on the side to turn to ("Turn your head to the left",
+  "Now to the right"); Follow Dot shows an amber dot with a dashed trail
+  ("Follow the dot with your head"). A green tick ("Done"), then the upload
+  sheet, then the result. Replaces the round-2 screens of 4.12.0.
+- **Extra check before the scan.** When the session's policy already has a
+  challenge, the primer says "Two quick steps" and the movement follows straight
+  on from a 2 s scan on the same screen, in the same capture, with no sheet.
+- **Speak Digits on the scan screen**: the digits in a pill at the top, a live
+  microphone meter under the oval, "Say these numbers"; "We can't hear you /
+  Speak a little louder" after 2 s of a flat meter (it holds the timer for at
+  most 6 s in all).
+- **Microphone needed.** If the microphone is refused or can't record:
+  "Open Settings" or "Do a head movement instead". The second calls the new
+  `POST /v1/sessions/:id/challenge-fallback` (`{"reason":"microphone_unavailable"}`,
+  session-token auth) and carries on with the Follow Dot it returns.
+- **Never fails on the device.** The face leaving the oval pauses the movement
+  (amber ring; "Move your face to the centre / Then keep turning", or "Show your
+  face in the oval / The dot will wait for you") and it carries on when the face
+  is back. A missed left or right turn gets one more go with a hint ("Let's try
+  that again / Turn a little further to the left"); after that the server decides.
+- **Leave verification?** Back (system or the top bar) from the camera to the
+  upload asks first: "Leave" ends the verification (`onCancelled`, no resume),
+  "Keep going" carries on where it was.
+- **Primer**: "Take a quick selfie" with three tips, once per verification (not
+  on "Try again", and not inside a Flow, which has its own).
+- **Result and error pages** (dark, as the storyboard): You're verified, Thanks,
+  we're checking, We couldn't verify you (with "Try again" and tips only while
+  retries are allowed), Camera access needed (Open Settings / Try again), The
+  camera stopped, You're offline, This check timed out, Something went wrong.
+  An upload whose retries ran out shows "Couldn't send your scan" over the
+  camera; "Try again" sends the kept scan again.
+- `UseSenseConfig.showResultScreens` (default `true`): `false` hands the decision
+  straight to `onSuccess` with no result page.
+- `UseSenseConfig.maxRetries` (default `0`): how many times "Try again" is offered
+  after a rejection.
+- Debug test rig: `forceScreen` in `usesense_fake_camera.json` holds any storyboard
+  screen for its screenshot (the extra-check states come from the real state
+  machine). Demo app: launch extras for automated mock runs (`mock_step_up`,
+  `mock_challenge`, `mock_decision`, `max_retries`, `show_results`,
+  `mock_fallback_status`) and the mock server answers step-up and challenge-fallback.
+
+### Changed
+
+- "Try again" after a rejection is now off by default (it was always shown in
+  session mode). Set `maxRetries` to offer it.
+- A session with a challenge no longer shows the instructions overlay, the
+  baseline badge or the 3-2-1 countdown: it scans first, then runs the movement.
+- Remote hosted links (`startEnrollment` / `startVerification`) keep their intro,
+  white result and error screens; the new pages are for SDK sessions and Flows.
+- `ChallengePresenter` gains `beginDriven()`, `driveStep()` and `endDriven()`
+  (with default bodies) so the scan screen can own the challenge's timing.
+
+### Fixed
+
+- Debug fake camera: frames a decoder returns as RGB_565 are converted, so the
+  gate sees a face in unfrozen playback.
+
 ## [4.12.0] - 2026-11-10
 
 Guided face capture (LiveSense capture redesign, Phase 1). Tested on a Samsung
