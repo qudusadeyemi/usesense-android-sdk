@@ -106,7 +106,12 @@ class FinalizationCoordinator(
         val upload = async {
             runCatching {
                 operations.upload { sent, total ->
-                    if (sent > furthestByte.getAndAccumulate(sent, ::maxOf)) {
+                    if (sent == 0L) {
+                        // An attempt (or a retry) is starting: that is progress,
+                        // and its bytes count again from zero.
+                        furthestByte.set(0L)
+                        lastProgressAt.set(nowMs())
+                    } else if (sent > furthestByte.getAndAccumulate(sent, ::maxOf)) {
                         lastProgressAt.set(nowMs())
                     }
                     onUpdate(FinalizationUpdate.Progress(sent, total))

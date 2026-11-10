@@ -11,6 +11,15 @@ import com.google.android.material.card.MaterialCardView
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import com.usesense.sdk.*
+import com.usesense.sdk.flows.FlowError
+import com.usesense.sdk.flows.FlowRunResult
+import com.usesense.sdk.flows.FlowsCallback
+import com.usesense.sdk.flows.UseSenseFlows
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
 
 class DemoActivity : AppCompatActivity() {
 
@@ -25,6 +34,9 @@ class DemoActivity : AppCompatActivity() {
     private lateinit var verdictCard: MaterialCardView
     private lateinit var verdictGroup: RadioGroup
     private lateinit var startButton: MaterialButton
+    private lateinit var flowIdLayout: TextInputLayout
+    private lateinit var flowIdInput: TextInputEditText
+    private lateinit var runFlowButton: MaterialButton
     private lateinit var resultCard: MaterialCardView
     private lateinit var resultText: TextView
 
@@ -35,6 +47,10 @@ class DemoActivity : AppCompatActivity() {
         setContentView(R.layout.activity_demo)
         bindViews()
         setupListeners()
+        // The API key and flow ID are typed at runtime and remembered here.
+        val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+        apiKeyInput.setText(prefs.getString(PREF_API_KEY, ""))
+        flowIdInput.setText(prefs.getString(PREF_FLOW_ID, ""))
     }
 
     private fun bindViews() {
@@ -49,6 +65,9 @@ class DemoActivity : AppCompatActivity() {
         verdictCard = findViewById(R.id.verdictCard)
         verdictGroup = findViewById(R.id.verdictGroup)
         startButton = findViewById(R.id.startButton)
+        flowIdLayout = findViewById(R.id.flowIdLayout)
+        flowIdInput = findViewById(R.id.flowIdInput)
+        runFlowButton = findViewById(R.id.runFlowButton)
         resultCard = findViewById(R.id.resultCard)
         resultText = findViewById(R.id.resultText)
     }
@@ -58,6 +77,8 @@ class DemoActivity : AppCompatActivity() {
         modeGroup.setOnCheckedChangeListener { _, checkedId ->
             val isMock = checkedId == R.id.modeMock
             apiKeyLayout.visibility = if (isMock) View.GONE else View.VISIBLE
+            flowIdLayout.visibility = if (isMock) View.GONE else View.VISIBLE
+            runFlowButton.visibility = if (isMock) View.GONE else View.VISIBLE
             challengeCard.visibility = if (isMock) View.VISIBLE else View.GONE
             verdictCard.visibility = if (isMock) View.VISIBLE else View.GONE
         }
@@ -69,6 +90,7 @@ class DemoActivity : AppCompatActivity() {
         }
 
         startButton.setOnClickListener { startVerification() }
+        runFlowButton.setOnClickListener { runFlow() }
     }
 
     private fun startVerification() {
@@ -85,6 +107,7 @@ class DemoActivity : AppCompatActivity() {
                     R.id.challengeFollowDot -> "follow_dot"
                     R.id.challengeHeadTurn -> "head_turn"
                     R.id.challengeSpeakPhrase -> "speak_phrase"
+                    R.id.challengePassive -> "none"
                     else -> "follow_dot"
                 }
                 mockDecision = when (verdictGroup.checkedRadioButtonId) {
@@ -106,6 +129,7 @@ class DemoActivity : AppCompatActivity() {
             }
             baseUrl = UseSenseConfig.DEFAULT_BASE_URL
             apiKey = key
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(PREF_API_KEY, key).apply()
         }
 
         // Initialize SDK
@@ -170,6 +194,77 @@ class DemoActivity : AppCompatActivity() {
         )
     }
 
+    /**
+     * Run an operator-authored flow. A host backend would create the run; the
+     * demo does it inline with the API key (POST /v1/flow-runs, minting an SDK
+     * token) and hands the run to the Flows runner, as the Flutter example does.
+     */
+    private fun runFlow() {
+        val key = apiKeyInput.text?.toString()?.trim().orEmpty()
+        val flowId = flowIdInput.text?.toString()?.trim().orEmpty()
+        if (key.isEmpty()) { toast("Enter your API key to run a flow"); return }
+        if (flowId.isEmpty()) { toast("Enter a flow ID (flw_...)"); return }
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+            .putString(PREF_API_KEY, key).putString(PREF_FLOW_ID, flowId).apply()
+        runFlowButton.isEnabled = false
+        Thread {
+            val created = runCatching {
+                val body = JSONObject()
+                    .put("flowId", flowId)
+                    .put("subject", JSONObject().put("externalRef", "android-demo-user"))
+                    .put("mint_sdk_token", true)
+                    .put("sdk_version", "android-demo")
+                    .toString().toRequestBody("application/json".toMediaType())
+                val request = Request.Builder()
+                    .url("${UseSenseConfig.DEFAULT_BASE_URL.trimEnd('/')}/v1/flow-runs")
+                    .header("x-api-key", key)
+                    .header("x-environment", "sandbox")
+                    .post(body)
+                    .build()
+                OkHttpClient().newCall(request).execute().use { resp ->
+                    val text = resp.body?.string().orEmpty()
+                    check(resp.isSuccessful) { "Could not create flow run (HTTP ${resp.code}): ${text.take(300)}" }
+                    val json = JSONObject(text)
+                    val runId = json.getJSONObject("flowRun").getString("id")
+                    val token = json.optString("sdkToken").takeIf { it.isNotEmpty() }
+                        ?: error("No sdkToken returned (mint_sdk_token)")
+                    runId to token
+                }
+            }
+            runOnUiThread {
+                runFlowButton.isEnabled = true
+                created.fold(
+                    onSuccess = { (runId, token) -> launchFlow(runId, token) },
+                    onFailure = { showFlowText("FLOW ERROR\n${it.message}") },
+                )
+            }
+        }.start()
+    }
+
+    private fun launchFlow(runId: String, token: String) {
+        UseSenseFlows.run(
+            activity = this,
+            flowRunId = runId,
+            sdkToken = token,
+            callback = object : FlowsCallback {
+                override fun onResult(result: FlowRunResult) = runOnUiThread {
+                    showFlowText("Flow:    ${result.flowRunId}\nState:   ${result.state}\nOutcome: ${result.outcome ?: "N/A"}")
+                }
+
+                override fun onError(error: FlowError) = runOnUiThread {
+                    showFlowText("FLOW ERROR\nRun:     $runId\nCode:    ${error.code}\nServer:  ${error.serverCode ?: "N/A"}\nMessage: ${error.message}")
+                }
+            },
+        )
+    }
+
+    private fun showFlowText(text: String) {
+        resultCard.visibility = View.VISIBLE
+        resultText.text = text
+    }
+
+    private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
+
     private fun showResult(result: UseSenseResult) {
         resultCard.visibility = View.VISIBLE
         resultText.text = buildString {
@@ -190,6 +285,12 @@ class DemoActivity : AppCompatActivity() {
             appendLine("Message: ${error.message}")
             appendLine("Retry:   ${error.isRetryable}")
         }
+    }
+
+    private companion object {
+        const val PREFS = "demo"
+        const val PREF_API_KEY = "api_key"
+        const val PREF_FLOW_ID = "flow_id"
     }
 
     override fun onDestroy() {

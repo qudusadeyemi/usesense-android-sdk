@@ -52,6 +52,15 @@ class ImageQualityAnalyzer {
 
         // Analysis interval (4Hz = 250ms)
         const val ANALYSIS_INTERVAL_MS = 250L
+
+        /** Side of the square the face is resampled to for [analyzeFaceRegion]. */
+        const val FACE_GRID = 96
+
+        /** Luma at or below this counts as crushed black. */
+        const val CLIP_LOW = 5
+
+        /** Luma at or above this counts as blown highlight. */
+        const val CLIP_HIGH = 250
     }
 
     data class ImageQualityReport(
@@ -80,6 +89,76 @@ class ImageQualityAnalyzer {
         val severity: GuidanceSeverity,
         val icon: GuidanceIcon,
     )
+
+    /** Light and sharpness measured on the face only (the capture quality gate). */
+    data class FaceRegionReport(
+        /** Mean luma (0-255) inside the face box. */
+        val meanLuma: Double,
+        /** Share of face pixels at or below [CLIP_LOW] or at or above [CLIP_HIGH]. */
+        val clippedRatio: Double,
+        /** Share at or above [CLIP_HIGH] (blown highlights), part of [clippedRatio]. */
+        val highlightRatio: Double = 0.0,
+        /**
+         * Laplacian variance of the face resampled to a fixed [FACE_GRID] square,
+         * so a near face and a far face of the same sharpness score alike.
+         */
+        val sharpness: Double,
+    )
+
+    /**
+     * Measure the face box [left, top, right, bottom) of an ARGB frame
+     * ([argb] is width x height, row-major). A bright window behind the
+     * subject no longer hides a dark face, as the whole-frame [analyze] does.
+     * Returns null when the box is empty after clipping to the frame.
+     */
+    fun analyzeFaceRegion(
+        argb: IntArray,
+        width: Int,
+        height: Int,
+        left: Int,
+        top: Int,
+        right: Int,
+        bottom: Int,
+    ): FaceRegionReport? {
+        val l = left.coerceIn(0, width)
+        val t = top.coerceIn(0, height)
+        val r = right.coerceIn(0, width)
+        val b = bottom.coerceIn(0, height)
+        if (r - l < 4 || b - t < 4) return null
+        val n = FACE_GRID
+        val gray = IntArray(n * n)
+        var sum = 0L
+        var clipped = 0
+        var highlights = 0
+        val sx = (r - l).toFloat() / n
+        val sy = (b - t).toFloat() / n
+        for (gy in 0 until n) {
+            val py = (t + ((gy + 0.5f) * sy).toInt()).coerceAtMost(b - 1)
+            for (gx in 0 until n) {
+                val px = (l + ((gx + 0.5f) * sx).toInt()).coerceAtMost(r - 1)
+                val c = argb[py * width + px]
+                val y = luma(c)
+                gray[gy * n + gx] = y
+                sum += y
+                if (y <= CLIP_LOW || y >= CLIP_HIGH) clipped++
+                if (y >= CLIP_HIGH) highlights++
+            }
+        }
+        val count = n * n
+        return FaceRegionReport(
+            meanLuma = sum.toDouble() / count,
+            clippedRatio = clipped.toDouble() / count,
+            highlightRatio = highlights.toDouble() / count,
+            sharpness = computeLaplacianVariance(gray, n, n),
+        )
+    }
+
+    private fun luma(argb: Int): Int {
+        val r = (argb shr 16) and 0xFF
+        val g = (argb shr 8) and 0xFF
+        val b = argb and 0xFF
+        return ((299 * r + 587 * g + 114 * b) / 1000).coerceIn(0, 255)
+    }
 
     /**
      * Analyze a YUV_420_888 image from CameraX ImageAnalysis.

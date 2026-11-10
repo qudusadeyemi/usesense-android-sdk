@@ -43,6 +43,9 @@ internal class UseSenseSession(
 ) {
     var onUploadProgress: ((Long, Long) -> Unit)? = null
 
+    /** The covered-face check's numbers for metadata.covered_check (set by the capture screen). */
+    var coveredCheck: (() -> org.json.JSONObject?)? = null
+
     private val apiClient = UseSenseApiClient(config).apply {
         // Surface real upload progress. The signals request is the only one
         // carrying megabytes, and on a slow uplink it runs for minutes; without
@@ -138,6 +141,11 @@ internal class UseSenseSession(
      * native code. release() must not close the landmarker under it.
      */
     @Volatile private var stuckMeshWork: Deferred<*>? = null
+    /**
+     * Bumped when the scan drops its window: mesh work queued for frames of the
+     * dropped window must not land in the new one (frame indices restart at 0).
+     */
+    private val meshGeneration = AtomicInteger(0)
     private val meshFramesProcessed = AtomicInteger(0)
     private val meshFramesDetected = AtomicInteger(0)
     private val meshRequested: Boolean
@@ -293,13 +301,14 @@ internal class UseSenseSession(
 
     private fun enqueueFaceMesh(frame: CapturedFrame) {
         if (meshClosed) return
+        val generation = meshGeneration.get()
         meshJobs.add(
             meshScope.launch {
                 meshInitJob?.join()
                 if (meshInitResult != FaceMeshInitResult.SUCCESS || meshClosed) return@launch
                 // One frame at a time: the landmarker is not safe to call concurrently.
                 meshMutex.withLock {
-                    if (meshClosed) return@withLock
+                    if (meshClosed || generation != meshGeneration.get()) return@withLock
                     val options = BitmapFactory.Options().apply {
                         // Landmarks are normalised, so a half-size decode of a
                         // 1280x720 v4 frame loses no accuracy and halves the work.
@@ -309,7 +318,9 @@ internal class UseSenseSession(
                         ?: return@withLock
                     meshFramesProcessed.incrementAndGet()
                     val detect = boundedCall(meshScope, MESH_FRAME_TIMEOUT_MS) {
-                        faceMeshManager.processFrame(bitmap, frame.index, frame.timestampMs)
+                        faceMeshManager.processFrame(bitmap, frame.index, frame.timestampMs) {
+                            generation == meshGeneration.get()
+                        }
                     }
                     when (detect) {
                         is Bounded.TimedOut -> {
@@ -326,7 +337,7 @@ internal class UseSenseSession(
                             val mesh = detect.value ?: return@withLock
                             meshFramesDetected.incrementAndGet()
                             synchronized(fitterLock) {
-                                if (!meshClosed) threeDMMFitter.fitFrame(mesh)
+                                if (!meshClosed && generation == meshGeneration.get()) threeDMMFitter.fitFrame(mesh)
                             }
                         }
                     }
@@ -444,6 +455,34 @@ internal class UseSenseSession(
         buffer.setCapturePhase(com.usesense.sdk.capture.CapturePhase.CHALLENGE)
     }
 
+    /** The scan's gate is failing: stop banking frames, keep the ones banked. */
+    fun pauseCapture() {
+        frameCaptureManager?.pause()
+    }
+
+    fun resumeCapture() {
+        frameCaptureManager?.resume()
+    }
+
+    /**
+     * The scan paused too long: drop the window and start banking afresh when
+     * the subject is aligned again. Frames, their mesh fits and the capture
+     * clock restart; the session stays CAPTURING (sensors keep running), so
+     * the upload is exactly what one uninterrupted window would have sent.
+     * Banking stays paused until [resumeCapture].
+     */
+    fun restartCaptureWindow() {
+        val fcm = frameCaptureManager ?: return
+        meshGeneration.incrementAndGet()
+        faceMeshManager.reset()
+        synchronized(fitterLock) { threeDMMFitter.reset() }
+        meshFramesProcessed.set(0)
+        meshFramesDetected.set(0)
+        fcm.restartPaused()
+        fcm.getFrameBuffer().setCapturePhase(com.usesense.sdk.capture.CapturePhase.BASELINE)
+        captureStartTime = Date()
+    }
+
     fun startAudioRecording() {
         val audioDuration = sessionResponse?.policy?.audioChallenge?.totalDurationMs
             ?: sessionResponse?.policy?.challenge?.totalDurationMs
@@ -550,6 +589,8 @@ internal class UseSenseSession(
             null
         }
 
+        val coveredCheckJson = runCatching { coveredCheck?.invoke() }.getOrNull()
+        com.usesense.sdk.api.uploadTrace("covered_check ${coveredCheckJson ?: "absent"}")
         val metadataJson = metadataBuilder.build(
             sessionId = sid,
             source = "sdk",
@@ -577,6 +618,7 @@ internal class UseSenseSession(
             verificationPackageSkipReason = verificationPackageSkipReason,
             faceMeshInitResult = if (meshRequested) meshInitResult.value else null,
             faceMeshInitError = faceMeshManager.lastInitError ?: meshTimeoutError,
+            coveredCheck = coveredCheckJson,
         )
 
         return uploader.upload(

@@ -472,12 +472,8 @@
                     android:layout_width="match_parent"
                     android:layout_height="0dp"
                     android:layout_weight="1"
-                    android:layout_marginHorizontal="16dp"
-                    android:layout_marginTop="8dp"
-                    android:background="@drawable/usesense_video_container_bg"
                     android:clipChildren="true"
-                    android:clipToPadding="true"
-                    android:clipToOutline="true">
+                    android:clipToPadding="true">
 
                     <androidx.camera.view.PreviewView
                         android:id="@+id/hostedCameraPreview"
@@ -546,86 +542,81 @@
                             android:visibility="gone" />
                     </FrameLayout>
 
-                    <!-- Face Guide Overlay -->
+                    <!-- Scan overlay: oval guide, one hint, progress ring, contour
+                         scan and the shutter fallback (LiveSense capture redesign).
+                         Shown on every session before capture starts, and through
+                         a passive scan. -->
                     <FrameLayout
                         android:id="@+id/hostedFaceGuideOverlay"
                         android:layout_width="match_parent"
                         android:layout_height="match_parent"
                         android:visibility="gone">
 
-                        <com.usesense.sdk.ui.FaceGuideOvalView
+                        <com.usesense.sdk.ui.ContourScanView
+                            android:id="@+id/hostedScanView"
                             android:layout_width="match_parent"
-                            android:layout_height="match_parent" />
+                            android:layout_height="match_parent"
+                            android:importantForAccessibility="no" />
 
-                        <!-- Quality dot: as iOS (top-left, compact). -->
-                        <com.usesense.sdk.ui.QualityIndicatorView
-                            android:id="@+id/hostedFaceGuideQualityDot"
-                            android:layout_width="12dp"
-                            android:layout_height="12dp"
-                            android:layout_gravity="top|start"
-                            android:layout_marginTop="24dp"
-                            android:layout_marginStart="28dp"
-                            android:visibility="invisible" />
-
-                        <!-- Close: as iOS (top-right, 36dp, 50% black). -->
-                        <TextView
-                            android:id="@+id/hostedFaceGuideCloseButton"
-                            android:layout_width="36dp"
-                            android:layout_height="36dp"
-                            android:layout_gravity="top|end"
-                            android:layout_marginTop="12dp"
-                            android:layout_marginEnd="16dp"
-                            android:background="@drawable/usesense_close_circle_bg"
-                            android:contentDescription="@string/usesense_close"
-                            android:gravity="center"
-                            android:text="\u2715"
-                            android:textColor="@android:color/white"
-                            android:textSize="16sp"
-                            android:textStyle="bold" />
-
-                        <!-- Copy, live quality and "I'm Ready" pinned to the bottom over a scrim (iOS FaceGuideOverlay). -->
+                        <!-- Guidance: plain centred text under the oval (SPEC v1.1), and the
+                             shutter. HostedPageActivity.placeHint puts its top 28dp below the oval. -->
                         <LinearLayout
+                            android:id="@+id/hostedHintGroup"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_gravity="bottom"
-                            android:background="@drawable/usesense_face_guide_scrim"
                             android:gravity="center_horizontal"
                             android:orientation="vertical"
-                            android:paddingTop="64dp"
-                            android:paddingBottom="24dp">
+                            android:paddingHorizontal="24dp">
 
-                            <TextView
+                            <LinearLayout
+                                android:id="@+id/hostedHintPill"
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
-                                android:layout_marginHorizontal="24dp"
+                                android:accessibilityLiveRegion="polite"
                                 android:gravity="center_horizontal"
-                                android:textAlignment="center"
-                                android:text="@string/usesense_face_guide_label"
-                                android:textColor="@android:color/white"
-                                android:textSize="16sp"
-                                android:fontFamily="sans-serif-medium" />
+                                android:orientation="vertical">
 
-                            <com.usesense.sdk.ui.QualityIndicatorView
-                                android:id="@+id/hostedFaceGuideQuality"
-                                android:layout_width="match_parent"
-                                android:layout_height="36dp"
-                                android:layout_marginTop="8dp"
+                                <TextView
+                                    android:id="@+id/hostedHintTitle"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:gravity="center_horizontal"
+                                    android:textAlignment="center"
+                                    android:maxLines="2"
+                                    android:letterSpacing="-0.01"
+                                    android:textColor="@android:color/white"
+                                    android:textSize="22sp"
+                                    android:fontFamily="sans-serif-medium"
+                                    android:textStyle="bold"
+                                    android:shadowColor="#73000000"
+                                    android:shadowDy="2"
+                                    android:shadowRadius="14" />
+
+                                <TextView
+                                    android:id="@+id/hostedHintDetail"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="6dp"
+                                    android:gravity="center_horizontal"
+                                    android:textAlignment="center"
+                                    android:textColor="#D1FFFFFF"
+                                    android:textSize="15sp"
+                                    android:fontFamily="sans-serif-medium"
+                                    android:shadowColor="#73000000"
+                                    android:shadowDy="2"
+                                    android:shadowRadius="14"
+                                    android:visibility="gone" />
+                            </LinearLayout>
+
+                            <!-- Shutter fallback: after 20 s or 3 dropped windows. -->
+                            <ImageButton
+                                android:id="@+id/hostedShutterButton"
+                                android:layout_width="72dp"
+                                android:layout_height="72dp"
+                                android:layout_marginTop="24dp"
+                                android:background="@drawable/usesense_shutter_bg"
+                                android:contentDescription="@string/usesense_shutter_button"
                                 android:visibility="gone" />
-
-                            <com.google.android.material.button.MaterialButton
-                                android:id="@+id/hostedFaceGuideReadyButton"
-                                android:layout_width="match_parent"
-                                android:layout_height="52dp"
-                                android:layout_marginTop="4dp"
-                                android:layout_marginHorizontal="32dp"
-                                android:insetTop="0dp"
-                                android:insetBottom="0dp"
-                                android:text="@string/usesense_face_guide_ready"
-                                android:textAllCaps="false"
-                                android:textSize="17sp"
-                                android:textStyle="bold"
-                                app:cornerRadius="12dp"
-                                app:backgroundTint="@color/usesense_primary_dark" />
                         </LinearLayout>
                     </FrameLayout>
 
@@ -736,52 +727,100 @@
                         </LinearLayout>
                     </FrameLayout>
 
-                    <!-- Section 5.8/5.9: Upload/Completing Overlay (dark 95% over camera) -->
+                    <!-- Upload: the face blurs out behind a bottom sheet; upload and
+                         checking share one progress bar (shared visual spec). -->
                     <FrameLayout
                         android:id="@+id/hostedUploadOverlay"
                         android:layout_width="match_parent"
                         android:layout_height="match_parent"
-                        android:background="#F2000000"
+                        android:background="#400D0F14"
                         android:visibility="gone">
 
                         <LinearLayout
-                            android:layout_width="wrap_content"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_gravity="center"
-                            android:gravity="center"
+                            android:layout_gravity="bottom"
+                            android:layout_margin="8dp"
+                            android:background="@drawable/usesense_upload_sheet_bg"
+                            android:gravity="center_horizontal"
                             android:orientation="vertical"
-                            android:paddingHorizontal="32dp">
+                            android:paddingHorizontal="24dp"
+                            android:paddingTop="24dp"
+                            android:paddingBottom="22dp">
 
-                            <!-- As iOS ProcessingView: brand-coloured spinner, title, subtitle. -->
+                            <!-- Kept for branding code paths; the sheet uses the bar. -->
                             <ProgressBar
                                 android:id="@+id/hostedUploadOverlaySpinner"
-                                android:layout_width="56dp"
-                                android:layout_height="56dp"
-                                android:indeterminateTint="@color/usesense_primary" />
+                                android:layout_width="0dp"
+                                android:layout_height="0dp"
+                                android:visibility="gone" />
 
                             <TextView
                                 android:id="@+id/hostedUploadOverlayTitle"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:layout_marginTop="20dp"
                                 android:gravity="center_horizontal"
                                 android:textAlignment="center"
-                                android:text="@string/usesense_processing_title"
-                                android:textSize="20sp"
+                                android:text="@string/usesense_upload_title"
+                                android:textSize="18sp"
+                                android:fontFamily="sans-serif-medium"
                                 android:textStyle="bold"
                                 android:textColor="@android:color/white" />
+
+                            <ProgressBar
+                                android:id="@+id/hostedUploadProgress"
+                                style="@android:style/Widget.ProgressBar.Horizontal"
+                                android:layout_width="match_parent"
+                                android:layout_height="4dp"
+                                android:layout_marginTop="16dp"
+                                android:max="1000"
+                                android:progressDrawable="@drawable/usesense_upload_progress" />
 
                             <TextView
                                 android:id="@+id/hostedUploadOverlaySubtitle"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:layout_marginTop="12dp"
+                                android:layout_marginTop="14dp"
                                 android:gravity="center_horizontal"
                                 android:textAlignment="center"
-                                android:textSize="15sp"
-                                android:textColor="#B3FFFFFF"
-                                android:text="@string/usesense_processing_body" />
+                                android:textSize="14sp"
+                                android:textColor="#FFA3A9B8"
+                                android:text="@string/usesense_upload_detail" />
                         </LinearLayout>
+                    </FrameLayout>
+
+                    <!-- Capture top bar: back (left) and help (right), 32dp circles 16dp
+                         from the sides (shared spec). Above the upload sheet, as iOS. -->
+                    <FrameLayout
+                        android:id="@+id/hostedCaptureTopBar"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="top"
+                        android:paddingHorizontal="16dp"
+                        android:paddingTop="16dp"
+                        android:visibility="gone">
+
+                        <ImageButton
+                            android:id="@+id/hostedFaceGuideCloseButton"
+                            android:layout_width="32dp"
+                            android:layout_height="32dp"
+                            android:layout_gravity="start"
+                            android:background="@drawable/usesense_scan_button_bg"
+                            android:contentDescription="@string/usesense_capture_back"
+                            android:src="@drawable/usesense_ic_arrow_back" />
+
+                        <TextView
+                            android:id="@+id/hostedHelpButton"
+                            android:layout_width="32dp"
+                            android:layout_height="32dp"
+                            android:layout_gravity="end"
+                            android:background="@drawable/usesense_scan_button_bg"
+                            android:contentDescription="@string/usesense_capture_help"
+                            android:gravity="center"
+                            android:text="\?"
+                            android:textColor="@android:color/white"
+                            android:textSize="16sp"
+                            android:textStyle="bold" />
                     </FrameLayout>
                 </FrameLayout>
 
@@ -887,6 +926,7 @@
                 <!-- Section 11.8: Capture-mode footer — 50% white on black -->
                 <TextView
                     android:id="@+id/captureFooterText"
+                    android:visibility="gone"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:gravity="center"

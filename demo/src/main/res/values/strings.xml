@@ -10,6 +10,7 @@
     <string name="enrollment">Enrollment</string>
     <string name="authentication">Authentication</string>
     <string name="challenge_type_label">Challenge Type</string>
+    <string name="passive_scan">Passive scan (no challenge)</string>
     <string name="follow_dot">Follow the Dot</string>
     <string name="head_turn">Head Turn</string>
     <string name="speak_phrase">Speak Phrase</string>
@@ -21,4 +22,6 @@
     <string name="api_key_hint">API Key (sk_test_...)</string>
     <string name="identity_id_hint">Identity ID (for auth)</string>
     <string name="last_result">Last Result</string>
+    <string name="flow_id_hint">Flow ID (flw_…), for Run flow</string>
+    <string name="run_flow">Run flow</string>
 </resources>

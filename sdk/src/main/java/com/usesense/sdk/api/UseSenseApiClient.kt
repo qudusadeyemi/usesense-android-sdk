@@ -26,10 +26,24 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
 
     companion object {
         /**
-         * Write timeout for the signals upload, the one request that carries
-         * megabytes. Everything else is small JSON and finishes well inside it.
+         * Idle timeout per attempt of the signals upload (write and read). It is
+         * an idle timer: it resets as bytes move, so a slow but moving upload
+         * runs on; a stalled attempt fails here and is retried with the same
+         * idempotency key. It must, with the longest backoff, fit inside the
+         * stall windows (CaptureWatchdog.PROGRESS_GRACE_MS and
+         * FinalizationPolicy.noProgressTimeoutMs, 30 s): at 300 s the watchdog
+         * killed the session long before an attempt timed out, so a stalled
+         * upload was never retried (seen on iOS, same shape here).
          */
-        const val UPLOAD_WRITE_TIMEOUT_SECONDS = 300L
+        const val UPLOAD_IDLE_TIMEOUT_SECONDS = 20L
+
+        /** Write timeout for the small JSON requests. */
+        const val WRITE_TIMEOUT_SECONDS = 30L
+
+        /** Backoff before retry 1, 2, 3 (network errors). */
+        val RETRY_BACKOFF_MS = longArrayOf(1_000, 2_000, 4_000)
+
+        const val MAX_RETRIES = 3
 
         /**
          * Whole-call ceiling (all retries, backoff and Retry-After included) for
@@ -203,13 +217,24 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
         val request = chain.request()
         var response: okhttp3.Response? = null
         var exception: IOException? = null
-        val maxAttempts = 4 // initial + 3 retries
-        val backoffDelays = longArrayOf(0, 1000, 2000, 4000)
+        val maxAttempts = MAX_RETRIES + 1
+        val isSignals = request.url.encodedPath.endsWith("/signals")
 
         for (attempt in 0 until maxAttempts) {
             try {
                 if (attempt > 0) {
-                    Thread.sleep(backoffDelays[attempt])
+                    Thread.sleep(RETRY_BACKOFF_MS[attempt - 1])
+                    if (isSignals) {
+                        uploadTrace("retry ${attempt}/$MAX_RETRIES after ${exception?.javaClass?.simpleName}: ${exception?.message}")
+                    }
+                }
+                if (isSignals) {
+                    // Every attempt starting (the first and each retry) is progress
+                    // for the stall windows, reported as 0 bytes sent: the watchdog
+                    // and FinalizationCoordinator restart their no-progress clocks,
+                    // so the time spent preparing the package, or a stalled attempt
+                    // giving up, never leaves the next attempt without its window.
+                    onUploadProgress?.invoke(0L, request.body?.contentLength()?.coerceAtLeast(1L) ?: 1L)
                 }
                 response?.close()
                 response = chain.proceed(request)
@@ -252,7 +277,7 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
         if (body == null || !request.url.encodedPath.endsWith("/signals")) {
             chain.proceed(request)
         } else {
-            val wrapped = ProgressRequestBody(body) { sent, total ->
+            val wrapped = ProgressRequestBody(body, ::uploadTrace) { sent, total ->
                 onUploadProgress?.invoke(sent, total)
             }
             chain.proceed(request.newBuilder().method(request.method, wrapped).build())
@@ -266,16 +291,19 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
         .addInterceptor(uploadProgressInterceptor)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
-        // The signals upload is the only request carrying megabytes. A 30s
-        // write timeout leaves no headroom on a slow mobile uplink -- a
-        // measured production session managed 14.6 KB/s -- and a tripped
-        // timeout looks to the subject like a hang, not a retryable error.
-        .writeTimeout(UPLOAD_WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .writeTimeout(WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .callTimeout(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .build()
 
-    /** Same interceptors and socket timeouts; a longer whole-call ceiling for megabyte uploads. */
+    /**
+     * The signals upload: same interceptors; a 20 s idle timeout per attempt
+     * (write and read are idle timers, reset as bytes move: a slow uplink at
+     * 14.6 KB/s still writes every few ms) and a longer whole-call ceiling,
+     * which covers all retries and backoff.
+     */
     private val uploadHttpClient: OkHttpClient = okHttpClient.newBuilder()
+        .writeTimeout(UPLOAD_IDLE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .readTimeout(UPLOAD_IDLE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .callTimeout(UPLOAD_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .build()
 
@@ -283,6 +311,8 @@ internal class UseSenseApiClient(private val config: UseSenseConfig) {
     internal val callTimeoutMillis: Int get() = okHttpClient.callTimeoutMillis
     internal val uploadCallTimeoutMillis: Int get() = uploadHttpClient.callTimeoutMillis
     internal val readTimeoutMillis: Int get() = okHttpClient.readTimeoutMillis
+    internal val uploadWriteTimeoutMillis: Int get() = uploadHttpClient.writeTimeoutMillis
+    internal val uploadReadTimeoutMillis: Int get() = uploadHttpClient.readTimeoutMillis
     internal val connectTimeoutMillis: Int get() = okHttpClient.connectTimeoutMillis
 
     private val service: UseSenseApiService = Retrofit.Builder()
@@ -543,8 +573,20 @@ internal class ApiException(val useSenseError: UseSenseError) : Exception(useSen
  * OkHttp gives no upload-progress hook, so the body counts its own bytes on
  * the way to the socket.
  */
+/** Debug trace of the signals upload: `adb shell setprop log.tag.UseSenseUpload DEBUG`. */
+internal fun uploadTrace(message: String) {
+    runCatching {
+        if (android.util.Log.isLoggable(UPLOAD_TRACE_TAG, android.util.Log.DEBUG)) {
+            android.util.Log.d(UPLOAD_TRACE_TAG, message)
+        }
+    }
+}
+
+internal const val UPLOAD_TRACE_TAG = "UseSenseUpload"
+
 internal class ProgressRequestBody(
     private val delegate: RequestBody,
+    private val trace: (String) -> Unit = {},
     private val listener: (bytesSent: Long, totalBytes: Long) -> Unit,
 ) : RequestBody() {
 
@@ -556,16 +598,27 @@ internal class ProgressRequestBody(
         val total = contentLength()
         // A retry re-enters writeTo, so progress restarts from zero -- which is
         // the honest thing to show.
+        val startedAt = System.nanoTime()
+        var written = 0L
+        var lastTenth = -1
         val counting = object : ForwardingSink(sink) {
-            private var written = 0L
             override fun write(source: Buffer, byteCount: Long) {
                 super.write(source, byteCount)
                 written += byteCount
-                if (total > 0) listener(written, total)
+                if (total > 0) {
+                    listener(written, total)
+                    val tenth = (written * 10 / total).toInt()
+                    if (tenth > lastTenth) {
+                        lastTenth = tenth
+                        trace("sent ${tenth * 10}%: $written / $total bytes")
+                    }
+                }
             }
         }
         val buffered = counting.buffer()
         delegate.writeTo(buffered)
         buffered.flush()
+        val seconds = (System.nanoTime() - startedAt) / 1e9
+        trace("body sent $written bytes in ${"%.1f".format(java.util.Locale.US, seconds)}s, waiting for the server")
     }
 }
