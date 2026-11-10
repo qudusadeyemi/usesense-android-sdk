@@ -483,11 +483,42 @@ internal class UseSenseSession(
         captureStartTime = Date()
     }
 
-    fun startAudioRecording() {
-        val audioDuration = sessionResponse?.policy?.audioChallenge?.totalDurationMs
+    /**
+     * Start the microphone. [durationMs] caps the recording (the challenge's
+     * length by default). False when the microphone can't record (no input,
+     * in use, permission revoked): the caller offers a head movement instead.
+     */
+    fun startAudioRecording(durationMs: Int? = null): Boolean {
+        val audioDuration = durationMs
+            ?: sessionResponse?.policy?.audioChallenge?.totalDurationMs
             ?: sessionResponse?.policy?.challenge?.totalDurationMs
             ?: 3000
-        audioCaptureManager?.startRecording(audioDuration)
+        val manager = audioCaptureManager
+            ?: AudioCaptureManager(context, context.cacheDir).also { audioCaptureManager = it }
+        return manager.startRecording(audioDuration)
+    }
+
+    /** The microphone's level since the last call, 0..1 (0 when not recording). */
+    fun audioLevel(): Float = audioCaptureManager?.level() ?: 0f
+
+    /** The session's challenge is Speak Digits (it needs the microphone). */
+    val challengeNeedsMicrophone: Boolean
+        get() = challengeSpec?.type == ChallengeSpec.TYPE_SPEAK_PHRASE
+
+    /**
+     * The microphone can't be used: ask the server to swap Speak Digits for
+     * Follow Dot (same strength). On success the session's policy is the new
+     * one and [challengeSpec] is the Follow Dot; the caller makes a new presenter.
+     */
+    suspend fun applyMicrophoneFallback(): Result<SessionPolicy> {
+        val current = sessionResponse
+            ?: return Result.failure(ApiException(UseSenseError.invalidConfig("Session not created")))
+        return apiClient.challengeFallback(current.sessionId).onSuccess { response ->
+            sessionResponse = current.copy(policy = response.policy)
+            audioCaptureManager?.release()
+            audioCaptureManager = null
+            challengePresenter = null
+        }.map { it.policy }
     }
 
     fun stopCapture() {
