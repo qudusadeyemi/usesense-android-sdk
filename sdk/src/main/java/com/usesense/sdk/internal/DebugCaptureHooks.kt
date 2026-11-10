@@ -22,6 +22,12 @@ internal interface DebugCaptureHooks {
     /** A GateHint name to hold on the align screen (e.g. CENTRE, FACE_LIGHT). */
     val forceHint: String?
 
+    /**
+     * A storyboard screen to hold for a screenshot (extra check, sheets,
+     * pages, leave dialog), e.g. head_left, xc_dot, rejected_retry.
+     */
+    val forceScreen: String? get() = null
+
     /** The video is held on one frame. */
     val frozen: Boolean
 

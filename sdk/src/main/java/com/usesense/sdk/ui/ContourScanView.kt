@@ -67,6 +67,14 @@ internal class ContourScanView @JvmOverloads constructor(
     var fillLight: Boolean = false
         set(value) { if (field != value) { field = value; kick() } }
 
+    /** Contour lines over the face while scanning (off during an extra check: the camera stays sharp). */
+    var showLines: Boolean = true
+        set(value) { if (field != value) { field = value; kick() } }
+
+    /** The ring's colour instead of the theme ring: purple for an extra check, green when it's done. */
+    var ringColorOverride: Int? = null
+        set(value) { if (field != value) { field = value; invalidate() } }
+
     /** Debug screenshots: lines fully swept in, field converged. */
     var frozen: Boolean = false
 
@@ -187,7 +195,7 @@ internal class ContourScanView @JvmOverloads constructor(
 
         if (scanning) {
             canvas.drawRect(0f, 0f, w, h, dimPaint)
-            if (depthGrid.hasFace) {
+            if (showLines && depthGrid.hasFace) {
                 if (!frozen && depthGrid.step()) animating = true
                 if (drawLines(canvas, w, h)) animating = true
             }
@@ -210,7 +218,7 @@ internal class ContourScanView @JvmOverloads constructor(
         if (shownProgress > 0.003f) {
             ringSegment.reset()
             ringMeasure.getSegment(0f, ringMeasure.length * shownProgress, ringSegment, true)
-            ringPaint.color = if (paused) colors.warning else colors.ring
+            ringPaint.color = if (paused) colors.warning else ringColorOverride ?: colors.ring
             canvas.drawPath(ringSegment, ringPaint)
         }
     }

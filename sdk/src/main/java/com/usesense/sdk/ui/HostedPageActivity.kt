@@ -61,6 +61,15 @@ import com.usesense.sdk.capture.scan.ReliefBuilder
 import com.usesense.sdk.capture.scan.ScanColors
 import com.usesense.sdk.capture.scan.UploadBar
 import com.usesense.sdk.capture.scan.ScanController
+import com.usesense.sdk.capture.extracheck.ExtraCheckCopy
+import com.usesense.sdk.capture.extracheck.ExtraCheckEvent
+import com.usesense.sdk.capture.extracheck.ExtraCheckFace
+import com.usesense.sdk.capture.extracheck.ExtraCheckInput
+import com.usesense.sdk.capture.extracheck.ExtraCheckKind
+import com.usesense.sdk.capture.extracheck.ExtraCheckRunner
+import com.usesense.sdk.capture.extracheck.ExtraCheckStep
+import com.usesense.sdk.capture.extracheck.ExtraCheckTiming
+import com.usesense.sdk.capture.extracheck.Guidance
 import com.usesense.sdk.challenge.*
 import com.usesense.sdk.internal.Bounded
 import com.usesense.sdk.internal.CapturePhase
@@ -252,7 +261,7 @@ class HostedPageActivity : AppCompatActivity() {
     private val scanTicker = object : Runnable {
         override fun run() {
             onScanTick()
-            if (scanStage == ScanStage.ALIGN || scanStage == ScanStage.PASSIVE) {
+            if (scanStage == ScanStage.ALIGN || scanStage == ScanStage.PASSIVE || scanStage == ScanStage.CHALLENGE) {
                 handler.postDelayed(this, SCAN_TICK_MS)
             }
         }
@@ -260,6 +269,38 @@ class HostedPageActivity : AppCompatActivity() {
 
     // Capture footer (Section 11.8)
     private lateinit var captureFooterText: TextView
+
+    // Extra check (storyboard flows 4 and 5), sheets, dark pages, leave dialog
+    private lateinit var extraCheckView: ExtraCheckOverlayView
+    private lateinit var uploadSheet: LinearLayout
+    private lateinit var actionSheet: LinearLayout
+    private lateinit var actionSheetIcon: StrokeIconView
+    private lateinit var actionSheetTitle: TextView
+    private lateinit var actionSheetBody: TextView
+    private lateinit var actionSheetPrimary: TextView
+    private lateinit var pageView: ScrollView
+    private lateinit var pageIcon: StrokeIconView
+    private lateinit var pageTitle: TextView
+    private lateinit var pageBody: TextView
+    private lateinit var pageTips: LinearLayout
+    private lateinit var pagePrimary: TextView
+    private lateinit var pageSecondary: TextView
+    private lateinit var leaveDialog: FrameLayout
+
+    /** The extra check running on the scan screen, if any. */
+    private var extraCheck: ExtraCheckRunner? = null
+    private var extraCheckTiming = ExtraCheckTiming.BEFORE_SCAN
+    private var extraCheckPresenter: ChallengePresenter? = null
+    /** The latest gate frame's reading for the extra check, and when it came. */
+    private var extraCheckFace = ExtraCheckInput(faceInOval = true)
+    private var extraCheckFaceAt = 0L
+    /** The page on screen, if any. */
+    private var pageShown: PageKind? = null
+    /** "Try again" taps used after a rejection (UseSenseConfig.maxRetries). */
+    private var retriesUsed = 0
+    private var primerShown = false
+    /** The mic page was left for Settings: check the permission again on return. */
+    private var awaitingMicSettings = false
 
     // Header bar reference for hide/show
     private lateinit var headerBar: LinearLayout
@@ -342,19 +383,30 @@ class HostedPageActivity : AppCompatActivity() {
 
     enum class PageStep {
         LOADING, ERROR, INTRODUCTION, ACTION_REVIEW,
-        PERMISSION, CAPTURE, FINALIZING, RESULT
+        PERMISSION, CAPTURE, FINALIZING, RESULT,
+        /** A dark storyboard page (primer, result, error) over everything. */
+        PAGE,
     }
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        val cameraGranted = permissions[Manifest.permission.CAMERA] == true
+        // A permission granted earlier isn't in the result map: check the system.
+        val cameraGranted = permissions[Manifest.permission.CAMERA] == true || granted(Manifest.permission.CAMERA)
         if (cameraGranted) {
             eventEmitter.emit(EventType.PERMISSIONS_GRANTED, mapOf("camera" to true))
-            onPermissionsGranted()
+            onCameraGranted()
         } else {
             eventEmitter.emit(EventType.PERMISSIONS_DENIED, mapOf("camera" to false))
-            showCameraError(getString(R.string.usesense_camera_denied_message))
+            if (usesSdkCaptureSequence) {
+                showPage(
+                    PageKind.CAMERA_DENIED,
+                    onPrimary = { awaitingCameraSettings = true; openAppSettings() },
+                    onSecondary = { checkAndRequestPermissions() },
+                )
+            } else {
+                showCameraError(getString(R.string.usesense_camera_denied_message))
+            }
         }
     }
 
@@ -377,8 +429,12 @@ class HostedPageActivity : AppCompatActivity() {
         watchdog = CaptureWatchdog(mainScope) { _, error -> onWatchdogTimeout(error) }
         // Leaving the capture must never end silently: abandon the attempt and
         // let onDestroy deliver onCancelled (or the error on screen).
+        // Mid-flow (camera, extra check, upload) it asks first: leaving ends
+        // this verification, with no resume.
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
+                if (leaveDialog.visibility == View.VISIBLE) { hideLeaveDialog(); return }
+                if (isMidFlow()) { showLeaveDialog(); return }
                 abortAttempt()
                 finish()
             }
@@ -500,10 +556,8 @@ class HostedPageActivity : AppCompatActivity() {
         captureTopBar = findViewById(R.id.hostedCaptureTopBar)
         helpButton = findViewById(R.id.hostedHelpButton)
         faceGuideCloseButton.setOnClickListener {
-            // As iOS: back leaves the capture and cancels it (also from the upload sheet).
-            abortAttempt()
-            callbackGate.cancel()
-            finish()
+            // Back leaves the capture and cancels it, after "Leave verification?".
+            if (isMidFlow()) showLeaveDialog() else leaveVerification()
         }
         helpButton.setOnClickListener {
             // As iOS: the tips on align and scan; nothing while the upload runs.
@@ -529,6 +583,26 @@ class HostedPageActivity : AppCompatActivity() {
 
         // Capture footer
         captureFooterText = findViewById(R.id.captureFooterText)
+
+        extraCheckView = findViewById(R.id.hostedExtraCheckView)
+        uploadSheet = findViewById(R.id.hostedUploadSheet)
+        actionSheet = findViewById(R.id.hostedActionSheet)
+        actionSheetIcon = findViewById(R.id.hostedActionSheetIcon)
+        actionSheetTitle = findViewById(R.id.hostedActionSheetTitle)
+        actionSheetBody = findViewById(R.id.hostedActionSheetBody)
+        actionSheetPrimary = findViewById(R.id.hostedActionSheetPrimary)
+        pageView = findViewById(R.id.hostedPage)
+        pageIcon = findViewById(R.id.hostedPageIcon)
+        pageTitle = findViewById(R.id.hostedPageTitle)
+        pageBody = findViewById(R.id.hostedPageBody)
+        pageTips = findViewById(R.id.hostedPageTips)
+        pagePrimary = findViewById(R.id.hostedPagePrimary)
+        pageSecondary = findViewById(R.id.hostedPageSecondary)
+        leaveDialog = findViewById(R.id.hostedLeaveDialog)
+        pageIcon.iconScale = 0.5f
+        actionSheetIcon.iconScale = 0.5f
+        findViewById<View>(R.id.hostedKeepGoingButton).setOnClickListener { hideLeaveDialog() }
+        findViewById<View>(R.id.hostedLeaveButton).setOnClickListener { leaveVerification() }
 
         // Finalizing & result
         finalizingScreen = findViewById(R.id.hostedFinalizingScreen)
@@ -683,19 +757,6 @@ class HostedPageActivity : AppCompatActivity() {
         instructionsCta.setTextColor(brandForeground())
     }
 
-    /** Head-turn direction circle: the brand colour into a darker shade, else the built-in blue to purple. */
-    private fun directionCircleColors(isCenter: Boolean): IntArray {
-        val primary = brandColor()
-        if (!isBranded || primary == null) {
-            return if (isCenter) {
-                intArrayOf(Color.parseColor("#4F7CFF"), Color.parseColor("#7C5CFC"))
-            } else {
-                intArrayOf(Color.parseColor("#3D63DB"), Color.parseColor("#4F7CFF"))
-            }
-        }
-        val darker = ColorUtils.blendARGB(primary, Color.BLACK, 0.2f)
-        return if (isCenter) intArrayOf(primary, darker) else intArrayOf(darker, primary)
-    }
 
     // ─── Remote Data Loading ─────────────────────────────────────────────
 
@@ -921,31 +982,142 @@ class HostedPageActivity : AppCompatActivity() {
             }
 
             eventEmitter.emit(EventType.SESSION_CREATED, mapOf("session_id" to (sess.sessionId ?: "")))
-            eventEmitter.emit(EventType.PERMISSIONS_REQUESTED)
-            checkAndRequestPermissions()
+            afterSessionReady()
         } catch (e: Exception) {
             showError("Unexpected error: ${e.message}")
         }
     }
 
+    // ─── Primer ──────────────────────────────────────────────────────────
+
+    /**
+     * Session ready: the primer once per verification (not on "Try again"),
+     * then the permissions. "Two quick steps" when the policy already has a
+     * movement, so nobody is surprised by the second part. A Flow shows its
+     * own face primer, and a remote hosted link its intro.
+     */
+    private fun afterSessionReady() {
+        debugHooks?.forceScreen?.let { name ->
+            OutcomePages.byStoryboardName(name)?.let { kind -> showPage(kind, onPrimary = {}, onSecondary = {}); return }
+        }
+        if (usesSdkCaptureSequence && !isFlowRun && !primerShown) {
+            primerShown = true
+            showPage(if (hasChallengeToExplain()) PageKind.PRIMER_TWO else PageKind.PRIMER, onPrimary = { requestCapturePermissions() })
+            return
+        }
+        requestCapturePermissions()
+    }
+
+    private fun requestCapturePermissions() {
+        eventEmitter.emit(EventType.PERMISSIONS_REQUESTED)
+        checkAndRequestPermissions()
+    }
+
     // ─── Permissions ─────────────────────────────────────────────────────
+
+    /** Speak Digits needs the microphone; an older audio challenge records only if it may. */
+    private fun needsMicrophone(sess: UseSenseSession) = sess.requiresAudio || sess.challengeNeedsMicrophone
+
+    private fun granted(permission: String) =
+        ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 
     private fun checkAndRequestPermissions() {
         val sess = session ?: return
         val permsNeeded = mutableListOf(Manifest.permission.CAMERA)
-        if (sess.requiresAudio) {
+        if (needsMicrophone(sess)) {
             permsNeeded.add(Manifest.permission.RECORD_AUDIO)
         }
 
-        val notGranted = permsNeeded.filter {
-            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-        }
+        val notGranted = permsNeeded.filter { !granted(it) }
 
         if (notGranted.isEmpty()) {
             eventEmitter.emit(EventType.PERMISSIONS_GRANTED, mapOf("camera" to true))
             onPermissionsGranted()
+        } else if (usesSdkCaptureSequence) {
+            // Storyboard: the primer explains, then the system prompt straight away.
+            permissionLauncher.launch(notGranted.toTypedArray())
         } else {
             showPermissionScreen(notGranted)
+        }
+    }
+
+    /** Camera granted: carry on, unless Speak Digits can't have the microphone. */
+    private fun onCameraGranted() {
+        val sess = session ?: return
+        if (sess.challengeNeedsMicrophone && !granted(Manifest.permission.RECORD_AUDIO)) {
+            eventEmitter.emit(EventType.PERMISSIONS_DENIED, mapOf("microphone" to false))
+            showMicNeeded(duringCheck = false)
+            return
+        }
+        onPermissionsGranted()
+    }
+
+    /** The app's page in system Settings (camera or microphone turned off there). */
+    private fun openAppSettings() {
+        runCatching {
+            startActivity(
+                Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+    }
+
+    /** True when the mic page shows over a running capture (the recorder failed to start). */
+    private var micNeededDuringCheck = false
+    private var awaitingCameraSettings = false
+
+    /**
+     * "Microphone needed": Open Settings, or a head movement instead. The
+     * second asks the server for a Follow Dot in place of Speak Digits (same
+     * strength) and carries on with it, so nobody is stuck.
+     */
+    private fun showMicNeeded(duringCheck: Boolean) {
+        micNeededDuringCheck = duringCheck
+        showPage(
+            PageKind.MIC_NEEDED,
+            onPrimary = { awaitingMicSettings = true; openAppSettings() },
+            onSecondary = { applyMicFallback() },
+        )
+    }
+
+    private fun applyMicFallback() {
+        val sess = session ?: return
+        pagePrimary.isEnabled = false
+        pageSecondary.isEnabled = false
+        awaitingMicSettings = false
+        mainScope.launch {
+            val result = sess.applyMicrophoneFallback()
+            pagePrimary.isEnabled = true
+            pageSecondary.isEnabled = true
+            result.onSuccess {
+                Log.i(TAG, "Microphone unavailable: the server swapped Speak Digits for ${it.challengeType}")
+                challengePresenter = sess.createChallengePresenter()
+                if (micNeededDuringCheck) resumeCheckAfterMicPage() else onPermissionsGranted()
+            }.onFailure { e ->
+                val error = (e as? ApiException)?.useSenseError ?: UseSenseError.networkError(e.message)
+                Log.w(TAG, "challenge-fallback failed: ${error.code} ${error.serverCode}")
+                eventEmitter.emit(EventType.ERROR, errorEvent("challenge_fallback", error))
+                showErrorPage(error, beforeUpload = true)
+            }
+        }
+    }
+
+    /** Back from the mic page to the running capture: the movement starts again on the same scan. */
+    private fun resumeCheckAfterMicPage() {
+        micNeededDuringCheck = false
+        val presenter = challengePresenter ?: run { onCaptureComplete(captureRound); return }
+        setStep(PageStep.CAPTURE)
+        beginExtraCheck(ExtraCheckTiming.BEFORE_SCAN, presenter)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (awaitingMicSettings && pageShown == PageKind.MIC_NEEDED && granted(Manifest.permission.RECORD_AUDIO)) {
+            awaitingMicSettings = false
+            if (micNeededDuringCheck) resumeCheckAfterMicPage() else onPermissionsGranted()
+        } else if (awaitingCameraSettings && pageShown == PageKind.CAMERA_DENIED && granted(Manifest.permission.CAMERA)) {
+            awaitingCameraSettings = false
+            checkAndRequestPermissions()
         }
     }
 
@@ -969,6 +1141,14 @@ class HostedPageActivity : AppCompatActivity() {
 
     private fun showCameraError(message: String) {
         session?.setCapturePhase(CapturePhase.CAMERA_ERROR)
+        if (usesSdkCaptureSequence) {
+            // "The camera stopped": another app may have it.
+            showPage(PageKind.CAMERA_ERROR, onPrimary = {
+                session?.setCapturePhase(CapturePhase.CAMERA_REQUEST)
+                checkAndRequestPermissions()
+            })
+            return
+        }
         permissionIcon.setImageResource(R.drawable.usesense_icon_camera)
         permissionTitle.text = getString(R.string.usesense_camera_error_title)
         permissionMessage.text = message
@@ -987,58 +1167,13 @@ class HostedPageActivity : AppCompatActivity() {
     }
 
     private fun onPermissionsGranted() {
-        // As iOS: instructions only for a step with a challenge to explain.
-        if (usesSdkCaptureSequence && !hasChallengeToExplain()) {
-            // showInstructions() is what switches to the capture screen; without
-            // it the camera started behind the "Getting ready…" loading screen.
-            setStep(PageStep.CAPTURE)
-            startCameraAndCapture()
-            return
-        }
-        showInstructions()
-    }
-
-    // ─── Instructions ────────────────────────────────────────────────────
-
-    private fun showInstructions() {
+        // Straight to the camera: the primer explained, and a movement runs on
+        // the scan screen itself (no instructions overlay any more).
         setStep(PageStep.CAPTURE)
-
-        val challengeType = session?.challengeSpec?.type
-
-        instructionsIcon.text = when (challengeType) {
-            ChallengeSpec.TYPE_FOLLOW_DOT -> "\uD83D\uDC41"
-            ChallengeSpec.TYPE_HEAD_TURN -> "\u21C4"
-            ChallengeSpec.TYPE_SPEAK_PHRASE -> "\uD83C\uDFA4"
-            else -> "\uD83D\uDC64"
-        }
-        instructionsTitle.text = when (challengeType) {
-            ChallengeSpec.TYPE_FOLLOW_DOT -> getString(R.string.usesense_instructions_title_follow_dot)
-            ChallengeSpec.TYPE_HEAD_TURN -> getString(R.string.usesense_instructions_title_head_turn)
-            ChallengeSpec.TYPE_SPEAK_PHRASE -> getString(R.string.usesense_instructions_title_speak_phrase)
-            else -> getString(R.string.usesense_verifying)
-        }
-        instructionsBody.text = when (challengeType) {
-            ChallengeSpec.TYPE_FOLLOW_DOT -> getString(R.string.usesense_instruction_follow_dot)
-            ChallengeSpec.TYPE_HEAD_TURN -> getString(R.string.usesense_instruction_head_turn)
-            ChallengeSpec.TYPE_SPEAK_PHRASE -> getString(R.string.usesense_instruction_speak_phrase)
-            else -> getString(R.string.usesense_instruction_default)
-        }
-
-        instructionsOverlay.visibility = View.VISIBLE
-        showCaptureText(true)
-        captureTitle.text = getString(R.string.usesense_getting_ready)
-        captureSubtitle.text = ""
-
-        instructionsCta.isEnabled = true
-        instructionsCta.setOnClickListener {
-            // One tap starts one capture: a queued second tap must not bind the
-            // camera again and start a second capture behind the first.
-            if (!instructionsCta.isEnabled) return@setOnClickListener
-            instructionsCta.isEnabled = false
-            instructionsOverlay.visibility = View.GONE
-            startCameraAndCapture()
-        }
+        startCameraAndCapture()
     }
+
+
 
     // ─── Camera ──────────────────────────────────────────────────────────
 
@@ -1220,7 +1355,11 @@ class HostedPageActivity : AppCompatActivity() {
     /** About 3 s of banked capture (SPEC), or the server's shorter duration if it asks for less. */
     private fun scanTotalMs(sess: UseSenseSession): Long =
         (sess.uploadConfig?.captureDurationMs ?: DEFAULT_SCAN_MS).toLong()
-            .coerceAtMost(TARGET_SCAN_MS).coerceAtLeast(MIN_SCAN_MS)
+            .coerceAtMost(TARGET_SCAN_MS)
+            // A movement follows in the same capture: the scan is the old 2 s
+            // baseline, so the frame budget the server sized still fits both.
+            .let { if (challengePresenter != null) it.coerceAtMost(BEFORE_CHECK_SCAN_MS) else it }
+            .coerceAtLeast(MIN_SCAN_MS)
 
     /** The oval guide: hints until every check passes, then the scan starts by itself. */
     private fun enterAlign(sess: UseSenseSession) {
@@ -1243,6 +1382,9 @@ class HostedPageActivity : AppCompatActivity() {
         showCaptureText(false)
         scanView.colors = ScanColors.resolve(resolvedBranding.appearance)
         scanView.tone = ContourScanView.Tone.NEUTRAL
+        scanView.showLines = true
+        scanView.ringColorOverride = null
+        extraCheckView.reset()
         scanView.scanning = false
         scanView.paused = false
         scanView.resetProgress()
@@ -1257,6 +1399,88 @@ class HostedPageActivity : AppCompatActivity() {
         liveAnalyzer?.active = true
         handler.removeCallbacks(scanTicker)
         handler.post(scanTicker)
+        debugHooks?.forceScreen?.takeIf { OutcomePages.byStoryboardName(it) == null }?.let { name ->
+            handler.postDelayed({ if (session === sess && !isFinishing) holdDebugScreen(sess, name) }, DEBUG_SCREEN_DELAY_MS)
+        }
+    }
+
+    /**
+     * Test rig: hold one storyboard screen for its screenshot. The extra-check
+     * states come from the real runner, driven to that state with made-up input.
+     */
+    private fun holdDebugScreen(sess: UseSenseSession, name: String) {
+        stopScanLoop()
+        scanStage = ScanStage.IDLE
+        val turn = listOf(ExtraCheckStep(2000, direction = "left"), ExtraCheckStep(2000, direction = "right"))
+        val dots = listOf(ExtraCheckStep(1500, x = 0.77f, y = 0.25f), ExtraCheckStep(1500, x = 0.24f, y = 0.56f),
+            ExtraCheckStep(1500, x = 0.7f, y = 0.6f))
+        val digits = listOf(ExtraCheckStep(4000))
+        val ok = ExtraCheckInput(faceInOval = true, turn = -0.4f, micLevel = 0.6f)
+        fun drive(kind: ExtraCheckKind, steps: List<ExtraCheckStep>, vararg inputs: Pair<Long, ExtraCheckInput>): ExtraCheckRunner {
+            val r = ExtraCheckRunner(kind, steps)
+            r.start(0L)
+            var t = 0L
+            for ((until, input) in inputs) { while (t < until) { t += 50; r.tick(t, input) } }
+            return r
+        }
+        val runner: ExtraCheckRunner? = when (name) {
+            "head_left" -> drive(ExtraCheckKind.HEAD_TURN, turn, 600L to ok)
+            "head_right" -> drive(ExtraCheckKind.HEAD_TURN, turn, 2850L to ok)
+            "head_paused" -> drive(ExtraCheckKind.HEAD_TURN, turn, 1600L to ok, 2000L to ok.copy(faceInOval = false))
+            "head_again" -> drive(ExtraCheckKind.HEAD_TURN, turn, 2050L to ok.copy(turn = -0.05f))
+            "dot_1" -> drive(ExtraCheckKind.FOLLOW_DOT, dots, 1000L to ok)
+            "dot_2" -> drive(ExtraCheckKind.FOLLOW_DOT, dots, 2900L to ok)
+            "dot_lost" -> drive(ExtraCheckKind.FOLLOW_DOT, dots, 2000L to ok, 2500L to ok.copy(faceInOval = false))
+            "digits" -> drive(ExtraCheckKind.SPEAK_DIGITS, digits, 1800L to ok)
+            "digits_quiet" -> drive(ExtraCheckKind.SPEAK_DIGITS, digits, 2400L to ok.copy(micLevel = 0f))
+            "xc_done" -> drive(ExtraCheckKind.HEAD_TURN, turn, 2000L to ok, 4200L to ok.copy(turn = 0.4f))
+            else -> null
+        }
+        when {
+            name == "xc_head" -> showExtraCheckSheet(ExtraCheckKind.HEAD_TURN, turn) {}
+            name == "xc_dot" -> showExtraCheckSheet(ExtraCheckKind.FOLLOW_DOT, dots) {}
+            name == "xc_digits" -> showExtraCheckSheet(ExtraCheckKind.SPEAK_DIGITS, digits) {}
+            name == "upload_failed" -> showActionSheet(
+                StrokeIconView.Icons.UPLOAD, StrokeIconView.TINT_AMBER_BG, StrokeIconView.TINT_AMBER_FG,
+                getString(R.string.usesense_upload_failed_title), getString(R.string.usesense_upload_failed_body),
+                getString(R.string.usesense_page_try_again),
+            ) {}
+            name == "leave" -> { showGuidance(getString(R.string.usesense_hint_hold_still), null); showLeaveDialog() }
+            runner != null -> {
+                faceGuideOverlay.visibility = View.VISIBLE
+                captureTopBar.visibility = View.VISIBLE
+                handler.removeCallbacks(scanBlurOn)
+                setScanBlur(false)
+                scanView.scanning = true
+                scanView.showLines = false
+                scanView.ringColorOverride = ExtraCheckOverlayView.PURPLE
+                extraCheckView.reset()
+                extraCheckView.frozen = true
+                extraCheckView.topInset = captureTopBar.bottom.toFloat()
+                extraCheck = runner
+                when (runner.kind) {
+                    ExtraCheckKind.FOLLOW_DOT -> {
+                        extraCheckView.dotVisible = true
+                        val visited = dots.take(runner.stepIndex + 1)
+                        extraCheckView.setTrail(listOf(0.5f to 0.4f) + visited.map { it.x to it.y })
+                        val at = runner.currentStep ?: dots.last()
+                        extraCheckView.moveDot(at.x, at.y)
+                    }
+                    ExtraCheckKind.SPEAK_DIGITS -> {
+                        extraCheckView.digits = "4 7 2 9"
+                        extraCheckView.setLevels(floatArrayOf(10f, 18f, 30f, 22f, 34f, 16f, 26f, 12f, 8f).map { it / 34f }.toFloatArray())
+                    }
+                    else -> Unit
+                }
+                if (runner.completed) {
+                    finishExtraCheckVisuals(runner)
+                } else {
+                    renderExtraCheck(runner)
+                }
+                extraCheck = null
+            }
+            else -> Log.w(TAG, "Unknown forceScreen $name")
+        }
     }
 
     /**
@@ -1303,6 +1527,15 @@ class HostedPageActivity : AppCompatActivity() {
 
     /** A gate frame from the live mesh (main thread), with its relief built on the gate thread. */
     private fun onGateFrame(frame: GateFrame, relief: Relief? = null) {
+        if (scanStage == ScanStage.CHALLENGE) {
+            // The extra check only needs the face's place and the head's turn.
+            val oval = scanView.ovalSpec() ?: return
+            val mapper = PreviewMapper(frame.imageWidth, frame.imageHeight, scanView.width.toFloat(), scanView.height.toFloat())
+            val (inOval, turn) = ExtraCheckFace.read(frame.points, frame.faceCount, mapper, oval)
+            extraCheckFace = ExtraCheckInput(faceInOval = inOval, turn = turn)
+            extraCheckFaceAt = SystemClock.elapsedRealtime()
+            return
+        }
         if (scanStage != ScanStage.ALIGN && scanStage != ScanStage.PASSIVE) return
         val sess = session ?: return
         val oval = scanView.ovalSpec() ?: return
@@ -1383,6 +1616,10 @@ class HostedPageActivity : AppCompatActivity() {
         val fresh = lastGate?.takeIf { now - lastGateAt < GATE_STALE_MS }
 
         when (scanStage) {
+            ScanStage.CHALLENGE -> {
+                onExtraCheckTick(sess, now)
+                return
+            }
             ScanStage.ALIGN -> {
                 val rigHoldsAlign = debugHooks?.forceState == "align"
                 if (!rigHoldsAlign && (gateUnavailable || slowGate || shutterKept || controller.shutterAvailable(now))) {
@@ -1499,27 +1736,8 @@ class HostedPageActivity : AppCompatActivity() {
         shutterButton.visibility = View.GONE
         hintScheduler.reset()
 
-        val challengeFlow = challengePresenter != null || sess.policy?.requiresStepup == true
-        if (challengeFlow) {
-            scanStage = ScanStage.CHALLENGE
-            fillLightLatch.scanStarted()
-            stopScanLoop()
-            faceGuideOverlay.visibility = View.GONE
-            captureTopBar.visibility = View.GONE
-            watchdog.arm(WatchdogPhase.CAPTURE)
-            cameraLive.whenLive {
-                sess.startCapture()
-                sessionCaptureStarted = true
-                eventEmitter.emit(EventType.CAPTURE_STARTED)
-                if (sess.requiresAudio) {
-                    sess.startAudioRecording()
-                    eventEmitter.emit(EventType.AUDIO_RECORD_STARTED)
-                }
-                startBaselinePhase()
-            }
-            return
-        }
-
+        // Every session scans first. A movement the policy already asks for
+        // follows straight on from the scan (finishPassiveScan), on this screen.
         scanStage = ScanStage.PASSIVE
         fillLightLatch.scanStarted()
         liveAnalyzer?.let { a ->
@@ -1531,7 +1749,9 @@ class HostedPageActivity : AppCompatActivity() {
             sess.startCapture()
             sessionCaptureStarted = true
             eventEmitter.emit(EventType.CAPTURE_STARTED)
-            if (sess.requiresAudio) {
+            // An older separate audio challenge records through the capture;
+            // Speak Digits starts the microphone when its numbers show.
+            if (sess.requiresAudio && !sess.challengeNeedsMicrophone) {
                 sess.startAudioRecording()
                 eventEmitter.emit(EventType.AUDIO_RECORD_STARTED)
             }
@@ -1567,14 +1787,187 @@ class HostedPageActivity : AppCompatActivity() {
         stopScanLoop()
         restoreFillLight()
         hintPill.announceForAccessibility(getString(R.string.usesense_scan_complete))
+        val presenter = challengePresenter
+        if (presenter != null && !stepUpRoundActive) {
+            // Storyboard flow 5: the movement follows straight on, no sheet.
+            beginExtraCheck(ExtraCheckTiming.BEFORE_SCAN, presenter)
+            return
+        }
         onCaptureComplete(captureRound)
+    }
+
+    // ─── Extra check on the scan screen (storyboard flows 4 and 5) ───────
+
+    /**
+     * Run [presenter]'s challenge on the scan screen: full-bleed camera, the
+     * oval ring in purple, the movement drawn over it. Before the scan it
+     * continues the same capture; after the scan it fills the step-up round's
+     * fresh buffer. The runner owns the timing; the presenter tags frames.
+     */
+    private fun beginExtraCheck(timing: ExtraCheckTiming, presenter: ChallengePresenter) {
+        val sess = session ?: return
+        val spec = presenter.spec
+        val kind = ExtraCheckKind.of(spec.type) ?: run {
+            Log.w(TAG, "No extra-check screen for ${spec.type}; finishing the capture")
+            onCaptureComplete(captureRound)
+            return
+        }
+        val runner = ExtraCheckRunner(kind, ExtraCheckRunner.stepsFor(spec))
+        extraCheck = runner
+        extraCheckTiming = timing
+        extraCheckPresenter = presenter
+        extraCheckFace = ExtraCheckInput(faceInOval = true)
+        extraCheckFaceAt = 0L
+
+        if (kind == ExtraCheckKind.SPEAK_DIGITS) {
+            val recordMs = (runner.steps.sumOf { it.durationMs } + ExtraCheckRunner.MAX_QUIET_HOLD_MS + DIGITS_RECORD_SLACK_MS).toInt()
+            if (!granted(Manifest.permission.RECORD_AUDIO) || !sess.startAudioRecording(recordMs)) {
+                // No microphone after all (refused since, or no input): offer the head movement.
+                Log.w(TAG, "Microphone can't record; offering a head movement instead")
+                extraCheck = null
+                sess.pauseCapture()
+                showMicNeeded(duringCheck = true)
+                return
+            }
+            eventEmitter.emit(EventType.AUDIO_RECORD_STARTED)
+        }
+
+        scanStage = ScanStage.CHALLENGE
+        sess.setCapturePhase(CapturePhase.CHALLENGE)
+        sess.setCapturePhase(com.usesense.sdk.capture.CapturePhase.CHALLENGE)
+        if (timing == ExtraCheckTiming.BEFORE_SCAN) sess.resumeCapture()
+        // Subject-paced, like aligning: a face that leaves the oval waits as
+        // long as it takes, so the watchdog doesn't supervise this.
+        watchdog.disarm()
+
+        faceGuideOverlay.visibility = View.VISIBLE
+        captureTopBar.visibility = View.VISIBLE
+        shutterButton.visibility = View.GONE
+        handler.removeCallbacks(scanBlurOn)
+        setScanBlur(false)
+        scanView.scanning = true
+        scanView.showLines = false
+        scanView.ringColorOverride = ExtraCheckOverlayView.PURPLE
+        scanView.paused = false
+        scanView.tone = ContourScanView.Tone.READY
+        scanView.resetProgress()
+        extraCheckView.reset()
+        extraCheckView.topInset = captureTopBar.bottom.toFloat()
+        extraCheckView.dotVisible = kind == ExtraCheckKind.FOLLOW_DOT
+        if (kind == ExtraCheckKind.SPEAK_DIGITS) extraCheckView.digits = ExtraCheckCopy.digitsText(spec.phrase)
+
+        presenter.beginDriven()
+        eventEmitter.emit(EventType.CHALLENGE_STARTED, mapOf("type" to spec.type, "timing" to timing.name.lowercase()))
+        liveAnalyzer?.active = true
+        lastGate = null
+        val now = SystemClock.elapsedRealtime()
+        handleExtraCheckEvents(runner, runner.start(now))
+        renderExtraCheck(runner)
+        handler.removeCallbacks(scanTicker)
+        handler.post(scanTicker)
+    }
+
+    private fun onExtraCheckTick(sess: UseSenseSession, now: Long) {
+        val runner = extraCheck ?: return
+        if (leaveDialog.visibility == View.VISIBLE || helpOpen) {
+            // Time stands still while the person reads.
+            runner.hold(now)
+            return
+        }
+        // No gate (MediaPipe missing) or a stalled one can't see the face: never block on it.
+        val fresh = extraCheckFaceAt > 0L && now - extraCheckFaceAt < GATE_STALE_MS
+        val forcedPass = debugHooks?.forceState == "pass"
+        val face = if (fresh && !forcedPass) extraCheckFace else ExtraCheckInput(faceInOval = true, turn = extraCheckFace.turn)
+        val level = if (runner.kind == ExtraCheckKind.SPEAK_DIGITS) sess.audioLevel() else null
+        if (level != null) extraCheckView.pushLevel(level)
+        handleExtraCheckEvents(runner, runner.tick(now, face.copy(micLevel = level)))
+        if (extraCheck === runner) renderExtraCheck(runner)
+    }
+
+    private fun handleExtraCheckEvents(runner: ExtraCheckRunner, events: List<ExtraCheckEvent>) {
+        val sess = session ?: return
+        for (event in events) {
+            Log.i(TAG, "Extra check ${runner.kind}: $event step=${runner.stepIndex} retry=${runner.retrying} progress=%.2f".format(java.util.Locale.US, runner.progress))
+            when (event) {
+                is ExtraCheckEvent.Step -> {
+                    extraCheckPresenter?.driveStep(event.index)
+                    runner.currentStep?.let { step ->
+                        if (runner.kind == ExtraCheckKind.FOLLOW_DOT) extraCheckView.moveDot(step.x, step.y)
+                    }
+                    if (event.retry) haptic()
+                    announceExtraCheck(runner)
+                }
+                ExtraCheckEvent.Paused -> { sess.pauseCapture(); announceExtraCheck(runner) }
+                ExtraCheckEvent.Resumed -> { sess.resumeCapture(); announceExtraCheck(runner) }
+                ExtraCheckEvent.Quiet, ExtraCheckEvent.Heard -> announceExtraCheck(runner)
+                ExtraCheckEvent.Completed -> { finishExtraCheck(runner); return }
+            }
+        }
+    }
+
+    /** Ring, arrow, dot, digits and the guidance line for the runner's state. */
+    private fun renderExtraCheck(runner: ExtraCheckRunner) {
+        // Once done, finishExtraCheck owns the screen (green ring, tick).
+        if (runner.completed) return
+        scanView.progress = runner.progress
+        scanView.paused = runner.paused || runner.quiet
+        val dir = runner.currentStep?.direction
+        extraCheckView.arrow = if (runner.kind != ExtraCheckKind.HEAD_TURN || runner.paused || runner.completed) null else when (dir) {
+            com.usesense.sdk.api.models.HeadTurnStep.LEFT -> ExtraCheckOverlayView.Arrow.LEFT
+            com.usesense.sdk.api.models.HeadTurnStep.RIGHT -> ExtraCheckOverlayView.Arrow.RIGHT
+            com.usesense.sdk.api.models.HeadTurnStep.UP -> ExtraCheckOverlayView.Arrow.UP
+            com.usesense.sdk.api.models.HeadTurnStep.DOWN -> ExtraCheckOverlayView.Arrow.DOWN
+            else -> null
+        }
+        extraCheckView.quiet = runner.quiet
+        showGuidance(ExtraCheckCopy.guidance(runner, words = isWordsPhrase()))
+    }
+
+    private fun isWordsPhrase() = extraCheckPresenter?.spec?.phrase?.any { it.isLetter() } == true
+
+    private fun showGuidance(g: Guidance) = showGuidance(getString(g.title), g.detail?.let { getString(it) })
+
+    private fun announceExtraCheck(runner: ExtraCheckRunner) {
+        val g = ExtraCheckCopy.guidance(runner, words = isWordsPhrase())
+        hintPill.announceForAccessibility(listOfNotNull(getString(g.title), g.detail?.let { getString(it) }).joinToString(". "))
+    }
+
+    private fun finishExtraCheckVisuals(runner: ExtraCheckRunner) {
+        scanView.paused = false
+        scanView.ringColorOverride = ExtraCheckOverlayView.GREEN
+        scanView.progress = 1f
+        extraCheckView.arrow = null
+        extraCheckView.dotVisible = false
+        extraCheckView.digits = null
+        extraCheckView.tick = true
+        showGuidance(ExtraCheckCopy.guidance(runner))
+    }
+
+    /** "Done": a short green tick, then the upload (or round 2's upload). */
+    private fun finishExtraCheck(runner: ExtraCheckRunner) {
+        val sess = session ?: return
+        extraCheckPresenter?.endDriven()
+        handler.removeCallbacks(scanTicker)
+        liveAnalyzer?.active = false
+        scanStage = ScanStage.IDLE
+        // The movement is over: no untagged frames while the tick shows.
+        sess.pauseCapture()
+        haptic()
+        finishExtraCheckVisuals(runner)
+        hintPill.announceForAccessibility(getString(R.string.usesense_xc_done))
+        val round = captureRound
+        handler.postDelayed({
+            if (session !== sess || isFinishing) return@postDelayed
+            extraCheck = null
+            onCaptureComplete(round)
+        }, EXTRA_CHECK_DONE_MS)
     }
 
     private fun stopScanLoop() {
         handler.removeCallbacks(scanTicker)
         liveAnalyzer?.active = false
         lastGate = null
-        if (scanStage == ScanStage.ALIGN || scanStage == ScanStage.PASSIVE) scanStage = ScanStage.IDLE
+        if (scanStage == ScanStage.ALIGN || scanStage == ScanStage.PASSIVE || scanStage == ScanStage.CHALLENGE) scanStage = ScanStage.IDLE
     }
 
     private fun showShutter(sess: UseSenseSession) {
@@ -1739,204 +2132,12 @@ class HostedPageActivity : AppCompatActivity() {
         }
     }
 
-    private fun startBaselinePhase() {
-        val sess = session ?: return
-        try {
-            sess.setCapturePhase(CapturePhase.BASELINE)
-            challengeOverlay.visibility = View.VISIBLE
 
-            showCaptureText(true)
-            captureTitle.text = getString(R.string.usesense_hold_still)
-            captureSubtitle.text = getString(R.string.usesense_keep_still)
 
-            val requiresStepup = sess.policy?.requiresStepup == true
-            if (requiresStepup) {
-                baselineOvalView.visibility = View.VISIBLE
-                showPhaseBadge("BASELINE")
-            }
 
-            handler.postDelayed({
-                try {
-                    baselineOvalView.visibility = View.GONE
-                    if (requiresStepup) {
-                        startCountdownPhase()
-                    } else {
-                        startChallengePhase()
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error in capture flow", e)
-                    deliverError(UseSenseError.captureFailed("Unexpected error: ${e.message}"))
-                }
-            }, BASELINE_MS)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in baseline phase", e)
-            deliverError(UseSenseError.captureFailed("Unexpected error: ${e.message}"))
-        }
-    }
 
-    private fun startCountdownPhase() {
-        val sess = session ?: return
-        sess.setCapturePhase(CapturePhase.COUNTDOWN)
-        countdownOverlay.visibility = View.VISIBLE
-        phaseBadge.visibility = View.GONE
 
-        captureTitle.text = getString(R.string.usesense_countdown_label)
-        captureSubtitle.text = ""
 
-        showCountdownNumber(3)
-        handler.postDelayed({ showCountdownNumber(2) }, 1000)
-        handler.postDelayed({ showCountdownNumber(1) }, 2000)
-
-        handler.postDelayed({
-            countdownOverlay.visibility = View.GONE
-            startChallengePhase()
-        }, COUNTDOWN_MS)
-    }
-
-    private fun showCountdownNumber(number: Int) {
-        countdownNumber.text = number.toString()
-        countdownCircle.scaleX = 0.3f
-        countdownCircle.scaleY = 0.3f
-        countdownCircle.alpha = 0f
-
-        AnimatorSet().apply {
-            playTogether(
-                ObjectAnimator.ofFloat(countdownCircle, "scaleX", 0.3f, 1.15f).apply {
-                    duration = 360; interpolator = OvershootInterpolator(1.5f)
-                },
-                ObjectAnimator.ofFloat(countdownCircle, "scaleY", 0.3f, 1.15f).apply {
-                    duration = 360; interpolator = OvershootInterpolator(1.5f)
-                },
-                ObjectAnimator.ofFloat(countdownCircle, "alpha", 0f, 1f).apply { duration = 360 },
-                ObjectAnimator.ofFloat(countdownCircle, "scaleX", 1.15f, 1.0f).apply {
-                    duration = 540; startDelay = 360
-                },
-                ObjectAnimator.ofFloat(countdownCircle, "scaleY", 1.15f, 1.0f).apply {
-                    duration = 540; startDelay = 360
-                },
-            )
-            start()
-        }
-    }
-
-    private fun startChallengePhase() {
-        val sess = session ?: return
-        val round = ++captureRound
-        sess.setCapturePhase(CapturePhase.CHALLENGE)
-        eventEmitter.emit(EventType.CHALLENGE_STARTED, mapOf("type" to (sess.challengeSpec?.type ?: "")))
-
-        val presenter = challengePresenter
-        if (presenter == null) {
-            val remaining = (sess.uploadConfig?.captureDurationMs ?: 4500) - BASELINE_MS
-            handler.postDelayed({ onCaptureComplete(round) }, remaining.coerceAtLeast(1000))
-            return
-        }
-
-        showPhaseBadge("CHALLENGE")
-        presenter.onChallengeComplete = { onCaptureComplete(round) }
-
-        when (presenter) {
-            is FollowDotChallenge -> {
-                dotView.visibility = View.VISIBLE
-                captureTitle.text = getString(R.string.usesense_follow_dot)
-                captureSubtitle.text = ""
-                presenter.onDotPositionChanged = { x, y, animate -> moveDot(x, y, animate) }
-            }
-            is HeadTurnChallenge -> {
-                directionText.visibility = View.VISIBLE
-                captureTitle.text = ""
-                presenter.onDirectionChanged = { dir, _ -> showDirection(dir) }
-            }
-            is SpeakPhraseChallenge -> {
-                speakPhraseLayout.visibility = View.VISIBLE
-                captureTitle.text = ""
-                presenter.onPhraseDisplay = { phrase, isRecording ->
-                    phraseText.text = "\"$phrase\""
-                    recordingIndicator.visibility = if (isRecording) View.VISIBLE else View.GONE
-                }
-            }
-        }
-
-        val totalDuration = presenter.spec.totalDurationMs
-        challengeProgress.visibility = View.VISIBLE
-        challengeProgress.max = 1000
-        ValueAnimator.ofInt(0, 1000).apply {
-            duration = totalDuration.toLong()
-            addUpdateListener { challengeProgress.progress = it.animatedValue as Int }
-            start()
-        }
-
-        presenter.start()
-    }
-
-    private fun moveDot(normalizedX: Float, normalizedY: Float, animate: Boolean) {
-        val parentWidth = challengeOverlay.width.toFloat()
-        val parentHeight = challengeOverlay.height.toFloat()
-        val dotSize = dotView.width.toFloat()
-
-        val targetX = normalizedX * parentWidth - dotSize / 2
-        val targetY = normalizedY * parentHeight - dotSize / 2
-
-        if (animate) {
-            dotView.animate()
-                .x(targetX).y(targetY)
-                .setDuration(400)
-                .setInterpolator(PathInterpolator(0.4f, 0f, 0.2f, 1f))
-                .start()
-        } else {
-            dotView.x = targetX
-            dotView.y = targetY
-        }
-    }
-
-    private fun showDirection(direction: String) {
-        directionText.text = when (direction) {
-            "left" -> getString(R.string.usesense_turn_left)
-            "right" -> getString(R.string.usesense_turn_right)
-            "up" -> getString(R.string.usesense_turn_up)
-            "down" -> getString(R.string.usesense_turn_down)
-            "center" -> getString(R.string.usesense_turn_center)
-            else -> direction
-        }
-
-        directionArrow.text = when (direction) {
-            "left" -> "\u2190"; "right" -> "\u2192"
-            "up" -> "\u2191"; "down" -> "\u2193"
-            "center" -> "\u25CB"; else -> ""
-        }
-
-        val isCenter = direction == "center"
-        directionCircle.background = GradientDrawable(
-            GradientDrawable.Orientation.TL_BR, directionCircleColors(isCenter)
-        ).apply { shape = GradientDrawable.OVAL }
-        directionCircle.visibility = View.VISIBLE
-
-        // Enter animation
-        directionCircle.scaleX = 0.5f; directionCircle.scaleY = 0.5f; directionCircle.alpha = 0f
-        AnimatorSet().apply {
-            playTogether(
-                ObjectAnimator.ofFloat(directionCircle, "scaleX", 0.5f, 1.1f).apply {
-                    duration = 210; interpolator = OvershootInterpolator(1.5f)
-                },
-                ObjectAnimator.ofFloat(directionCircle, "scaleY", 0.5f, 1.1f).apply {
-                    duration = 210; interpolator = OvershootInterpolator(1.5f)
-                },
-                ObjectAnimator.ofFloat(directionCircle, "alpha", 0f, 1f).apply { duration = 210 },
-                ObjectAnimator.ofFloat(directionCircle, "scaleX", 1.1f, 1.0f).apply {
-                    duration = 140; startDelay = 210
-                },
-                ObjectAnimator.ofFloat(directionCircle, "scaleY", 1.1f, 1.0f).apply {
-                    duration = 140; startDelay = 210
-                },
-            )
-            start()
-        }
-    }
-
-    private fun showPhaseBadge(label: String) {
-        phaseBadge.text = label
-        phaseBadge.visibility = View.VISIBLE
-    }
 
     // ─── Capture Complete → Upload → Result ──────────────────────────────
 
@@ -2086,21 +2287,70 @@ class HostedPageActivity : AppCompatActivity() {
     }
 
     /**
-     * Round 1 uploaded and a server Step-up rule asked for one more challenge.
-     * The camera is still bound behind the upload overlay: drop the overlay,
-     * show "one more quick check", then run the requested challenge.
+     * Round 1 uploaded and the server asked for an extra check (storyboard
+     * flow 4). The camera is still bound behind the upload sheet: swap it for
+     * "One more quick check" (one sentence, Continue), then run the challenge
+     * on the scan screen with the purple ring.
      */
     private fun runStepUpRound(sess: UseSenseSession, instruction: StepUpInstruction) {
         stepUpRoundActive = true
-        setStep(PageStep.CAPTURE)
-        challengeOverlay.visibility = View.VISIBLE
-        showCaptureText(true)
-        captureTitle.text = "One more quick check"
-        captureSubtitle.text = "Get ready..."
-        handler.postDelayed({
-            challengePresenter = sess.beginStepUpRound(instruction)
-            startChallengePhase()
-        }, STEP_UP_BRIEF_MS)
+        // Waiting on the person to read and tap: not supervised.
+        watchdog.disarm()
+        val kind = ExtraCheckKind.of(instruction.challenge.type) ?: ExtraCheckKind.HEAD_TURN
+        showExtraCheckSheet(kind, ExtraCheckRunner.stepsFor(instruction.challenge)) {
+            setStep(PageStep.CAPTURE)
+            val presenter = sess.beginStepUpRound(instruction) ?: run {
+                Log.w(TAG, "No presenter for step-up ${instruction.challenge.type}")
+                stepUpRoundActive = false
+                startFinalization(sess, FinalizationPhase.COMPLETING)
+                return@showExtraCheckSheet
+            }
+            challengePresenter = presenter
+            ++captureRound
+            beginExtraCheck(ExtraCheckTiming.AFTER_SCAN, presenter)
+        }
+    }
+
+    /** "One more quick check" over the blurred camera (the upload sheet's styling). */
+    private fun showExtraCheckSheet(kind: ExtraCheckKind, steps: List<ExtraCheckStep>, onContinue: () -> Unit) {
+        val icon = when (kind) {
+            ExtraCheckKind.HEAD_TURN -> StrokeIconView.Icons.TURN
+            ExtraCheckKind.FOLLOW_DOT -> StrokeIconView.Icons.DOT
+            ExtraCheckKind.SPEAK_DIGITS -> StrokeIconView.Icons.MIC
+        }
+        showActionSheet(
+            icon, StrokeIconView.TINT_PURPLE_BG, StrokeIconView.TINT_PURPLE_FG,
+            getString(R.string.usesense_xc_sheet_title), getString(ExtraCheckCopy.sheetBody(kind, steps)),
+            getString(R.string.usesense_xc_continue), onContinue,
+        )
+    }
+
+    /** The upload overlay with the action sheet in place of the upload sheet. */
+    private fun showActionSheet(
+        icon: String, iconBg: Int, iconFg: Int, title: String, body: String, button: String, onTap: () -> Unit,
+    ) {
+        setStep(PageStep.FINALIZING)
+        handler.removeCallbacks(uploadBarTicker)
+        uploadSheet.visibility = View.GONE
+        actionSheet.visibility = View.VISIBLE
+        actionSheetIcon.set(icon, iconBg, iconFg)
+        actionSheetTitle.text = title
+        actionSheetBody.text = body
+        actionSheetPrimary.text = button
+        tintPrimary(actionSheetPrimary)
+        actionSheetPrimary.isEnabled = true
+        actionSheetPrimary.setOnClickListener {
+            if (!actionSheetPrimary.isEnabled) return@setOnClickListener
+            actionSheetPrimary.isEnabled = false
+            hideActionSheet()
+            onTap()
+        }
+        actionSheet.announceForAccessibility("$title. $body")
+    }
+
+    private fun hideActionSheet() {
+        actionSheet.visibility = View.GONE
+        uploadSheet.visibility = View.VISIBLE
     }
 
     /** Upload round 2, then resume finalization at COMPLETING. */
@@ -2140,11 +2390,150 @@ class HostedPageActivity : AppCompatActivity() {
         }
         pendingTerminalError = null
         pendingResult = result
+        if (usesSdkCaptureSequence) {
+            if (pendingConfig?.showResultScreens == false) {
+                // The app shows its own screens: hand over the decision now.
+                callbackGate.success(result)
+                pendingResult = null
+                finish()
+                return
+            }
+            showResultPage(result)
+            return
+        }
         showResult(result.decision, result)
+    }
+
+    /** Retries left after a rejection: session mode only (a Flow has its own policy). */
+    private fun retriesLeft(): Int =
+        if (isDirectMode && !isFlowRun) ((pendingConfig?.maxRetries ?: 0) - retriesUsed).coerceAtLeast(0) else 0
+
+    private fun showResultPage(result: UseSenseResult) {
+        val left = retriesLeft()
+        val kind = OutcomePages.forDecision(result.decision, left)
+        val deliver = {
+            pendingResult?.let { callbackGate.success(it) }
+            pendingResult = null
+            finish()
+        }
+        if (kind == PageKind.REJECTED_RETRY) {
+            showPage(kind, retriesLeft = left, onPrimary = {
+                retriesUsed++
+                pendingResult = null
+                restartCapture()
+            }, onSecondary = deliver)
+        } else {
+            showPage(kind, onPrimary = deliver)
+        }
+    }
+
+    // ─── Dark pages and the leave dialog ─────────────────────────────────
+
+    /** The host app's name, for "[App]" in the copy. */
+    private fun appName(): String = runCatching {
+        applicationInfo.loadLabel(packageManager).toString().takeIf { it.isNotBlank() }
+    }.getOrNull() ?: getString(R.string.usesense_this_app)
+
+    private fun tintPrimary(button: TextView) {
+        val colour = if (isBranded) brandColor() else null
+        if (colour != null) {
+            button.background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 14 * resources.displayMetrics.density
+                setColor(colour)
+            }
+            button.setTextColor(brandForeground())
+        }
+    }
+
+    /** Show a storyboard page: icon, title, body, tips, a primary and maybe a secondary button. */
+    private fun showPage(kind: PageKind, retriesLeft: Int = 0, onPrimary: () -> Unit, onSecondary: (() -> Unit)? = null) {
+        if (isFinishing || isDestroyed) return
+        val spec = OutcomePages.spec(kind, retriesLeft)
+        pageShown = kind
+        hideLeaveDialog()
+        pageIcon.set(spec.icon, spec.iconBackground, spec.iconForeground)
+        pageTitle.text = getString(spec.title)
+        pageBody.text = getString(spec.body, appName())
+        pageTips.removeAllViews()
+        val density = resources.displayMetrics.density
+        spec.tips.forEach { tip ->
+            pageTips.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(0, (5 * density).toInt(), 0, (5 * density).toInt())
+                addView(View(context).apply {
+                    background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.parseColor("#7A96FF")) }
+                }, LinearLayout.LayoutParams((8 * density).toInt(), (8 * density).toInt()).apply { marginEnd = (12 * density).toInt() })
+                addView(TextView(context).apply {
+                    text = getString(tip)
+                    textSize = 15f
+                    setTextColor(Color.parseColor("#D9FFFFFF"))
+                })
+            })
+        }
+        pageTips.visibility = if (spec.tips.isEmpty()) View.GONE else View.VISIBLE
+        pagePrimary.text = getString(spec.primary)
+        pagePrimary.isEnabled = true
+        tintPrimary(pagePrimary)
+        pagePrimary.setOnClickListener { if (pagePrimary.isEnabled) onPrimary() }
+        val secondary = spec.secondary
+        if (secondary != null && onSecondary != null) {
+            pageSecondary.text = getString(secondary)
+            pageSecondary.isEnabled = true
+            pageSecondary.visibility = View.VISIBLE
+            pageSecondary.setOnClickListener { if (pageSecondary.isEnabled) onSecondary() }
+        } else {
+            pageSecondary.visibility = View.GONE
+        }
+        setStep(PageStep.PAGE)
+        pageView.scrollTo(0, 0)
+        pageTitle.announceForAccessibility("${pageTitle.text}. ${pageBody.text}")
+    }
+
+    /** From the camera to the upload: leaving now ends the verification. */
+    private fun isMidFlow(): Boolean =
+        usesSdkCaptureSequence && pageShown == null && captureScreen.visibility == View.VISIBLE
+
+    private fun showLeaveDialog() {
+        leaveDialog.visibility = View.VISIBLE
+        leaveDialog.announceForAccessibility(getString(R.string.usesense_leave_title))
+    }
+
+    private fun hideLeaveDialog() {
+        if (::leaveDialog.isInitialized) leaveDialog.visibility = View.GONE
+    }
+
+    /** "Leave": end this verification (no resume) and tell the app it was cancelled. */
+    private fun leaveVerification() {
+        hideLeaveDialog()
+        abortAttempt()
+        callbackGate.cancel()
+        finish()
     }
 
     private fun showTechnicalRecovery(sess: UseSenseSession, recovery: FinalizationUpdate.Recovery) {
         eventEmitter.emit(EventType.ERROR, errorEvent(recovery.phase.name.lowercase(), recovery.error))
+        if (usesSdkCaptureSequence) {
+            val kind = OutcomePages.forError(recovery.error, beforeUpload = false)
+            if (RecoveryAction.RETRY in recovery.actions && kind == PageKind.ERROR && isConnectionError(recovery.error)) {
+                // Storyboard flow 3: the retries ran out. The scan is kept, so
+                // "Try again" sends it again without a new scan.
+                pendingTerminalError = recovery.error
+                callbackGate.recovery()
+                showActionSheet(
+                    StrokeIconView.Icons.UPLOAD, StrokeIconView.TINT_AMBER_BG, StrokeIconView.TINT_AMBER_FG,
+                    getString(R.string.usesense_upload_failed_title), getString(R.string.usesense_upload_failed_body),
+                    getString(R.string.usesense_page_try_again),
+                ) {
+                    pendingTerminalError = null
+                    startFinalization(sess, recovery.phase)
+                }
+                return
+            }
+            showErrorPage(recovery.error, beforeUpload = false)
+            return
+        }
         showRecoveryDialog(recovery.error, RecoveryAction.RETRY in recovery.actions) {
             // Resume where it failed. If only /complete failed, the signals are already
             // on the server, and uploading them again resets a finished session.
@@ -2158,7 +2547,31 @@ class HostedPageActivity : AppCompatActivity() {
      */
     private fun showTerminalFailure(error: UseSenseError, phase: String) {
         eventEmitter.emit(EventType.ERROR, errorEvent(phase, error))
+        if (usesSdkCaptureSequence) {
+            showErrorPage(error, beforeUpload = phase == WatchdogPhase.CAMERA.wire)
+            return
+        }
         showRecoveryDialog(error, canRetryUpload = false, retry = null)
+    }
+
+    private fun isConnectionError(error: UseSenseError) = error.code == UseSenseError.NETWORK_ERROR ||
+        error.code == UseSenseError.NETWORK_TIMEOUT || error.code == UseSenseError.UPLOAD_FAILED ||
+        error.code == UseSenseError.UPLOAD_TIMEOUT || error.code == UseSenseError.FINALIZATION_TIMEOUT
+
+    /**
+     * An error page (storyboard flow 6). Its button starts a clean attempt;
+     * leaving delivers the error to the app.
+     */
+    private fun showErrorPage(error: UseSenseError, beforeUpload: Boolean) {
+        if (isFinishing || isDestroyed) return
+        abortAttempt()
+        pendingTerminalError = error
+        callbackGate.recovery()
+        Log.w(TAG, "Error page: ${error.code} ${error.serverCode} ${error.message}")
+        showPage(OutcomePages.forError(error, beforeUpload), onPrimary = {
+            pendingTerminalError = null
+            restartCapture()
+        })
     }
 
     /**
@@ -2262,6 +2675,10 @@ class HostedPageActivity : AppCompatActivity() {
         finalizationJob = null
         handler.removeCallbacksAndMessages(null)
         challengePresenter?.stop()
+        extraCheckPresenter?.endDriven()
+        extraCheckPresenter = null
+        extraCheck = null
+        if (::extraCheckView.isInitialized) extraCheckView.reset()
         stepUpRoundActive = false
         runCatching { session?.stopCapture() }
     }
@@ -2287,6 +2704,12 @@ class HostedPageActivity : AppCompatActivity() {
 
     private fun deliverError(error: UseSenseError) {
         watchdog.disarm()
+        if (usesSdkCaptureSequence) {
+            // "You're offline" / "This check timed out" / "Something went wrong":
+            // the error reaches the app when the person leaves, unless "Try again" fixes it.
+            showErrorPage(error, beforeUpload = true)
+            return
+        }
         callbackGate.exit(error)
         if (!isFinishing) {
             pendingTerminalError = error
@@ -2405,6 +2828,10 @@ class HostedPageActivity : AppCompatActivity() {
     private fun setStep(step: PageStep) {
         // FINALIZING stays on the capture screen with an overlay (Section 5.8/5.9)
         val isCaptureMode = step == PageStep.CAPTURE || step == PageStep.FINALIZING
+        val isPage = step == PageStep.PAGE
+        if (!isPage) pageShown = null
+        pageView.visibility = if (isPage) View.VISIBLE else View.GONE
+        if (step != PageStep.FINALIZING) hideActionSheetIfShown()
 
         if (step != PageStep.FINALIZING) {
             allScreens.forEach { it.visibility = View.GONE }
@@ -2415,8 +2842,14 @@ class HostedPageActivity : AppCompatActivity() {
             resultScreen.visibility = View.GONE
         }
 
+        // The SDK's capture sequence is dark from the primer to the result: no white flash between pages.
+        val darkLoading = step == PageStep.LOADING && usesSdkCaptureSequence
         when (step) {
-            PageStep.LOADING -> loadingScreen.visibility = View.VISIBLE
+            PageStep.LOADING -> {
+                loadingScreen.visibility = View.VISIBLE
+                loadingScreen.setBackgroundColor(if (darkLoading) PAGE_BACKGROUND else Color.TRANSPARENT)
+                loadingText.setTextColor(if (darkLoading) Color.parseColor("#BFFFFFFF") else Color.parseColor("#475569"))
+            }
             PageStep.ERROR -> errorScreen.visibility = View.VISIBLE
             PageStep.INTRODUCTION -> introScreen.visibility = View.VISIBLE
             PageStep.ACTION_REVIEW -> actionReviewScreen.visibility = View.VISIBLE
@@ -2448,28 +2881,35 @@ class HostedPageActivity : AppCompatActivity() {
                 qualityBanner.visibility = View.GONE
             }
             PageStep.RESULT -> resultScreen.visibility = View.VISIBLE
+            PageStep.PAGE -> Unit
         }
 
         val insets = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
         // Capture runs under the status bar (light icons over the camera); other screens are padded.
         captureFullBleed = isCaptureMode
         (findViewById<View>(android.R.id.content) as? android.view.ViewGroup)?.getChildAt(0)?.let { root ->
-            root.setBackgroundColor(if (isCaptureMode) Color.BLACK else Color.WHITE)
+            root.setBackgroundColor(if (isCaptureMode) Color.BLACK else if (isPage || darkLoading) PAGE_BACKGROUND else Color.WHITE)
             applySystemBarPadding(root)
         }
         if (lightStatusBarDefault == null) lightStatusBarDefault = insets.isAppearanceLightStatusBars
-        insets.isAppearanceLightStatusBars = if (isCaptureMode) false else (lightStatusBarDefault ?: true)
+        insets.isAppearanceLightStatusBars = if (isCaptureMode || isPage || darkLoading) false else (lightStatusBarDefault ?: true)
 
         // Section 11.8: Hide branded header/footer during capture, show capture footer
-        headerBar.visibility = if (isCaptureMode || !hasHeader) View.GONE else View.VISIBLE
-        headerDivider.visibility = if (isCaptureMode || !hasHeader) View.GONE else View.VISIBLE
-        footerText.visibility = if (isCaptureMode) View.GONE else View.VISIBLE
-        footerDivider.visibility = if (isCaptureMode) View.GONE else View.VISIBLE
+        val bare = isCaptureMode || isPage || darkLoading
+        headerBar.visibility = if (bare || !hasHeader) View.GONE else View.VISIBLE
+        headerDivider.visibility = if (bare || !hasHeader) View.GONE else View.VISIBLE
+        footerText.visibility = if (bare) View.GONE else View.VISIBLE
+        footerDivider.visibility = if (bare) View.GONE else View.VISIBLE
 
-        // Reset capture overlays when leaving capture
-        if (!isCaptureMode) {
+        // Reset capture overlays when leaving capture. A page keeps the
+        // camera's overlays as they are underneath (the mic page returns to them).
+        if (!isCaptureMode && !isPage) {
             hideCaptureOverlays()
         }
+    }
+
+    private fun hideActionSheetIfShown() {
+        if (::actionSheet.isInitialized && actionSheet.visibility == View.VISIBLE) hideActionSheet()
     }
 
     private fun hideCaptureOverlays() {
@@ -2525,9 +2965,13 @@ class HostedPageActivity : AppCompatActivity() {
         private const val EXTRA_REMOTE_ID = "remote_id"
         private const val EXTRA_DIRECT_MODE = "direct_mode"
         private const val BASELINE_MS = 2000L
-        /** How long "One more quick check" shows before a server step-up challenge starts. */
-        private const val STEP_UP_BRIEF_MS = 1500L
-        private const val COUNTDOWN_MS = 3000L
+        /** The scan before a movement in the same capture (the old baseline). */
+        private const val BEFORE_CHECK_SCAN_MS = 2_000L
+        /** The green tick after an extra check, before the upload sheet. */
+        private const val EXTRA_CHECK_DONE_MS = 800L
+        /** Speak Digits records this much past the read plus any quiet hold. */
+        private const val DIGITS_RECORD_SLACK_MS = 4_000L
+        private val PAGE_BACKGROUND = Color.parseColor("#12141B")
 
         private const val GUIDANCE_FADE_MS = 200L
         private const val GUIDANCE_GAP_DP = 28f
@@ -2540,6 +2984,8 @@ class HostedPageActivity : AppCompatActivity() {
         private const val FINAL_COVER_WAIT_MS = 2500L
         private const val SCAN_BLUR_DP = 18f
         private const val DEBUG_UPLOAD_PROGRESS = 0.64f
+        /** Test rig: time for the fake camera's face to settle before a forced screen. */
+        private const val DEBUG_SCREEN_DELAY_MS = 1_500L
 
         /** Face mesh points (468 + 10 iris). */
         private const val MAX_LANDMARKS = 478
