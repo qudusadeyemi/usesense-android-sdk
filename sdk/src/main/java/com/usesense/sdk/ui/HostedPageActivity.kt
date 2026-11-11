@@ -1924,7 +1924,10 @@ class HostedPageActivity : AppCompatActivity() {
             }
             ScanStage.ALIGN -> {
                 val rigHoldsAlign = debugHooks?.forceState == "align"
-                if (!rigHoldsAlign && (gateUnavailable || slowGate || shutterKept || controller.shutterAvailable(now))) {
+                // Too dark to scan: no shutter either, "Find more light" stays up.
+                val tooDark = !gateUnavailable && fresh?.failing?.contains(GateHint.TOO_DARK_TO_SCAN) == true
+                if (tooDark) shutterButton.visibility = View.GONE
+                if (!rigHoldsAlign && !tooDark && (gateUnavailable || slowGate || shutterKept || controller.shutterAvailable(now))) {
                     // The shutter copy replaces gate hints; a working gate still
                     // starts the scan by itself (onGateFrame).
                     showShutter(sess)
@@ -2588,7 +2591,7 @@ class HostedPageActivity : AppCompatActivity() {
         GateHint.LOOK_STRAIGHT -> cs(R.string.usesense_hint_look_straight) to null
         GateHint.BRIGHTENING, GateHint.FILLING_NO_FACE -> null
         // No face in the dark, fill light on: light is the problem, not the face.
-        GateHint.DARK_NO_FACE -> cs(R.string.usesense_hint_face_light) to
+        GateHint.DARK_NO_FACE, GateHint.TOO_DARK_TO_SCAN -> cs(R.string.usesense_hint_face_light) to
             cs(R.string.usesense_hint_face_light_detail)
         GateHint.FACE_LIGHT -> cs(R.string.usesense_hint_face_light) to
             cs(R.string.usesense_hint_face_light_detail)

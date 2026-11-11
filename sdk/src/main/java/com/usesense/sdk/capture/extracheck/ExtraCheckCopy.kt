@@ -126,6 +126,7 @@ internal object ExtraCheckCopy {
             GateHint.EYES_OPEN -> R.string.usesense_hint_eyes_open
             GateHint.HOLD_STILL -> R.string.usesense_hint_hold_still
             GateHint.BRIGHTENING, GateHint.FACE_LIGHT, GateHint.TOO_BRIGHT -> null
+            GateHint.TOO_DARK_TO_SCAN -> R.string.usesense_hint_face_light
         }
 
     /** The digits as the pill shows them: "4 7 2 9" (the server already spaces them). */

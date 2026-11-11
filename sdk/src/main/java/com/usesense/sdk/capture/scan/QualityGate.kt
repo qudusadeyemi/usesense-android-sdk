@@ -40,6 +40,12 @@ internal enum class GateHint(val check: GateCheck) {
     FILLING_NO_FACE(GateCheck.FACE_FOUND),
     /** No face in a dark frame with the fill light on and settled: "Find more light" instead of "Show your face". */
     DARK_NO_FACE(GateCheck.FACE_FOUND),
+    /**
+     * On align, a face too dark to scan (face-box luma under [QualityGate.SCAN_LUMA_MIN],
+     * fill light on or not): "Find more light", no auto start and no shutter.
+     * Unlike the light hints it blocks; it sits with the face check so it shows first.
+     */
+    TOO_DARK_TO_SCAN(GateCheck.FACE_FOUND),
     HOLD_STEADY(GateCheck.SHARPNESS),
     EYES_OPEN(GateCheck.EYES_OPEN),
     HOLD_STILL(GateCheck.STILLNESS),
@@ -359,8 +365,16 @@ internal class QualityGate(
             val bright = !dark && (region.meanLuma > LUMA_MAX || region.clippedRatio >= CLIPPED_MAX)
             if (dark) {
                 tooDark = true
-                val litLongEnough = fillLightOnForMs != null && fillLightOnForMs >= FILL_LIGHT_SETTLE_MS
-                failing += if (litLongEnough) GateHint.FACE_LIGHT else GateHint.BRIGHTENING
+                if (!scanning && motion == null && region.meanLuma < SCAN_LUMA_MIN) {
+                    // Too dark to scan: ask for light instead of starting (user
+                    // decision 2026-11-11, iOS PR #102 77d069c: a luma ~7 face
+                    // took 77 s and 15 dropped windows to scan). A running scan
+                    // and a movement are unchanged.
+                    insertInOrder(failing, GateHint.TOO_DARK_TO_SCAN)
+                } else {
+                    val litLongEnough = fillLightOnForMs != null && fillLightOnForMs >= FILL_LIGHT_SETTLE_MS
+                    failing += if (litLongEnough) GateHint.FACE_LIGHT else GateHint.BRIGHTENING
+                }
             } else if (bright) {
                 failing += GateHint.TOO_BRIGHT
             }
@@ -528,6 +542,8 @@ internal class QualityGate(
         const val MAX_PITCH = 15.0
         const val MAX_ROLL = 12.0
         const val LUMA_MIN = 70.0
+        /** Below this face luma the align screen won't start a scan (light is advice above it). */
+        const val SCAN_LUMA_MIN = 20.0
         const val LUMA_MAX = 200.0
         const val CLIPPED_MAX = 0.08
         const val SHARPNESS_FRAMES = 3

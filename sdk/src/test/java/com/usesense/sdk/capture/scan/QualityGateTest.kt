@@ -523,4 +523,40 @@ class QualityGateTest {
         val r = gate.evaluate(turningFrame(1200, yaw = 10.0), identity, oval, scanning = true, motion = turning)
         assertFalse(r.failing.toString(), GateHint.HOLD_STILL in r.failing)
     }
+
+    // ─── Too dark to scan (user decision 2026-11-11, as iOS 77d069c) ───
+
+    @Test fun `on align a face under luma 20 asks for light and blocks, fill light on or not`() {
+        val pitch = goodRegion.copy(meanLuma = 7.0)
+        for (fill in listOf(null, 400L, 5000L)) {
+            val gate = QualityGate()
+            warm(gate)
+            val r = gate.evaluate(frame(500, region = pitch), identity, oval, fillLightOnForMs = fill)
+            assertEquals(fill.toString(), GateHint.TOO_DARK_TO_SCAN, r.top)
+            assertFalse(r.allPass)
+            assertTrue(r.faceTooDark)
+            assertFalse(GateHint.FACE_LIGHT in r.failing)
+            assertFalse(GateHint.BRIGHTENING in r.failing)
+        }
+    }
+
+    @Test fun `from luma 20 up light stays advice`() {
+        val gate = QualityGate()
+        warm(gate)
+        val r = gate.evaluate(frame(500, region = goodRegion.copy(meanLuma = 20.0)), identity, oval, fillLightOnForMs = 5000)
+        assertTrue(GateHint.FACE_LIGHT in r.failing)
+        assertFalse(GateHint.TOO_DARK_TO_SCAN in r.failing)
+        assertTrue(r.allPass)
+    }
+
+    @Test fun `a running scan and a movement aren't held for a very dark face`() {
+        val pitch = goodRegion.copy(meanLuma = 7.0)
+        val gate = QualityGate()
+        warm(gate)
+        val scan = gate.evaluate(frame(500, region = pitch), identity, oval, fillLightOnForMs = 5000, scanning = true)
+        assertFalse(GateHint.TOO_DARK_TO_SCAN in scan.failing)
+        val move = gate.evaluate(GateFrame(600, 480, 640, 1, face(), PoseAngles(10.0, 0.0, 0.0), pitch, 0.1f, 0.1f),
+            identity, oval, scanning = true, motion = turning)
+        assertFalse(GateHint.TOO_DARK_TO_SCAN in move.failing)
+    }
 }

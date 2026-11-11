@@ -68,6 +68,12 @@ only primary buttons (when set) and `capture.ring` took effect.
   nothing shows while it settles (1.5 s), then "Find more light / Face a window
   or lamp" replaces "Show your face in the oval". During a scan or a movement
   nothing changes. A bright frame with no face behaves as before.
+- **A face too dark to scan asks for light instead of starting** (user decision,
+  same rule as iOS). On the align screen, a face-box luma under 20 (fill light
+  on or not) blocks the auto start and the shutter, and "Find more light / Face
+  a window or lamp" stays up. Above 20, light stays advice. A running scan and a
+  movement are unchanged, and no check is loosened. (An iPhone in a dark room
+  scanned a luma ~7 face for 77 s with 15 dropped windows.)
 - **A head turn in the dark flows.** On a Galaxy A03 in a dark room the extra check
   paused for 40 s: the fill light was off for it, sharpness failed on every
   turning frame ("Hold your phone steady"), and the fill light coming on made
