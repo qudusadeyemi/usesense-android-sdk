@@ -6,6 +6,38 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Head Turn and Follow Dot are closed loop** (iOS 4.11.0 parity). A step
+  ends when the head reaches the target and holds it for 0.6 s. After 4 s
+  without that (or the server's step time, if longer), the check shows its
+  one hint and gives the same time again; after that it moves on and leaves
+  the step to the server. A Follow Dot waypoint can't count as reached until
+  the dot's 0.6 s glide ends, and each move is judged from the pose held at
+  the previous waypoint. Pose comes from the face transform (yaw and pitch),
+  so up, down and vertical dot moves are judged too. If there's no pose,
+  each step runs for the server's time, as before.
+- With the head on target, a gate failure that the turn itself causes
+  (face off centre, pose past the scan's limit, face looking nearer as it
+  tilts) no longer pauses the check, so a big turn can complete its hold.
+  Any other failure (face lost or covered, another person) still pauses.
+  Signs were measured on a Galaxy A03: a turn to the person's left reads
+  positive yaw, and looking up reads negative pitch.
+- Frames bank to a step only while they show it: on target (Head Turn), or
+  on target or once the dot has settled (Follow Dot). A timed-out step
+  leaves its ring segment empty.
+
+### Added
+
+- `challenge_response.step_events` for Head Turn and Follow Dot, with the
+  same shape and meaning as iOS and Web: `index`, `prompted_at_ms`,
+  `reached_at_ms`, `reaction_ms`, `ended_at_ms`,
+  `outcome` (`reached` | `timed_out` | `timed`) and `hinted`, in epoch ms.
+  It also carries the step_events v2 first-move fields: `first_move_deg`,
+  `first_move_ms` and `max_away_deg`, worked out on every processed frame
+  and given in "toward the target" terms. Follow Dot waypoint 0 has no
+  first-move fields.
+
 ## [4.13.1] - 2026-11-11
 
 Every capture screen follows the brand (BRAND-v1, capture-test-kit/BRAND-v1.md).

@@ -80,7 +80,9 @@ internal object ExtraCheckCopy {
 
     private fun headTurn(runner: ExtraCheckRunner): Guidance {
         val dir = runner.currentStep?.direction
-        if (runner.retrying) {
+        // The hint can now land on any step; "a little further" is worded for left and right only,
+        // so up, down and centre repeat their instruction.
+        if (runner.retrying && (dir == HeadTurnStep.LEFT || dir == HeadTurnStep.RIGHT)) {
             return Guidance(
                 R.string.usesense_xc_again,
                 when (dir) {
