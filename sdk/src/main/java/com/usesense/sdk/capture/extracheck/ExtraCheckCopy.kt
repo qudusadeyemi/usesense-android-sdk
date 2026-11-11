@@ -46,7 +46,7 @@ internal object ExtraCheckCopy {
         if (runner.paused) {
             val (fallback, detail) =
                 when (kind) {
-                    ExtraCheckKind.HEAD_TURN -> R.string.usesense_hint_centre to R.string.usesense_xc_paused_turn_detail
+                    ExtraCheckKind.HEAD_TURN -> R.string.usesense_hint_centre to pausedTurnDetail(runner.currentStep?.direction)
                     ExtraCheckKind.FOLLOW_DOT -> R.string.usesense_hint_show_face to R.string.usesense_xc_dot_wait
                     ExtraCheckKind.SPEAK_DIGITS -> R.string.usesense_hint_show_face to R.string.usesense_xc_paused_digits_detail
                 }
@@ -66,6 +66,17 @@ internal object ExtraCheckCopy {
                 }
         }
     }
+
+    /** "Then keep turning to the left": the paused head turn says which way it waits to go. */
+    fun pausedTurnDetail(dir: String?): Int =
+        when (dir) {
+            HeadTurnStep.LEFT -> R.string.usesense_xc_paused_turn_left
+            HeadTurnStep.RIGHT -> R.string.usesense_xc_paused_turn_right
+            HeadTurnStep.UP -> R.string.usesense_xc_paused_turn_up
+            HeadTurnStep.DOWN -> R.string.usesense_xc_paused_turn_down
+            HeadTurnStep.CENTER -> R.string.usesense_xc_paused_turn_centre
+            else -> R.string.usesense_xc_paused_turn_detail
+        }
 
     private fun headTurn(runner: ExtraCheckRunner): Guidance {
         val dir = runner.currentStep?.direction

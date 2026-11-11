@@ -129,7 +129,12 @@ internal object CaptureCopyKeys {
         "usesense_xc_again" to e("extraCheck.again"), // NEW
         "usesense_xc_further_left" to e("extraCheck.further", "left"), // NEW
         "usesense_xc_further_right" to e("extraCheck.further", "right"), // NEW
-        "usesense_xc_paused_turn_detail" to e("extraCheck.pausedTurnDetail"), // NEW
+        "usesense_xc_paused_turn_detail" to e("extraCheck.pausedTurnDetail"), // NEW: no direction known
+        "usesense_xc_paused_turn_left" to e("extraCheck.pausedTurnSide", "left"), // NEW
+        "usesense_xc_paused_turn_right" to e("extraCheck.pausedTurnSide", "right"), // NEW
+        "usesense_xc_paused_turn_up" to e("extraCheck.pausedTurnSide", "up"), // NEW
+        "usesense_xc_paused_turn_down" to e("extraCheck.pausedTurnSide", "down"), // NEW
+        "usesense_xc_paused_turn_centre" to e("extraCheck.pausedLookCentre"), // NEW
         "usesense_xc_dot_wait" to e("extraCheck.dotWait"), // NEW
         "usesense_xc_keep_following" to e("extraCheck.keepFollowing"), // NEW
         "usesense_xc_paused_digits_detail" to e("extraCheck.pausedDigitsDetail"), // NEW

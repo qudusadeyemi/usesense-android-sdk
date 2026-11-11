@@ -46,7 +46,7 @@ class ExtraCheckCopyTest {
         r.at(1050, left)
         assertEquals(Guidance(R.string.usesense_xc_now_right), ExtraCheckCopy.guidance(r))
         val away = runner(ExtraCheckKind.HEAD_TURN, steps("left", "right")).at(500, ExtraCheckInput(false))
-        assertEquals(Guidance(R.string.usesense_hint_centre, R.string.usesense_xc_paused_turn_detail), ExtraCheckCopy.guidance(away))
+        assertEquals(Guidance(R.string.usesense_hint_centre, R.string.usesense_xc_paused_turn_left), ExtraCheckCopy.guidance(away))
         val missed = runner(ExtraCheckKind.HEAD_TURN, steps("left", "right")).at(1050, ExtraCheckInput(true, turn = 0f))
         assertEquals(Guidance(R.string.usesense_xc_again, R.string.usesense_xc_further_left), ExtraCheckCopy.guidance(missed))
     }

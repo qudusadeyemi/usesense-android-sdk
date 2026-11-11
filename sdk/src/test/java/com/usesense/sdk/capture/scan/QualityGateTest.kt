@@ -493,4 +493,34 @@ class QualityGateTest {
             identity, oval, scanning = true, motion = turning)
         assertTrue(GateHint.EYES_OPEN in shut.blocking)
     }
+
+    // ─── A dark head turn (A03 device run, 2026-11-11) ───
+
+    @Test fun `a turning head isn't told to hold the phone steady, a still check is`() {
+        val soft = goodRegion.copy(sharpness = 8.0)
+        val gate = QualityGate()
+        warm(gate)
+        var r: GateResult? = null
+        var t = 500L
+        while (t < 900) {
+            r = gate.evaluate(GateFrame(t, 480, 640, 1, face(), PoseAngles(10.0, 0.0, 0.0), soft, 0.1f, 0.1f),
+                identity, oval, scanning = true, motion = turning)
+            t += 100
+        }
+        assertFalse(r!!.failing.toString(), GateHint.HOLD_STEADY in r.failing)
+        // Speak Digits (not moving) and the scan keep the sharpness check.
+        val digits = gate.evaluate(GateFrame(1000, 480, 640, 1, face(), PoseAngles(0.0, 0.0, 0.0), soft, 0.1f, 0.1f),
+            identity, oval, scanning = true, motion = turning.copy(moving = false))
+        assertTrue(GateHint.HOLD_STEADY in digits.failing)
+    }
+
+    @Test fun `the fill light coming on as a movement starts doesn't hold it`() {
+        val gate = QualityGate()
+        warm(gate)
+        gate.evaluate(turningFrame(500, yaw = 5.0), identity, oval, scanning = true, motion = turning)
+        gate.onLightChanged(550)
+        // No cover result has re-confirmed the face, but a movement doesn't wait for it.
+        val r = gate.evaluate(turningFrame(1200, yaw = 10.0), identity, oval, scanning = true, motion = turning)
+        assertFalse(r.failing.toString(), GateHint.HOLD_STILL in r.failing)
+    }
 }

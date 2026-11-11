@@ -233,6 +233,12 @@
     <string name="usesense_xc_further_left">Turn a little further to the left</string>
     <string name="usesense_xc_further_right">Turn a little further to the right</string>
     <string name="usesense_xc_paused_turn_detail">Then keep turning</string>
+    <!-- The paused movement's second line names the way to go. -->
+    <string name="usesense_xc_paused_turn_left">Then keep turning to the left</string>
+    <string name="usesense_xc_paused_turn_right">Then keep turning to the right</string>
+    <string name="usesense_xc_paused_turn_up">Then keep tilting your head up</string>
+    <string name="usesense_xc_paused_turn_down">Then keep tilting your head down</string>
+    <string name="usesense_xc_paused_turn_centre">Then look straight ahead</string>
     <string name="usesense_xc_dot_wait">The dot will wait for you</string>
     <string name="usesense_xc_follow_dot">Follow the dot with your head</string>
     <string name="usesense_xc_keep_following">Keep following</string>

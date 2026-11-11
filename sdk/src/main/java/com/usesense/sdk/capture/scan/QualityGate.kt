@@ -272,7 +272,10 @@ internal class QualityGate(
         // A fill-light change in this scan: hold the change watch off while the
         // exposure settles, then re-baseline it, but only on a clear face.
         var watchOff = false
-        if (scanning && lightChangedAt != handledLightAt && lightChangedAt >= scanStartedAt - LIGHT_SETTLE_MS) {
+        // A movement has no change watch to re-baseline (it is off while
+        // moving), so it never holds for a light change: the extra check's
+        // fill light comes on as it starts (A03: "Hold still" through a dark head turn).
+        if (scanning && motion?.moving != true && lightChangedAt != handledLightAt && lightChangedAt >= scanStartedAt - LIGHT_SETTLE_MS) {
             watchOff = true
             if (frame.timestampMs >= lightChangedAt + LIGHT_SETTLE_MS) {
                 val segmenterOn = frame.cover != null || frame.coverPending
@@ -368,7 +371,10 @@ internal class QualityGate(
             sharpnessHistory.addLast(region.sharpness)
             while (sharpnessHistory.size > SHARPNESS_FRAMES) sharpnessHistory.removeFirst()
             val median = sharpnessHistory.sorted()[sharpnessHistory.size / 2]
-            if (median < sharpnessThreshold()) failing += GateHint.HOLD_STEADY
+            // Off while a movement is under way, like stillness: turning blurs
+            // every frame, most in a dark room's long exposure (A03: "Hold
+            // your phone steady" paused a dark head turn for 40 s).
+            if (median < sharpnessThreshold() && motion?.moving != true) failing += GateHint.HOLD_STEADY
         }
 
         // 8. Eyes open (when blendshapes are on).

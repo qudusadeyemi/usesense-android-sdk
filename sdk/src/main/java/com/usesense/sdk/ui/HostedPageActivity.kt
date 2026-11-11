@@ -1777,7 +1777,7 @@ class HostedPageActivity : AppCompatActivity() {
             val now = SystemClock.elapsedRealtime()
             val runner = extraCheck
             val motion = runner?.let { ExtraCheckMotion.forStep(it, turn, previousStep, now - stepStartedAt) }
-            val result = qualityGate.evaluate(frame, mapper, oval, null, scanning = true, motion = motion)
+            val result = qualityGate.evaluate(frame, mapper, oval, fillLightSince?.let { now - it }, scanning = true, motion = motion)
             lastGate = result
             lastGateAt = now
             if (now - lastGateLogAt >= 1000 && Log.isLoggable(GATE_TAG, Log.DEBUG)) {
