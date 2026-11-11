@@ -173,7 +173,8 @@ internal data class CaptureTheme(
             // background.color is a light value: it wins in light mode only.
             val background = (if (!dark) appearance?.background?.color.parse() else null)
                 ?: neutral?.background.parse() ?: defaults.background
-            val primary = brand { it.primary } ?: SenseDefaults.PRIMARY
+            val brandPrimary = brand { it.primary }
+            val primary = brandPrimary ?: SenseDefaults.PRIMARY
             return PageTokens(
                 background = background,
                 surface = neutral?.surface.parse() ?: defaults.surface,
@@ -181,7 +182,11 @@ internal data class CaptureTheme(
                 muted = neutral?.muted.parse() ?: defaults.muted,
                 border = neutral?.border.parse() ?: defaults.border,
                 primary = primary,
-                primaryForeground = brand { it.primaryForeground } ?: CaptureColor.bestTextOn(primary),
+                // White or ink on a brand primary, whichever reads better. The
+                // Sense blue keeps its white label (today's look, as iOS).
+                primaryForeground = brand { it.primaryForeground }
+                    ?: brandPrimary?.let(CaptureColor::bestTextOn)
+                    ?: SenseDefaults.PRIMARY_FOREGROUND,
                 success = brand { it.success } ?: SenseDefaults.SUCCESS,
                 error = brand { it.error } ?: SenseDefaults.ERROR,
                 warning = brand { it.warning } ?: SenseDefaults.WARNING,
@@ -251,6 +256,7 @@ internal object SenseDefaults {
         border = 0xFFE8E5DE.toInt(),
     )
     const val PRIMARY = 0xFF4F7CFF.toInt()
+    const val PRIMARY_FOREGROUND = 0xFFFFFFFF.toInt()
     const val SUCCESS = 0xFF00D4AA.toInt()
     const val ERROR = 0xFFFF6B4A.toInt()
     const val WARNING = 0xFFFFB84D.toInt()

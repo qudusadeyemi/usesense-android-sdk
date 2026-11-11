@@ -55,6 +55,8 @@ class CaptureThemeTest {
         assertEquals("#A3A9B8", hex(t.page.muted))
         assertEquals(0x14FFFFFF, t.page.border)
         assertEquals("#4F7CFF", hex(t.page.primary))
+        // The computed rule would pick ink (4.5:1 vs 3.9:1); the Sense default keeps white.
+        assertEquals("#FFFFFF", hex(t.page.primaryForeground))
         assertEquals("#00D4AA", hex(t.page.success))
         assertEquals("#FF6B4A", hex(t.page.error))
         assertEquals("#FFB84D", hex(t.page.warning))
