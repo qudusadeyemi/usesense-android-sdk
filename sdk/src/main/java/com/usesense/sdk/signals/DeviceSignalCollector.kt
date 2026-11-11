@@ -434,6 +434,6 @@ class DeviceSignalCollector(private val context: Context, cloudProjectNumber: Lo
          * which made `sessions.sdk_version` useless for telling which build a
          * customer was actually running while diagnosing a field problem.
          */
-        const val SDK_VERSION = "4.13.1"
+        const val SDK_VERSION = "4.14.0"
     }
 }
