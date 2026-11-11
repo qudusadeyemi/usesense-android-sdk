@@ -128,7 +128,6 @@ class HostedPageActivity : AppCompatActivity() {
     private var captureTheme: CaptureTheme = CaptureTheme.resolve(null, systemDark = false)
     private lateinit var styler: CaptureStyler
     private var strings: CaptureStrings? = null
-    private var pageLogoUrl: String? = null
     private var pageBackgroundUrl: String? = null
     private var actionContext: ActionContext? = null
     private var sessionData: HostedInitSessionResponse? = null
