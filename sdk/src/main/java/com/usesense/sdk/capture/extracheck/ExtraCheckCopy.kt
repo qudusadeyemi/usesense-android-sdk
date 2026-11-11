@@ -104,7 +104,7 @@ internal object ExtraCheckCopy {
     /** The scan's words for a failing gate check (the light checks never pause, so they have none). */
     fun hintTitle(hint: GateHint): Int? =
         when (hint) {
-            GateHint.SHOW_FACE -> R.string.usesense_hint_show_face
+            GateHint.SHOW_FACE, GateHint.DARK_NO_FACE, GateHint.FILLING_NO_FACE -> R.string.usesense_hint_show_face
             GateHint.ONE_PERSON -> R.string.usesense_hint_one_person
             GateHint.FACE_COVERED -> R.string.usesense_hint_face_covered
             GateHint.CENTRE -> R.string.usesense_hint_centre

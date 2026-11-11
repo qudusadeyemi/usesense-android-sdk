@@ -33,6 +33,13 @@ internal enum class GateHint(val check: GateCheck) {
     /** Still too dark with the fill light on: "Find more light". */
     FACE_LIGHT(GateCheck.LIGHT),
     TOO_BRIGHT(GateCheck.LIGHT),
+    /**
+     * No face in a dark frame (the landmarker can't find one in the dark):
+     * the fill light is coming up, so no text yet. Blocks like [SHOW_FACE].
+     */
+    FILLING_NO_FACE(GateCheck.FACE_FOUND),
+    /** No face in a dark frame with the fill light on and settled: "Find more light" instead of "Show your face". */
+    DARK_NO_FACE(GateCheck.FACE_FOUND),
     HOLD_STEADY(GateCheck.SHARPNESS),
     EYES_OPEN(GateCheck.EYES_OPEN),
     HOLD_STILL(GateCheck.STILLNESS),
@@ -59,6 +66,11 @@ internal class GateFrame(
     val coverPending: Boolean = false,
     /** Time of the frame the [cover] result was segmented from. */
     val coverAt: Long = 0L,
+    /**
+     * Mean luma of the middle 60% of the frame (x and y 0.2 to 0.8), measured
+     * on frames with no face: the face box can't say it is too dark then.
+     */
+    val frameLuma: Double? = null,
 ) {
     val landmarkCount: Int get() = (points?.size ?: 0) / 3
 }
@@ -181,6 +193,31 @@ internal class QualityGate(
     /** Receives the change watch's numbers for the upload (metadata.covered_check). */
     var coverStats: CoveredCheckStats? = null
 
+    /** When the frame first read dark with no face (null: it doesn't). */
+    private var darkNoFaceSince: Long? = null
+
+    /**
+     * No face. In the dark the landmarker finds none, so the face-box light
+     * check never runs and the fill light never came on (iPhone 17 Pro, as
+     * iOS PR #102). On align only: a frame darker than [LUMA_MIN] for
+     * [DARK_NO_FACE_AFTER_MS] turns the fill light on; nothing shows while it
+     * settles, then "Find more light" replaces "Show your face". During a scan
+     * or a movement nothing changes (the fill light is frozen there).
+     */
+    private fun noFace(frame: GateFrame, fillLightOnForMs: Long?, frozen: Boolean): GateResult {
+        val luma = frame.frameLuma
+        if (frozen || luma == null || luma >= LUMA_MIN) {
+            darkNoFaceSince = null
+            return GateResult(listOf(GateHint.SHOW_FACE), faceTooDark = false)
+        }
+        val since = darkNoFaceSince ?: frame.timestampMs.also { darkNoFaceSince = it }
+        val settled = fillLightOnForMs != null && fillLightOnForMs >= FILL_LIGHT_SETTLE_MS
+        return GateResult(
+            listOf(if (settled) GateHint.DARK_NO_FACE else GateHint.FILLING_NO_FACE),
+            faceTooDark = frame.timestampMs - since >= DARK_NO_FACE_AFTER_MS,
+        )
+    }
+
     fun reset() {
         consecutiveFaceFrames = 0
         sharpnessHistory.clear()
@@ -215,8 +252,9 @@ internal class QualityGate(
         val n = frame.landmarkCount
         if (frame.faceCount < 1 || pts == null || n < MIN_LANDMARKS) {
             reset()
-            return GateResult(listOf(GateHint.SHOW_FACE), faceTooDark = false)
+            return noFace(frame, fillLightOnForMs, scanning || motion != null)
         }
+        darkNoFaceSince = null
         consecutiveFaceFrames++
         val failing = ArrayList<GateHint>(4)
         var tooDark = false
@@ -495,6 +533,32 @@ internal class QualityGate(
 
         /** How long the fill light gets before "Face a light" replaces "Brightening your screen". */
         const val FILL_LIGHT_SETTLE_MS = 1500L
+
+        /** A dark frame with no face for this long (the hint delay) turns the fill light on. */
+        const val DARK_NO_FACE_AFTER_MS = 400L
+
+        /** Share of the frame left out on each side when measuring [GateFrame.frameLuma]. */
+        const val FRAME_LUMA_INSET = 0.2f
+        private const val FRAME_LUMA_GRID = 24
+
+        /** Mean luma (BT.601) of the middle 60% of an ARGB frame, on a 24 x 24 grid. */
+        fun centreLuma(argb: IntArray, width: Int, height: Int): Double? {
+            if (width <= 0 || height <= 0 || argb.size < width * height) return null
+            val x0 = width * FRAME_LUMA_INSET
+            val y0 = height * FRAME_LUMA_INSET
+            val sx = width * (1 - 2 * FRAME_LUMA_INSET) / FRAME_LUMA_GRID
+            val sy = height * (1 - 2 * FRAME_LUMA_INSET) / FRAME_LUMA_GRID
+            var sum = 0L
+            for (gy in 0 until FRAME_LUMA_GRID) {
+                val y = (y0 + (gy + 0.5f) * sy).toInt().coerceIn(0, height - 1)
+                for (gx in 0 until FRAME_LUMA_GRID) {
+                    val x = (x0 + (gx + 0.5f) * sx).toInt().coerceIn(0, width - 1)
+                    val c = argb[y * width + x]
+                    sum += (299 * ((c shr 16) and 0xFF) + 587 * ((c shr 8) and 0xFF) + 114 * (c and 0xFF)) / 1000
+                }
+            }
+            return sum.toDouble() / (FRAME_LUMA_GRID * FRAME_LUMA_GRID)
+        }
 
         const val LEFT_IRIS = 468
         const val RIGHT_IRIS = 473

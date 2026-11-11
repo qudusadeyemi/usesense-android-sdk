@@ -3,6 +3,7 @@ package com.usesense.sdk.capture.scan
 import com.usesense.sdk.capture.ImageQualityAnalyzer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.cos
@@ -82,6 +83,69 @@ class QualityGateTest {
         val gate = QualityGate()
         val r = gate.evaluate(frame(0, pts = null, faces = 0), identity, oval)
         assertEquals(listOf(GateHint.SHOW_FACE), r.failing)
+    }
+
+    // ── Dark room, no face (iOS PR #102 device finding) ──────────────────
+
+    private fun noFace(t: Long, luma: Double?) = GateFrame(t, 480, 640, 0, null, null, null, frameLuma = luma)
+
+    @Test fun `dark frame with no face turns the fill light on after the hint delay, silently`() {
+        val gate = QualityGate()
+        val r0 = gate.evaluate(noFace(0, 12.0), identity, oval)
+        assertEquals(listOf(GateHint.FILLING_NO_FACE), r0.failing)
+        assertFalse(r0.faceTooDark)
+        assertFalse(gate.evaluate(noFace(300, 12.0), identity, oval).faceTooDark)
+        val r1 = gate.evaluate(noFace(400, 12.0), identity, oval)
+        assertTrue(r1.faceTooDark)
+        // Still no face: it blocks the scan like "Show your face".
+        assertFalse(r1.allPass)
+        // While the light settles there is no text.
+        assertEquals(listOf(GateHint.FILLING_NO_FACE), gate.evaluate(noFace(800, 12.0), identity, oval, fillLightOnForMs = 400).failing)
+    }
+
+    @Test fun `still no face once the light has settled asks for more light, not for the face`() {
+        val gate = QualityGate()
+        gate.evaluate(noFace(0, 5.0), identity, oval)
+        val r = gate.evaluate(noFace(2000, 5.0), identity, oval, fillLightOnForMs = 1500)
+        assertEquals(listOf(GateHint.DARK_NO_FACE), r.failing)
+        assertFalse(GateHint.SHOW_FACE in r.failing)
+        assertFalse(r.allPass)
+    }
+
+    @Test fun `a bright frame with no face, or no measurement, behaves as before`() {
+        val gate = QualityGate()
+        val bright = gate.evaluate(noFace(0, 120.0), identity, oval)
+        assertEquals(listOf(GateHint.SHOW_FACE), bright.failing)
+        assertFalse(bright.faceTooDark)
+        assertEquals(listOf(GateHint.SHOW_FACE), gate.evaluate(noFace(500, null), identity, oval).failing)
+        // The dark clock restarts once the frame is lit.
+        gate.evaluate(noFace(600, 10.0), identity, oval)
+        gate.evaluate(noFace(700, 150.0), identity, oval)
+        assertFalse(gate.evaluate(noFace(900, 10.0), identity, oval).faceTooDark)
+    }
+
+    @Test fun `during a scan or a movement a dark no-face frame changes nothing`() {
+        val gate = QualityGate()
+        gate.evaluate(noFace(0, 5.0), identity, oval, scanning = true)
+        val scan = gate.evaluate(noFace(1000, 5.0), identity, oval, scanning = true)
+        assertEquals(listOf(GateHint.SHOW_FACE), scan.failing)
+        assertFalse(scan.faceTooDark)
+        val move = gate.evaluate(noFace(2000, 5.0), identity, oval, motion = GateMotion(yawAllowed = true, pitchAllowed = false, moving = true))
+        assertEquals(listOf(GateHint.SHOW_FACE), move.failing)
+        assertFalse(move.faceTooDark)
+    }
+
+    @Test fun `centre luma reads the middle 60 percent only`() {
+        val w = 100; val h = 100
+        // Black frame with a white border 20 px wide: the middle is black.
+        val argb = IntArray(w * h) { i ->
+            val x = i % w; val y = i / w
+            if (x < 20 || x >= 80 || y < 20 || y >= 80) 0xFFFFFFFF.toInt() else 0xFF000000.toInt()
+        }
+        assertEquals(0.0, QualityGate.centreLuma(argb, w, h)!!, 0.001)
+        val grey = IntArray(w * h) { 0xFF808080.toInt() }
+        assertEquals(128.0, QualityGate.centreLuma(grey, w, h)!!, 0.5)
+        assertNull(QualityGate.centreLuma(IntArray(0), 0, 0))
     }
 
     @Test fun `face must be found three frames in a row`() {

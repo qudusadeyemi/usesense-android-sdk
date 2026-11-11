@@ -1928,8 +1928,9 @@ class HostedPageActivity : AppCompatActivity() {
                     scanView.tone = ContourScanView.Tone.WARNING
                     return
                 }
-                // The fill light works silently: BRIGHTENING has no text.
-                val failing = (fresh?.failing ?: listOf(GateHint.SHOW_FACE)).filter { it != GateHint.BRIGHTENING }
+                // The fill light works silently: BRIGHTENING and FILLING_NO_FACE have no text.
+                val failing = (fresh?.failing ?: listOf(GateHint.SHOW_FACE))
+                    .filter { it != GateHint.BRIGHTENING && it != GateHint.FILLING_NO_FACE }
                 if (hintScheduler.update(now, failing)) announce(hintScheduler.current)
                 renderHint(hintScheduler.current)
                 if (hintScheduler.current == GateHint.FACE_COVERED && lastAlignTickAt > 0L) {
@@ -2574,7 +2575,10 @@ class HostedPageActivity : AppCompatActivity() {
         GateHint.MOVE_CLOSER -> cs(R.string.usesense_hint_move_closer) to null
         GateHint.MOVE_BACK, GateHint.TOO_BIG -> cs(R.string.usesense_hint_move_back) to null
         GateHint.LOOK_STRAIGHT -> cs(R.string.usesense_hint_look_straight) to null
-        GateHint.BRIGHTENING -> null
+        GateHint.BRIGHTENING, GateHint.FILLING_NO_FACE -> null
+        // No face in the dark, fill light on: light is the problem, not the face.
+        GateHint.DARK_NO_FACE -> cs(R.string.usesense_hint_face_light) to
+            cs(R.string.usesense_hint_face_light_detail)
         GateHint.FACE_LIGHT -> cs(R.string.usesense_hint_face_light) to
             cs(R.string.usesense_hint_face_light_detail)
         GateHint.TOO_BRIGHT -> cs(R.string.usesense_hint_too_bright) to

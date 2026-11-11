@@ -61,6 +61,13 @@ only primary buttons (when set) and `capture.ring` took effect.
 - A Flow's capture honours `UseSense.initialize`: its branding sits below the
   run options, and its other settings (guided capture, result screens, ...)
   carry over. Only the credentials are the Flow's.
+- **Dark room: the fill light now comes on with no face found.** In the dark the
+  face landmarker finds no face, so the light check (on the face box) never ran
+  and the fill light never came on (iOS device finding). On the align screen, a
+  frame whose middle 60% reads under luma 70 for 0.4 s turns the fill light on;
+  nothing shows while it settles (1.5 s), then "Find more light / Face a window
+  or lamp" replaces "Show your face in the oval". During a scan or a movement
+  nothing changes. A bright frame with no face behaves as before.
 - "[App]" in the copy is the resolved display name before the app's label.
 - The Flow primer's title and body follow `typography`.
 - Precedence comments now match the code: a code legacy field
