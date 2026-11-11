@@ -6,6 +6,68 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [4.13.1] - 2026-11-11
+
+Every capture screen follows the brand (BRAND-v1, capture-test-kit/BRAND-v1.md).
+Before this, the 4.12/4.13 capture screens ignored almost every brand setting:
+only primary buttons (when set) and `capture.ring` took effect.
+
+### Added
+
+- **One capture theme** (`ui/theme/CaptureTheme`), resolved once per session
+  (and again when dashboard branding arrives) and read by every capture screen:
+  the primers, the extra-check and upload-failed sheets, the upload sheet,
+  every result and error page, the leave dialog, the help dialog (now themed,
+  not a stock AlertDialog), the loading screens and the remote link's intro,
+  action review, permission, result and error screens.
+  - Page surface: `colors.background / surface / foreground / muted / border /
+    primary / primaryForeground / success / error / warning`, `colors.dark.*` in
+    dark mode (no derivation: an unset dark key is the Sense dark default),
+    `background.color` (light) and `background.imageUrl` (cover),
+    `typography.displayFamily` (titles, default Outfit) and `fontFamily`
+    (everything else, camera guidance included, default DM Sans),
+    `shape.buttonRadius` (else `radius`, else 14) on every button,
+    `shape.buttonStyle` filled / outline, `shape.radius` for dialogs, sheets
+    (min(2r, 28)) and icon tiles, `logo.url / placement / height` as a header on
+    page-surface screens, `icons.success / review / notVerified` on the result
+    pages, and `loader.style` (spinner / dots / bar) or `loader.imageUrl`.
+  - `mode`: light, dark or auto. Unset keeps today's dark capture pages; a
+    remote hosted link's own screens stay light.
+  - Camera accents, each 3:1 against #333333: `capture.ring` (else
+    `colors.primary`, else the primary lightened 5% HSL per step up to 8 steps,
+    else #4F7CFF) for the ring, contour lines and upload bar; `capture.challenge`
+    (else #A878FC) for the extra-check ring and sheet icon; `capture.warning`
+    (else `colors.warning`, else #FFB84D) for the failing oval, paused ring and
+    Follow Dot; `colors.success` (else #00D4AA) for the done tick, done ring and
+    mic meter. `capture.contourStart` / `contourEnd` are retired: accepted and
+    ignored.
+  - Fixed (not brandable): camera background, scan dim, blur, oval guide,
+    ring track, guidance text, shutter, fill light, colour sequence, Flash
+    Reflection, Speak Digits pill and "Powered by Sense" (now also on the pages
+    and sheets).
+- **`copy.capture`** in `FlowCopy`: every capture string, keyed `group.key`
+  (`primer.selfieTitle`, `leave.keepGoing`, ...), camelCase or snake_case on the
+  wire, with `{app}` (the display name, else the app's name) and `{side}`. A
+  blank or missing key keeps the shipped English, unchanged.
+- The debug trace (`adb shell setprop log.tag.UseSense DEBUG`) names the source
+  layer of every appearance and copy field.
+
+### Fixed
+
+- Remote hosted links (`startRemoteEnrollment` / `startRemoteVerification`) keep
+  the dashboard's `appearance` and `copy` (they were dropped).
+- A Flow's "Try again" re-resolves branding from the fresh init-session (under
+  the run view's branding).
+- A Flow's capture honours `UseSense.initialize`: its branding sits below the
+  run options, and its other settings (guided capture, result screens, ...)
+  carry over. Only the credentials are the Flow's.
+- "[App]" in the copy is the resolved display name before the app's label.
+- The Flow primer's title and body follow `typography`.
+- Precedence comments now match the code: a code legacy field
+  (`primaryColor`, `buttonRadius`, `fontFamily`, `logoUrl`) beats a dashboard
+  `appearance` value.
+
+
 ## [4.13.0] - 2026-11-10
 
 The extra check (LiveSense capture redesign, Phase 2): the approved end-user

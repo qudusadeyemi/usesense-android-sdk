@@ -7,11 +7,13 @@ import org.json.JSONObject
  * SDKs. Mirrors `FlowAppearance` in usesense-web-sdk
  * (packages/sdk/src/flows/theme.ts) — keep both in sync.
  *
- * A [FlowAppearance] can be supplied two ways and is merged
- *   SDK-init > server(branding) > legacy primaryColor/buttonRadius > built-in:
- *   - by the developer at SDK init (BrandingConfig.appearance), and/or
- *   - by the operator in the dashboard, delivered on the flow-run branding payload.
- * Every field is optional; anything omitted falls back to the hosted-page tokens.
+ * A [FlowAppearance] can be supplied two ways and is merged per field
+ * (BRAND-v1 section 2, highest first): per-launch code, then SDK init
+ * (`appearance`, then the legacy primaryColor / buttonRadius / fontFamily /
+ * logoUrl), then the dashboard (Flow, then org), then the Sense defaults.
+ * Code beats the dashboard, so a legacy code field sits above a dashboard
+ * `appearance` value. See internal/BrandingResolver.
+ * Every field is optional; anything omitted falls back to the Sense defaults.
  */
 data class FlowAppearance(
     val colors: AppearanceColors? = null,
@@ -23,9 +25,12 @@ data class FlowAppearance(
     val icons: AppearanceIcons? = null,
     /** Loading-animation preset or custom asset. */
     val loader: AppearanceLoader? = null,
-    /** Force a palette or follow the OS (default [Mode.AUTO]). */
+    /**
+     * Force a palette or follow the OS. Unset: the Flow runner keeps its
+     * current default and the capture pages stay dark (BRAND-v1 4.1).
+     */
     val mode: Mode? = null,
-    /** Face-capture guide colours (ring, contour lines, warning). */
+    /** Camera-surface accents (ring, challenge, warning). */
     val capture: AppearanceCapture? = null,
 ) {
     /** Force a palette or follow the OS. */
@@ -58,27 +63,31 @@ data class FlowAppearance(
 }
 
 /**
- * Colours of the face-capture guide. Unset fields use the Sense defaults
- * (ring #4F7CFF, contours #7A96FF to #A878FC, warning #FFB84D), and a colour
- * below 3:1 contrast on the dark camera background is ignored, so the guide
- * always stays readable. Wire: `capture: { ring, contour_start, contour_end, warning }`.
+ * Accents on the camera surface (BRAND-v1 section 4.2). Every one is
+ * contrast-gated at 3:1 against #333333, so the guide always stays readable;
+ * see ui/theme/CaptureTheme for the resolution order.
+ * Wire: `capture: { ring, challenge, warning }`.
  */
 data class AppearanceCapture(
-    /** Progress ring around the oval. */
+    /** Oval "ready" stroke, scan ring, contour lines and the upload bar. Falls back to `colors.primary`. */
     val ring: String? = null,
-    /** Contour lines, top of the face. */
+    /** Retired in BRAND-v1: accepted on the wire and ignored (the contour lines use [ring]). */
+    @Deprecated("Retired in BRAND-v1; ignored. The contour lines use ring.")
     val contourStart: String? = null,
-    /** Contour lines, bottom of the face. */
+    /** Retired in BRAND-v1: accepted on the wire and ignored (the contour lines use [ring]). */
+    @Deprecated("Retired in BRAND-v1; ignored. The contour lines use ring.")
     val contourEnd: String? = null,
-    /** Oval and ring while a check is failing or the scan is paused. */
+    /** Failing oval, paused ring, Follow Dot dot and trail. Falls back to `colors.warning`. */
     val warning: String? = null,
+    /** Extra-check ring while it runs, and the extra-check sheet icon. Default Sense purple #A878FC. */
+    val challenge: String? = null,
 ) {
     companion object {
+        /** `contour_start` / `contour_end` are retired: read and dropped, never an error. */
         fun decode(raw: JSONObject): AppearanceCapture = AppearanceCapture(
             ring = raw.optStringOrNull("ring"),
-            contourStart = raw.optStringOrNull("contour_start") ?: raw.optStringOrNull("contourStart"),
-            contourEnd = raw.optStringOrNull("contour_end") ?: raw.optStringOrNull("contourEnd"),
             warning = raw.optStringOrNull("warning"),
+            challenge = raw.optStringOrNull("challenge"),
         )
     }
 }
@@ -283,9 +292,8 @@ fun mergeAppearance(high: FlowAppearance?, low: FlowAppearance?): FlowAppearance
         mode = high.mode ?: low.mode,
         capture = AppearanceCapture(
             ring = high.capture?.ring ?: low.capture?.ring,
-            contourStart = high.capture?.contourStart ?: low.capture?.contourStart,
-            contourEnd = high.capture?.contourEnd ?: low.capture?.contourEnd,
             warning = high.capture?.warning ?: low.capture?.warning,
+            challenge = high.capture?.challenge ?: low.capture?.challenge,
         ).takeIf { high.capture != null || low.capture != null },
     )
 }

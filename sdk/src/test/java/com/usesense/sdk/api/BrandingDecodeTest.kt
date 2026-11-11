@@ -52,4 +52,21 @@ class BrandingDecodeTest {
         assertNull(b.primaryColor)
         assertNull(b.logoUrl)
     }
+
+    @Test
+    fun `remote hosted link branding keeps appearance and copy`() {
+        val wrapper = apiMoshi().adapter(com.usesense.sdk.api.models.RemoteSessionDataWrapper::class.java).fromJson(
+            """{"session":{"id":"rs_1","status":"pending"},
+                "branding":{"display_name":"Acme Bank","primary_color":"#1F7A4D",
+                  "appearance":{"mode":"light","colors":{"surface":"#F3F6F4"},"capture":{"challenge":"#FF4FA3","contour_start":"#7A96FF"}},
+                  "copy":{"capture":{"leave":{"keep_going":"Stay"},"primer":{"selfieTips":["Light","No hats"]}}}}}""",
+        )!!
+        val server = wrapper.branding!!.toServerBranding()
+        assertEquals("Acme Bank", server.displayName)
+        assertEquals(com.usesense.sdk.flows.FlowAppearance.Mode.LIGHT, server.appearance?.mode)
+        assertEquals("#F3F6F4", server.appearance?.colors?.surface)
+        assertEquals("#FF4FA3", server.appearance?.capture?.challenge)
+        assertEquals("Stay", server.copy?.capture?.text("leave.keepGoing"))
+        assertEquals(listOf("Light", "No hats"), server.copy?.capture?.list("primer.selfieTips"))
+    }
 }

@@ -82,12 +82,47 @@ The server selects challenges dynamically. The SDK handles all challenge present
 
 Challenge selection is controlled server-side. The SDK presents whatever challenge the server assigns.
 
-Since 4.13.0 every session starts with the selfie scan, and a movement runs on the same scan screen (the ring around the oval turns purple):
+Since 4.13.0 every session starts with the selfie scan, and a movement runs on the same scan screen (the ring around the oval turns the challenge colour, Sense purple unless your brand sets `capture.challenge`):
 
 - **Before the scan** (the session's policy already has a challenge): the primer says "Two quick steps", and the movement follows straight on from the scan.
 - **After the scan** (the server asks for an extra check in the /signals response): a "One more quick check" sheet, then the movement, then a second upload.
 
 If the face leaves the oval, the movement pauses and says what to fix; it never fails on the device. A missed head turn gets one more go with a hint, then the server decides. The back button asks "Leave verification?" first; leaving cancels the verification (`onCancelled`).
+
+## Branding the Capture Screens
+
+Since 4.13.1 every capture screen follows your brand (BRAND-v1): primers, sheets,
+the upload sheet, result and error pages, the leave and help dialogs and the
+loading screens. Set it on the dashboard (Brand page), or in code, which wins
+field by field:
+
+```kotlin
+UseSense.initialize(context, UseSenseConfig(
+    apiKey = "pk_...",
+    branding = BrandingConfig(
+        displayName = "Acme Bank",
+        appearance = FlowAppearance(
+            mode = FlowAppearance.Mode.LIGHT,           // light | dark | auto; unset keeps the dark capture pages
+            colors = AppearanceColors(primary = "#1F7A4D", background = "#FFFFFF", foreground = "#13261C"),
+            typography = AppearanceTypography(displayFamily = "Georgia", fontFamily = "Inter"),
+            shape = AppearanceShape(radius = 12, buttonRadius = 999),
+            capture = AppearanceCapture(challenge = "#FF4FA3"),
+        ),
+        copy = FlowCopy(capture = CaptureCopy(strings = mapOf("leave.keepGoing" to "Stay"))),
+    ),
+))
+```
+
+- The camera is always dark. Brand colours appear there only as accents (the
+  ring, the extra-check ring, warnings), and only when they reach 3:1 contrast;
+  a darker primary is lightened for the ring until it does.
+- Fonts: a family name maps to a font resource of the same name in your app
+  (`Inter` -> `R.font.inter`), else to the matching system family. The SDK
+  can't download web fonts.
+- `copy.capture` keys (`primer.selfieTitle`, `leave.keepGoing`, ...) override
+  the shipped English; `{app}` is your display name and `{side}` the direction.
+- The shutter, the camera background, guidance text, the fill light, the
+  colour sequence and "Powered by Sense" are fixed.
 
 ## Handling the Verdict
 

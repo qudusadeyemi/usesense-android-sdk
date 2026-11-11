@@ -8,7 +8,7 @@ import org.json.JSONObject
  * (packages/sdk/src/flows/copy.ts) — keep both in sync.
  *
  * Like [FlowAppearance] a [FlowCopy] can be supplied two ways and is merged
- *   SDK-init > server(branding) > built-in default:
+ * per key, code (per-launch, then SDK init) > dashboard (branding.copy) > built-in:
  *   - by the developer at SDK init (BrandingConfig.copy / RunFlowOptions.copy), and/or
  *   - by the operator in the dashboard, delivered on the flow-run branding payload
  *     under `branding.copy`.
@@ -40,6 +40,8 @@ data class FlowCopy(
     val privacy: PrivacyCopy? = null,
     /** Free-form help text / tooltips keyed by an SDK-defined slot id. */
     val help: Map<String, String>? = null,
+    /** Every capture screen (BRAND-v1 section 5): primers, guidance, extra check, upload, results, errors, leave. */
+    val capture: CaptureCopy? = null,
 ) {
     companion object {
         /**
@@ -61,7 +63,75 @@ data class FlowCopy(
             errors = raw.optJSONObject("errors")?.let(ErrorsCopy::decode),
             privacy = raw.optJSONObject("privacy")?.let(PrivacyCopy::decode),
             help = raw.optJSONObject("help")?.toStringMap(),
+            capture = raw.optJSONObject("capture")?.let(CaptureCopy::decode),
         )
+    }
+}
+
+/**
+ * `copy.capture` (BRAND-v1 section 5). Keys are `group.key`, for example
+ * `primer.selfieTitle` or `leave.keepGoing`; every key is optional and a blank
+ * or missing one keeps the SDK's shipped English. Strings may use `{app}` (the
+ * resolved display name, else the host app's name) and `{side}`
+ * (left / right / up / down); unknown placeholders render literally.
+ * Tip lists (`primer.selfieTips`, `primer.twoStepsTips`, `result.retryTips`)
+ * are string arrays.
+ *
+ * The wire is read in camelCase and snake_case alike (`extraCheck` /
+ * `extra_check`, `selfieTitle` / `selfie_title`); keys are kept in camelCase.
+ */
+data class CaptureCopy(
+    val strings: Map<String, String> = emptyMap(),
+    val lists: Map<String, List<String>> = emptyMap(),
+) {
+    /** The override for `group.key`, or null when unset or blank. */
+    fun text(key: String): String? = strings[key]?.takeIf { it.isNotBlank() }
+
+    /** The override list for `group.key`, or null when unset or empty (blank items dropped). */
+    fun list(key: String): List<String>? = lists[key]?.filter { it.isNotBlank() }?.takeIf { it.isNotEmpty() }
+
+    companion object {
+        /** The groups of BRAND-v1 section 5. */
+        val GROUPS = listOf("primer", "guidance", "extraCheck", "upload", "result", "errors", "leave")
+
+        fun decode(raw: JSONObject): CaptureCopy {
+            val strings = LinkedHashMap<String, String>()
+            val lists = LinkedHashMap<String, List<String>>()
+            for (groupKey in raw.keys()) {
+                val group = raw.optJSONObject(groupKey) ?: continue
+                val g = camel(groupKey)
+                for (key in group.keys()) {
+                    if (group.isNull(key)) continue
+                    val k = "$g.${camel(key)}"
+                    val arr = group.optJSONArray(key)
+                    if (arr != null) {
+                        lists[k] = (0 until arr.length()).mapNotNull { i -> arr.optString(i, "").takeIf { it.isNotEmpty() } }
+                    } else {
+                        val v = group.opt(key) as? String ?: continue
+                        if (v.isNotEmpty()) strings[k] = v
+                    }
+                }
+            }
+            return CaptureCopy(strings, lists)
+        }
+
+        /** `selfie_title` -> `selfieTitle`; camelCase passes through. */
+        internal fun camel(s: String): String {
+            if ('_' !in s) return s
+            val parts = s.split('_').filter { it.isNotEmpty() }
+            return parts.first() + parts.drop(1).joinToString("") { it.replaceFirstChar(Char::uppercaseChar) }
+        }
+
+        /** Per key, a set (non-blank) high value wins; a blank high value lets the lower one through. */
+        fun merge(high: CaptureCopy?, low: CaptureCopy?): CaptureCopy? {
+            if (high == null) return low
+            if (low == null) return high
+            val strings = LinkedHashMap(low.strings)
+            high.strings.forEach { (k, v) -> if (v.isNotBlank()) strings[k] = v }
+            val lists = LinkedHashMap(low.lists)
+            high.lists.forEach { (k, v) -> if (v.any { it.isNotBlank() }) lists[k] = v }
+            return CaptureCopy(strings, lists)
+        }
     }
 }
 
@@ -301,6 +371,7 @@ fun mergeCopy(high: FlowCopy?, low: FlowCopy?): FlowCopy? {
             high.help != null && low.help != null -> low.help + high.help
             else -> high.help ?: low.help
         },
+        capture = CaptureCopy.merge(high.capture, low.capture),
     )
 }
 

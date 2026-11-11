@@ -334,7 +334,8 @@ data class FlowRunView(
          * Operator-configured white-label appearance (Phase 1c). Optional; when
          * present it carries the full FlowAppearance contract delivered under the
          * branding payload's `appearance` object. Merged below the SDK-init
-         * appearance and above the legacy primaryColor field.
+         * appearance (and SDK-init legacy fields: code beats the dashboard) and
+         * above this payload's own flat primaryColor field.
          */
         val appearance: FlowAppearance? = null,
         /**

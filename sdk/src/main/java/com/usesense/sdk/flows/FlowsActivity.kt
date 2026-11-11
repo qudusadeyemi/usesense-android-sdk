@@ -32,7 +32,9 @@ import com.usesense.sdk.internal.ResolvedBranding
 import com.usesense.sdk.SessionType
 import com.usesense.sdk.UseSenseCallback
 import com.usesense.sdk.BrandingConfig
+import com.usesense.sdk.UseSense
 import com.usesense.sdk.UseSenseConfig
+import com.usesense.sdk.UseSenseEnvironment
 import com.usesense.sdk.UseSenseError
 import com.usesense.sdk.UseSenseResult
 import com.usesense.sdk.flows.FlowError.Code
@@ -155,9 +157,10 @@ internal class FlowsActivity : ComponentActivity() {
     /**
      * The merged FlowAppearance driving the runner theme, resolved fresh each
      * time a surface is rendered so it reflects the latest server branding.
-     * Merge order (highest first): SDK-init (options.appearance) > server
-     * (branding.appearance) > legacy primaryColor (synthesised into an
-     * appearance) > built-in hosted-page tokens.
+     * Per field, highest first (BRAND-v1 section 2): the run options, then
+     * `UseSense.initialize` (appearance, then its legacy primaryColor /
+     * buttonRadius / fontFamily / logoUrl), then the dashboard (appearance, then
+     * its flat primary_color / logo_url), then the built-in tokens.
      */
     private fun mergedAppearance(): FlowAppearance? = resolvedBranding().appearance
 
@@ -173,7 +176,14 @@ internal class FlowsActivity : ComponentActivity() {
         return resolved
     }
 
-    private fun codeBranding(): BrandingConfig = BrandingConfig(appearance = options.appearance, copy = options.copy)
+    /**
+     * The code layers: the run options over `UseSense.initialize` (BRAND-v1
+     * section 2), so an integrator's init branding reaches the Flow too.
+     */
+    private fun codeBranding(): BrandingConfig = BrandingResolver.mergeCode(
+        BrandingConfig(appearance = options.appearance, copy = options.copy),
+        UseSense.currentConfig?.branding,
+    ) ?: BrandingConfig()
 
     private var brandingTrace: String? = null
 
@@ -196,8 +206,8 @@ internal class FlowsActivity : ComponentActivity() {
     /**
      * The merged FlowCopy driving the runner's subject-facing strings, resolved
      * fresh each time a surface is rendered so it reflects the latest server
-     * branding. Merge order (highest first): SDK-init (options.copy) > server
-     * (branding.copy) > built-in defaults.
+     * branding. Per key, highest first: the run options, then
+     * `UseSense.initialize`, then the dashboard (branding.copy), then built-in.
      */
     private fun mergedCopy(): FlowCopy? = resolvedBranding().copy
 
@@ -772,8 +782,13 @@ internal class FlowsActivity : ComponentActivity() {
                 // The capture screen resolves its own branding with the same
                 // resolver: the run options as code, the run view's branding as
                 // the dashboard layer, so every field keeps its true source.
-                val config = UseSenseConfig(
+                // The integrator's UseSense.initialize config (guided capture,
+                // result screens, classifier and so on) carries over; only the
+                // credentials are the Flow's (BRAND-v1 6). Environment stays
+                // AUTO: the Flow's session decides it, as before.
+                val config = (UseSense.currentConfig ?: UseSenseConfig(apiKey = "flow_runner")).copy(
                     apiKey = "flow_runner",
+                    environment = UseSenseEnvironment.AUTO,
                     baseUrl = endpoint,
                     branding = codeBranding(),
                 )

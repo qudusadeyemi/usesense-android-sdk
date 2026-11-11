@@ -101,4 +101,80 @@ class BrandingResolverTest {
         assertTrue(lines.contains("name=XTransfer (dashboard)"))
         assertTrue(lines.contains("header=logo"))
     }
+
+    // ── BRAND-v1 section 2 ──────────────────────────────────────────────
+
+    @Test
+    fun `a code legacy primaryColor beats a dashboard appearance primary, and reaches the capture ring`() {
+        val server = ServerBranding(appearance = FlowAppearance(colors = AppearanceColors(primary = "#FF6A00", surface = "#222222")))
+        val r = BrandingResolver.resolve(BrandingConfig(primaryColor = "#1F7A4D"), server)
+        assertEquals(Sourced("#1F7A4D", BrandingSource.CODE), r.primaryColor)
+        assertEquals("#1F7A4D", r.appearance?.colors?.primary)
+        // Other dashboard fields still come through.
+        assertEquals("#222222", r.appearance?.colors?.surface)
+        val theme = com.usesense.sdk.ui.theme.CaptureTheme.resolve(r.appearance, systemDark = false)
+        assertEquals(0xFF1F7A4D.toInt(), theme.page.primary)
+        // On the camera the same green, lightened to 3:1.
+        assertEquals(0xFF248E5A.toInt(), theme.camera.ring)
+    }
+
+    @Test
+    fun `code appearance beats code legacy fields, legacy buttonRadius and fontFamily beat the dashboard`() {
+        val code = BrandingConfig(
+            primaryColor = "#111111", buttonRadius = 6, fontFamily = "Inter",
+            appearance = FlowAppearance(colors = AppearanceColors(primary = "#00AA00")),
+        )
+        val server = ServerBranding(
+            appearance = FlowAppearance(
+                shape = com.usesense.sdk.flows.AppearanceShape(buttonRadius = 20),
+                typography = com.usesense.sdk.flows.AppearanceTypography(fontFamily = "Georgia"),
+            ),
+        )
+        val r = BrandingResolver.resolve(code, server)
+        assertEquals("#00AA00", r.primaryColor.value)
+        assertEquals(6, r.appearance?.shape?.buttonRadius)
+        assertEquals("Inter", r.appearance?.typography?.fontFamily)
+    }
+
+    @Test
+    fun `per-launch code beats SDK init, which beats the dashboard`() {
+        val launch = BrandingConfig(appearance = FlowAppearance(colors = AppearanceColors(primary = "#0000AA")))
+        val init = BrandingConfig(
+            displayName = "Acme Bank", primaryColor = "#AA0000",
+            appearance = FlowAppearance(colors = AppearanceColors(primary = "#00AA00", muted = "#555555")),
+        )
+        val code = BrandingResolver.mergeCode(launch, init)
+        val r = BrandingResolver.resolve(code, ServerBranding(displayName = "Dash", appearance = FlowAppearance(colors = AppearanceColors(muted = "#999999"))))
+        assertEquals("#0000AA", r.primaryColor.value)
+        assertEquals("#555555", r.appearance?.colors?.muted)
+        assertEquals(Sourced<String?>("Acme Bank", BrandingSource.CODE), r.displayName)
+        assertEquals(init, BrandingResolver.mergeCode(null, init))
+    }
+
+    @Test
+    fun `a Flow's run-view branding sits over its init-session branding`() {
+        val runView = ServerBranding(displayName = "Flow brand", appearance = FlowAppearance(colors = AppearanceColors(primary = "#123456")))
+        val initSession = ServerBranding(displayName = "Org", logoUrl = "https://cdn.example/org.png", appearance = FlowAppearance(colors = AppearanceColors(muted = "#777777")))
+        val merged = BrandingResolver.mergeServer(runView, initSession)!!
+        assertEquals("Flow brand", merged.displayName)
+        assertEquals("https://cdn.example/org.png", merged.logoUrl)
+        assertEquals("#123456", merged.appearance?.colors?.primary)
+        assertEquals("#777777", merged.appearance?.colors?.muted)
+        assertNull(BrandingResolver.mergeServer(null, null))
+    }
+
+    @Test
+    fun `the trace names every appearance and copy field's layer`() {
+        val code = BrandingConfig(
+            appearance = FlowAppearance(mode = FlowAppearance.Mode.DARK, colors = AppearanceColors(dark = AppearanceColors(background = "#0B0B12"))),
+            copy = com.usesense.sdk.flows.FlowCopy(capture = com.usesense.sdk.flows.CaptureCopy(strings = mapOf("leave.title" to "Leave?"))),
+        )
+        val server = ServerBranding(appearance = FlowAppearance(capture = com.usesense.sdk.flows.AppearanceCapture(challenge = "#FF4FA3")))
+        val r = BrandingResolver.resolve(code, server)
+        assertEquals(BrandingSource.CODE, r.fieldSources["mode"])
+        assertEquals(BrandingSource.CODE, r.fieldSources["colors.dark.background"])
+        assertEquals(BrandingSource.CODE, r.fieldSources["copy.capture.leave.title"])
+        assertEquals(BrandingSource.DASHBOARD, r.fieldSources["capture.challenge"])
+        assertTrue(r.traceLines().contains("capture.challenge (dashboard)"))
+    }
 }

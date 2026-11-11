@@ -2,7 +2,6 @@ package com.usesense.sdk.ui
 
 import android.content.Context
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PathMeasure
@@ -14,7 +13,9 @@ import androidx.core.graphics.ColorUtils
 import com.usesense.sdk.capture.scan.DepthGrid
 import com.usesense.sdk.capture.scan.Relief
 import com.usesense.sdk.capture.scan.OvalSpec
-import com.usesense.sdk.capture.scan.ScanColors
+import com.usesense.sdk.ui.theme.CaptureColor
+import com.usesense.sdk.ui.theme.CaptureFixed
+import com.usesense.sdk.ui.theme.CaptureTheme
 import kotlin.math.max
 import kotlin.math.min
 
@@ -40,7 +41,8 @@ internal class ContourScanView @JvmOverloads constructor(
 
     private val dp = resources.displayMetrics.density
 
-    var colors: ScanColors = ScanColors.DEFAULT
+    /** Camera accents from the capture theme (BRAND-v1 4.2), already contrast-gated. */
+    var colors: CaptureTheme.CameraTokens = CaptureTheme.cameraTokens(null)
         set(value) { field = value; invalidate() }
 
     var tone: Tone = Tone.NEUTRAL
@@ -71,7 +73,7 @@ internal class ContourScanView @JvmOverloads constructor(
     var showLines: Boolean = true
         set(value) { if (field != value) { field = value; kick() } }
 
-    /** The ring's colour instead of the theme ring: purple for an extra check, green when it's done. */
+    /** The ring's colour instead of the theme ring: the challenge accent during an extra check, success when it's done. */
     var ringColorOverride: Int? = null
         set(value) { if (field != value) { field = value; invalidate() } }
 
@@ -102,16 +104,16 @@ internal class ContourScanView @JvmOverloads constructor(
     private val ringSegment = Path()
     private val ringMeasure = PathMeasure()
 
-    private val guideFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(36, 255, 255, 255) }
+    private val guideFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = CaptureFixed.GUIDE_FILL }
     private val guideStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 2f * dp
     }
-    private val dimPaint = Paint().apply { color = Color.argb(31, 13, 15, 20) }
+    private val dimPaint = Paint().apply { color = CaptureFixed.SCAN_DIM }
     private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 3f * dp
-        color = Color.argb(46, 255, 255, 255)
+        color = CaptureFixed.RING_TRACK
     }
     private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -215,7 +217,7 @@ internal class ContourScanView @JvmOverloads constructor(
         // Fill light: a warm white veil over the whole screen, under the guide,
         // with the screen at full brightness. A border made the camera look inset.
         if (shownFill > 0.01f) {
-            fillLightPaint.color = Color.argb((shownFill * FILL_LIGHT_ALPHA * 255).toInt(), 255, 244, 226)
+            fillLightPaint.color = CaptureColor.withAlpha(CaptureFixed.FILL_LIGHT, shownFill * FILL_LIGHT_ALPHA)
             canvas.drawRect(0f, 0f, w, h, fillLightPaint)
         }
 
@@ -231,7 +233,7 @@ internal class ContourScanView @JvmOverloads constructor(
             guideStroke.color = when (tone) {
                 Tone.WARNING -> colors.warning
                 Tone.READY -> colors.ring
-                Tone.NEUTRAL -> Color.argb(230, 255, 255, 255)
+                Tone.NEUTRAL -> CaptureFixed.NEUTRAL_STROKE
             }
             canvas.drawOval(ovalRect, guideStroke)
         }

@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.usesense.sdk.ui.compose.USType
+import com.usesense.sdk.ui.compose.UseSenseTypeRamp
 import com.usesense.sdk.ui.compose.UseSenseTheme
 import com.usesense.sdk.ui.compose.components.USBrandingHeader
 import com.usesense.sdk.ui.compose.components.USButton
@@ -82,7 +83,7 @@ fun PrimerScreen(
                         ) {
                             Icon(Icons.Filled.VerifiedUser, null, tint = colors.mutedForeground, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text(note, style = USType.body.copy(fontSize = 12.sp), color = colors.mutedForeground)
+                            Text(note, style = UseSenseTypeRamp.body.copy(fontSize = 12.sp), color = colors.mutedForeground)
                         }
                     }
                     USButton(primaryText, onClick = onPrimary, variant = USButtonVariant.Primary, size = USButtonSize.Large, loading = isBusy)
@@ -100,10 +101,10 @@ fun PrimerScreen(
                 Icon(icon, null, tint = brand, modifier = Modifier.size(28.dp))
             }
             Spacer(Modifier.height(20.dp))
-            Text(title, style = USType.h2.copy(fontSize = 24.sp), color = colors.foreground)
+            Text(title, style = UseSenseTypeRamp.h2.copy(fontSize = 24.sp), color = colors.foreground)
             if (subtitle != null) {
                 Spacer(Modifier.height(6.dp))
-                Text(subtitle, style = USType.body, color = colors.mutedForeground)
+                Text(subtitle, style = UseSenseTypeRamp.body, color = colors.mutedForeground)
             }
             if (points.isNotEmpty()) {
                 Spacer(Modifier.height(28.dp))
@@ -119,7 +120,7 @@ fun PrimerScreen(
                         Spacer(Modifier.width(12.dp))
                         Text(
                             p.text,
-                            style = USType.body.copy(fontSize = 14.sp),
+                            style = UseSenseTypeRamp.body.copy(fontSize = 14.sp),
                             color = colors.foreground,
                             modifier = Modifier.padding(top = 4.dp),
                         )

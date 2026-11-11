@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Result card, as iOS ResultView: n1 surface, 24dp radius (shadow via elevation). -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="#FFF5F3EF" />
-    <corners android:radius="24dp" />
-</shape>

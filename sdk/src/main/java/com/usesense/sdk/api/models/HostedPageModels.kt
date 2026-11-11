@@ -38,13 +38,22 @@ data class ActionContext(
     @Json(name = "metadata") val metadata: Map<String, Any>? = null,
 )
 
+/**
+ * A remote hosted link's branding. Same wire shape as [SessionBranding]:
+ * `appearance` and `copy` ride along with the flat fields (BRAND-v1 6).
+ */
 @JsonClass(generateAdapter = true)
 data class OrgBranding(
     @Json(name = "display_name") val displayName: String? = null,
     @Json(name = "logo_url") val logoUrl: String? = null,
     @Json(name = "primary_color") val primaryColor: String? = null,
     @Json(name = "redirect_url") val redirectUrl: String? = null,
-)
+    @Json(name = "appearance") val appearance: Map<String, Any?>? = null,
+    @Json(name = "copy") val copy: Map<String, Any?>? = null,
+) {
+    fun toServerBranding(): com.usesense.sdk.ServerBranding =
+        SessionBranding(displayName, logoUrl, primaryColor, redirectUrl, appearance, copy).toServerBranding()
+}
 
 // ── Hosted Page Init Session (re-uses CreateSessionResponse but different endpoint) ──
 

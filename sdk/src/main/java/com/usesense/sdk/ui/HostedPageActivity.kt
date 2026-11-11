@@ -60,7 +60,6 @@ import com.usesense.sdk.capture.scan.PreviewMapper
 import com.usesense.sdk.capture.scan.QualityGate
 import com.usesense.sdk.capture.scan.Relief
 import com.usesense.sdk.capture.scan.ReliefBuilder
-import com.usesense.sdk.capture.scan.ScanColors
 import com.usesense.sdk.capture.scan.UploadBar
 import com.usesense.sdk.capture.scan.ScanController
 import com.usesense.sdk.capture.extracheck.ExtraCheckCopy
@@ -85,6 +84,15 @@ import com.usesense.sdk.internal.SessionState
 import com.usesense.sdk.internal.WatchdogPhase
 import com.usesense.sdk.internal.boundedCall
 import com.usesense.sdk.finalization.*
+import com.usesense.sdk.flows.AppearanceLogo
+import com.usesense.sdk.flows.FlowAppearance
+import com.usesense.sdk.ui.theme.CaptureFixed
+import com.usesense.sdk.ui.theme.CaptureImages
+import com.usesense.sdk.ui.theme.CaptureLoaderView
+import com.usesense.sdk.ui.theme.CaptureStrings
+import com.usesense.sdk.ui.theme.CaptureStyler
+import com.usesense.sdk.ui.theme.CaptureTheme
+import com.usesense.sdk.ui.theme.CoverDrawable
 import kotlinx.coroutines.*
 import java.util.concurrent.Executors
 
@@ -113,6 +121,15 @@ class HostedPageActivity : AppCompatActivity() {
     private var resolvedBranding: ResolvedBranding = BrandingResolver.resolve(null, null)
     private var brandingTrace: String? = null
     private var headerLogoUrl: String? = null
+    /**
+     * The one capture theme (BRAND-v1 4) every screen reads, resolved with the
+     * branding. [styler] applies it; [strings] is `copy.capture` over strings.xml.
+     */
+    private var captureTheme: CaptureTheme = CaptureTheme.resolve(null, systemDark = false)
+    private lateinit var styler: CaptureStyler
+    private var strings: CaptureStrings? = null
+    private var pageLogoUrl: String? = null
+    private var pageBackgroundUrl: String? = null
     private var actionContext: ActionContext? = null
     private var sessionData: HostedInitSessionResponse? = null
 
@@ -194,8 +211,10 @@ class HostedPageActivity : AppCompatActivity() {
     private lateinit var phraseText: TextView
     private lateinit var recordingIndicator: TextView
     private lateinit var challengeProgress: ProgressBar
-    private lateinit var loadingSpinner: ProgressBar
-    private lateinit var finalizingSpinner: ProgressBar
+    private lateinit var loadingSpinner: CaptureLoaderView
+    private lateinit var finalizingSpinner: CaptureLoaderView
+    private lateinit var loadingImage: ImageView
+    private lateinit var finalizingImage: ImageView
 
     // Upload/completing overlay (Section 5.8/5.9 — dark overlay on camera)
     private lateinit var uploadOverlay: FrameLayout
@@ -425,6 +444,14 @@ class HostedPageActivity : AppCompatActivity() {
     private lateinit var headerBar: LinearLayout
     private lateinit var headerDivider: View
 
+    // Page header, illustration and the help dialog (BRAND-v1)
+    private lateinit var pageContent: LinearLayout
+    private lateinit var pageHeader: LinearLayout
+    private lateinit var pageLogo: ImageView
+    private lateinit var pageBrandName: TextView
+    private lateinit var pageIllustration: ImageView
+    private lateinit var helpDialog: FrameLayout
+
     // Finalizing & result views
     private lateinit var finalizingScreen: LinearLayout
     private lateinit var finalizingTitle: TextView
@@ -544,6 +571,8 @@ class HostedPageActivity : AppCompatActivity() {
             androidx.core.view.WindowInsetsCompat.CONSUMED
         }
         bindViews()
+        resolveBranding(null, null)
+        applyBranding()
 
         watchdog = CaptureWatchdog(mainScope) { _, error -> onWatchdogTimeout(error) }
         // Leaving the capture must never end silently: abandon the attempt and
@@ -552,6 +581,7 @@ class HostedPageActivity : AppCompatActivity() {
         // this verification, with no resume.
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
+                if (helpDialog.visibility == View.VISIBLE) { hideHelpDialog(); return }
                 if (leaveDialog.visibility == View.VISIBLE) { hideLeaveDialog(); return }
                 if (isMidFlow()) { showLeaveDialog(); return }
                 abortAttempt()
@@ -579,12 +609,12 @@ class HostedPageActivity : AppCompatActivity() {
 
         apiClient = UseSenseApiClient(config)
 
-        // Merge SDK branding
-        resolveBranding(config.branding, pendingServerBranding ?: pendingPrebuiltSession?.branding?.toServerBranding())
-        applyBranding()
-
         usesSdkCaptureSequence = isDirectMode
         isFlowRun = pendingPrebuiltSession != null
+        // Resolved once here, and again as dashboard branding arrives (session
+        // create, remote data, a Flow's fresh init-session on "Try again").
+        resolveBranding(config.branding, flowServerBranding(pendingPrebuiltSession))
+        applyBranding()
         if (usesSdkCaptureSequence) {
             mainScope.launch { initAndStartCapture() }
         } else if (isDirectMode) {
@@ -665,6 +695,8 @@ class HostedPageActivity : AppCompatActivity() {
         challengeProgress = findViewById(R.id.hostedChallengeProgress)
         loadingSpinner = findViewById(R.id.hostedLoadingSpinner)
         finalizingSpinner = findViewById(R.id.finalizingSpinner)
+        loadingImage = findViewById(R.id.hostedLoadingImage)
+        finalizingImage = findViewById(R.id.finalizingImage)
 
         // Upload overlay (Section 5.8/5.9)
         uploadOverlay = findViewById(R.id.hostedUploadOverlay)
@@ -681,14 +713,11 @@ class HostedPageActivity : AppCompatActivity() {
         helpButton.setOnClickListener {
             // As iOS: the tips on align and scan; nothing while the upload runs.
             if (uploadOverlay.visibility == View.VISIBLE) return@setOnClickListener
-            helpOpen = true
-            AlertDialog.Builder(this)
-                .setTitle(R.string.usesense_capture_help_title)
-                .setMessage(R.string.usesense_capture_help_body)
-                .setPositiveButton(R.string.usesense_ok, null)
-                .setOnDismissListener { helpOpen = false }
-                .show()
+            showHelpDialog()
         }
+        helpDialog = findViewById(R.id.hostedHelpDialog)
+        helpDialog.setOnClickListener { hideHelpDialog() }
+        findViewById<View>(R.id.hostedHelpOk).setOnClickListener { hideHelpDialog() }
         scanView = findViewById(R.id.hostedScanView)
         hintPill = findViewById(R.id.hostedHintPill)
         hintTitle = findViewById(R.id.hostedHintTitle)
@@ -718,6 +747,11 @@ class HostedPageActivity : AppCompatActivity() {
         pagePrimary = findViewById(R.id.hostedPagePrimary)
         pageSecondary = findViewById(R.id.hostedPageSecondary)
         leaveDialog = findViewById(R.id.hostedLeaveDialog)
+        pageContent = findViewById(R.id.hostedPageContent)
+        pageHeader = findViewById(R.id.hostedPageHeader)
+        pageLogo = findViewById(R.id.hostedPageLogo)
+        pageBrandName = findViewById(R.id.hostedPageBrandName)
+        pageIllustration = findViewById(R.id.hostedPageIllustration)
         pageIcon.iconScale = 0.5f
         actionSheetIcon.iconScale = 0.5f
         findViewById<View>(R.id.hostedKeepGoingButton).setOnClickListener { hideLeaveDialog() }
@@ -741,141 +775,191 @@ class HostedPageActivity : AppCompatActivity() {
 
     // ─── Branding ────────────────────────────────────────────────────────
 
-    /** Resolve [code] over [server] (BrandingResolver) and trace the outcome. */
+    /**
+     * Resolve [code] over [server] (BrandingResolver), then the capture theme
+     * and copy from the result, and trace each field's source layer.
+     */
     private fun resolveBranding(code: BrandingConfig?, server: ServerBranding?) {
         resolvedBranding = BrandingResolver.resolve(code, server)
         brandingTrace = BrandingResolver.trace("capture", resolvedBranding, brandingTrace)
+        val systemDark = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+        // Unset mode: the SDK's capture pages stay dark (today's look); a remote
+        // hosted link's intro / result / error screens stay light (theirs).
+        val unsetMode = if (usesSdkCaptureSequence) FlowAppearance.Mode.DARK else FlowAppearance.Mode.LIGHT
+        captureTheme = CaptureTheme.resolve(resolvedBranding.appearance, systemDark, unsetMode)
+        styler = CaptureStyler(this, captureTheme)
+        strings = CaptureStrings(
+            copy = resolvedBranding.copy?.capture,
+            app = appName(),
+            resourceName = { id -> runCatching { resources.getResourceEntryName(id) }.getOrNull() },
+            shipped = { id, app -> getString(id, app) },
+        )
     }
+
+    /** A capture string: the `copy.capture` override, else strings.xml (`%s` / `{app}` = [appName]). */
+    private fun cs(id: Int, key: String? = null): String = strings?.text(id, key) ?: getString(id, appName())
 
     /** [withName] filled with the org's name, or the name-free [generic] when there is none. */
     private fun orgText(withName: Int, generic: Int): String =
         resolvedBranding.displayName.value?.let { getString(withName, it) } ?: getString(generic)
 
-    /** Whether the header bar has anything to show (logo or name). */
-    private val hasHeader: Boolean get() = resolvedBranding.header != BrandHeader.None
+    /** Whether the header has anything to show (logo or name) and is not placed `none`. */
+    private val hasHeader: Boolean
+        get() = resolvedBranding.header != BrandHeader.None && captureTheme.logo.placement != AppearanceLogo.Placement.NONE
 
+    /** Apply the resolved theme to every capture screen (BRAND-v1 4). */
     private fun applyBranding() {
-        val branding = resolvedBranding
+        val t = captureTheme
+        val root = (findViewById<View>(android.R.id.content) as android.view.ViewGroup).getChildAt(0)
+        styler.styleTree(root)
 
-        // As iOS (HostedPageHeader): the logo alone when there is one; the name
-        // shows while it loads and stays if there is no logo or it fails. With
-        // neither, there is no header (no invented "UseSense").
-        when (val header = branding.header) {
+        // Header bar (remote link and loading screens) and the page header.
+        val gravity = if (t.logo.placement == AppearanceLogo.Placement.CENTER) android.view.Gravity.CENTER
+        else android.view.Gravity.CENTER_VERTICAL or android.view.Gravity.START
+        headerBar.gravity = gravity
+        pageHeader.gravity = gravity
+        val logoHeight = styler.dp(t.logo.heightDp).toInt()
+        headerLogo.layoutParams = headerLogo.layoutParams.apply { height = logoHeight }
+        pageLogo.layoutParams = pageLogo.layoutParams.apply { height = logoHeight }
+        when (val header = resolvedBranding.header.takeIf { hasHeader } ?: BrandHeader.None) {
             is BrandHeader.Logo -> {
-                headerText.text = header.fallbackName.orEmpty()
-                headerText.visibility = if (header.fallbackName != null) View.VISIBLE else View.GONE
+                showBrandName(header.fallbackName)
                 if (headerLogoUrl != header.url) {
                     headerLogoUrl = header.url
                     headerLogo.visibility = View.GONE
-                    mainScope.launch(Dispatchers.IO) {
-                        val bitmap = runCatching {
-                            java.net.URL(header.url).openStream().use { android.graphics.BitmapFactory.decodeStream(it) }
-                        }.getOrNull()
-                        if (bitmap != null) {
-                            withContext(Dispatchers.Main) {
-                                if (headerLogoUrl != header.url) return@withContext
-                                headerLogo.setImageBitmap(bitmap)
-                                headerLogo.visibility = View.VISIBLE
-                                headerText.visibility = View.GONE
-                            }
-                        }
+                    pageLogo.visibility = View.GONE
+                    mainScope.launch {
+                        val bitmap = CaptureImages.load(header.url) ?: return@launch
+                        if (headerLogoUrl != header.url) return@launch
+                        headerLogo.setImageBitmap(bitmap)
+                        pageLogo.setImageBitmap(bitmap)
+                        headerLogo.visibility = View.VISIBLE
+                        pageLogo.visibility = View.VISIBLE
+                        showBrandName(null)
                     }
                 }
             }
             is BrandHeader.Name -> {
                 headerLogoUrl = null
                 headerLogo.visibility = View.GONE
-                headerText.text = header.name
-                headerText.visibility = View.VISIBLE
+                pageLogo.visibility = View.GONE
+                showBrandName(header.name)
             }
             BrandHeader.None -> {
                 headerLogoUrl = null
                 headerLogo.visibility = View.GONE
-                headerText.visibility = View.GONE
+                pageLogo.visibility = View.GONE
+                showBrandName(null)
             }
         }
+        pageHeader.visibility = if (hasHeader) View.VISIBLE else View.GONE
+        // The header takes the place of the page's top space.
+        pageContent.setPadding(
+            pageContent.paddingLeft, styler.dp(if (hasHeader) PAGE_TOP_WITH_HEADER_DP else PAGE_TOP_DP).toInt(),
+            pageContent.paddingRight, pageContent.paddingBottom,
+        )
         if (!hasHeader) {
             headerBar.visibility = View.GONE
             headerDivider.visibility = View.GONE
         }
 
-        try {
-            val primaryColor = Color.parseColor(branding.primaryColor.value)
-            headerText.setTextColor(primaryColor)
-        } catch (_: Exception) {}
-
-        try {
-            val primaryColor = Color.parseColor(branding.primaryColor.value)
-            val bgColor = Color.argb(31, Color.red(primaryColor), Color.green(primaryColor), Color.blue(primaryColor))
-            val circleDrawable = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(bgColor)
+        // Page background image (cover), behind every page-surface screen.
+        val bg = t.backgroundImageUrl
+        if (bg != pageBackgroundUrl) {
+            pageBackgroundUrl = bg
+            if (bg != null) mainScope.launch {
+                val bitmap = CaptureImages.load(bg) ?: return@launch
+                if (pageBackgroundUrl != bg) return@launch
+                pageView.background = CoverDrawable(bitmap, t.page.background)
+                pageBackgroundBitmap = bitmap
+                applyRootBackground()
             }
-            introIconCircle.background = circleDrawable
-            actionReviewIconCircle.background = circleDrawable
-            // The glyph inside each circle too: it is tinted DeepSense Blue in
-            // XML, so a branded intro showed a blue camera on a brand circle.
-            val glyphTint = ColorStateList.valueOf(primaryColor)
-            listOf(introIconCircle, actionReviewIconCircle).forEach { circle ->
-                ((circle as? android.view.ViewGroup)?.getChildAt(0) as? ImageView)?.imageTintList = glyphTint
-            }
-        } catch (_: Exception) {}
-
-        try {
-            val primaryColor = Color.parseColor(branding.primaryColor.value)
-            introGetStartedButton.setBackgroundColor(primaryColor)
-            actionReviewVerifyButton.setBackgroundColor(primaryColor)
-        } catch (_: Exception) {}
-
-        applyBrandToCaptureScreens()
-    }
-
-    /** The brand colour, or null when it is unparseable. */
-    private fun brandColor(): Int? = runCatching { Color.parseColor(resolvedBranding.primaryColor.value) }.getOrNull()
-
-    /** True when the org or integrator set a colour (not the built-in DeepSense Blue). */
-    private val isBranded: Boolean
-        get() = resolvedBranding.isBrandColorSet
-
-    /** Text on a brand-filled surface: the appearance's primaryForeground, else white. */
-    private fun brandForeground(): Int =
-        resolvedBranding.appearance?.colors?.primaryForeground
-            ?.let { runCatching { Color.parseColor(it) }.getOrNull() }
-            ?: Color.WHITE
-
-    /**
-     * Theme the loading, permission, instructions, challenge and finalizing
-     * screens from the brand colour. These read `@color/usesense_primary` from
-     * XML, so inside a branded Flow they stayed DeepSense Blue while the
-     * header and intro took the org colour. Unbranded sessions keep the XML
-     * palette untouched.
-     */
-    private fun applyBrandToCaptureScreens() {
-        if (!isBranded) return
-        val primary = brandColor() ?: return
-        val tint = ColorStateList.valueOf(primary)
-        val density = resources.displayMetrics.density
-
-        loadingSpinner.indeterminateTintList = tint
-        finalizingSpinner.indeterminateTintList = tint
-        uploadOverlaySpinner.indeterminateTintList = tint
-        challengeProgress.progressTintList = tint
-        permissionIcon.imageTintList = tint
-        permissionButton.backgroundTintList = tint
-        permissionButton.setTextColor(brandForeground())
-
-        instructionsIcon.background = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(Color.argb(31, Color.red(primary), Color.green(primary), Color.blue(primary)))
         }
-        instructionsCta.background = GradientDrawable().apply {
+
+        // Icon tiles on the intro / review screens and the white error and result screens.
+        listOf(introIconCircle, actionReviewIconCircle).forEach {
+            it.background = styler.rounded(t.toneTile(CaptureTheme.Tone.PRIMARY), styler.dp(t.shape.tileRadiusDp))
+        }
+        actionContextCard.background = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            cornerRadius = 10 * density
-            setColor(primary)
+            cornerRadius = styler.dp(t.shape.tileRadiusDp)
+            setStroke(styler.dp(2).toInt(), t.page.primary)
+            setColor(t.page.surface)
         }
-        instructionsCta.setTextColor(brandForeground())
+        resultActionBox.background = styler.rounded(t.page.background, styler.dp(t.shape.tileRadiusDp))
+
+        // Loaders: `loader.style` in primary, or `loader.imageUrl`.
+        listOf(loadingSpinner, finalizingSpinner).forEach { loader ->
+            loader.style = t.loader.style
+            loader.color = t.page.primary
+        }
+        t.loader.imageUrl?.let { url ->
+            mainScope.launch {
+                val bitmap = CaptureImages.load(url) ?: return@launch
+                listOf(loadingSpinner to loadingImage, finalizingSpinner to finalizingImage).forEach { (loader, image) ->
+                    image.setImageBitmap(bitmap)
+                    image.visibility = View.VISIBLE
+                    loader.visibility = View.GONE
+                }
+            }
+        }
+
+        // Camera accents (contrast-gated).
+        scanView.colors = t.camera
+        extraCheckView.colors = t.camera
+        challengeProgress.progressTintList = ColorStateList.valueOf(t.camera.ring)
+
+        // Copy that the layout carries.
+        findViewById<TextView>(R.id.hostedLeaveTitle).text = cs(R.string.usesense_leave_title)
+        findViewById<TextView>(R.id.hostedLeaveBody).text = cs(R.string.usesense_leave_body)
+        findViewById<TextView>(R.id.hostedLeaveButton).text = cs(R.string.usesense_leave)
+        findViewById<TextView>(R.id.hostedKeepGoingButton).text = cs(R.string.usesense_keep_going)
+        findViewById<TextView>(R.id.hostedHelpTitle).text = cs(R.string.usesense_capture_help_title)
+        findViewById<TextView>(R.id.hostedHelpBody).text = cs(R.string.usesense_capture_help_body)
+        findViewById<TextView>(R.id.hostedHelpOk).text = cs(R.string.usesense_ok)
+        uploadOverlayTitle.text = cs(R.string.usesense_upload_title)
+        uploadOverlaySubtitle.text = cs(R.string.usesense_upload_detail)
+
+        applyRootBackground()
     }
 
+    private fun showBrandName(name: String?) {
+        headerText.text = name.orEmpty()
+        pageBrandName.text = name.orEmpty()
+        val v = if (name != null) View.VISIBLE else View.GONE
+        headerText.visibility = v
+        pageBrandName.visibility = v
+    }
+
+    /** Set by the latest background-image load; drawn behind the page-surface screens. */
+    private var pageBackgroundBitmap: android.graphics.Bitmap? = null
+    private var currentStep: PageStep? = null
+
+    /** The camera's fixed background, or the page background (and its image) everywhere else. */
+    private fun applyRootBackground() {
+        val step = currentStep ?: return
+        val root = (findViewById<View>(android.R.id.content) as? android.view.ViewGroup)?.getChildAt(0) ?: return
+        val camera = step == PageStep.CAPTURE || step == PageStep.FINALIZING
+        root.background = when {
+            camera -> android.graphics.drawable.ColorDrawable(CaptureFixed.CAMERA_BACKGROUND)
+            else -> pageBackgroundBitmap?.let { CoverDrawable(it, captureTheme.page.background) }
+                ?: android.graphics.drawable.ColorDrawable(captureTheme.page.background)
+        }
+    }
+
+    /** "Quick face scan" (the camera's "?"), themed like the leave dialog. Freezes a running movement. */
+    private fun showHelpDialog() {
+        helpOpen = true
+        helpDialog.visibility = View.VISIBLE
+        helpDialog.announceForAccessibility("${cs(R.string.usesense_capture_help_title)}. ${cs(R.string.usesense_capture_help_body)}")
+    }
+
+    private fun hideHelpDialog() {
+        if (!::helpDialog.isInitialized) return
+        helpDialog.visibility = View.GONE
+        helpOpen = false
+    }
 
     // ─── Remote Data Loading ─────────────────────────────────────────────
 
@@ -903,9 +987,8 @@ class HostedPageActivity : AppCompatActivity() {
 
         val data = result.getOrNull() ?: run { showError("Empty response"); return }
         orgBranding = data.branding ?: data.enrollment?.branding
-        resolveBranding(pendingConfig?.branding, orgBranding?.let {
-            ServerBranding(it.displayName, it.logoUrl, it.primaryColor, it.redirectUrl)
-        })
+        // The whole dashboard layer, appearance and copy included (BRAND-v1 6).
+        resolveBranding(pendingConfig?.branding, orgBranding?.toServerBranding())
         applyBranding()
         apiClient.markEnrollmentOpened(remoteId)
         showIntroduction()
@@ -918,9 +1001,7 @@ class HostedPageActivity : AppCompatActivity() {
         val data = result.getOrNull() ?: run { showError("Empty response"); return }
         orgBranding = data.branding ?: data.session?.branding
         actionContext = data.actionContext ?: data.session?.actionContext
-        resolveBranding(pendingConfig?.branding, orgBranding?.let {
-            ServerBranding(it.displayName, it.logoUrl, it.primaryColor, it.redirectUrl)
-        })
+        resolveBranding(pendingConfig?.branding, orgBranding?.toServerBranding())
         applyBranding()
         apiClient.markSessionOpened(remoteId)
         showActionReview()
@@ -948,16 +1029,6 @@ class HostedPageActivity : AppCompatActivity() {
             actionContextCard.visibility = View.VISIBLE
             actionContextText.text = actionContext?.displayText ?: ""
 
-            try {
-                val primaryColor = Color.parseColor(resolvedBranding.primaryColor.value)
-                val cardBg = GradientDrawable().apply {
-                    shape = GradientDrawable.RECTANGLE
-                    cornerRadius = 12f * resources.displayMetrics.density
-                    setStroke((2 * resources.displayMetrics.density).toInt(), primaryColor)
-                    setColor(Color.WHITE)
-                }
-                actionContextCard.background = cardBg
-            } catch (_: Exception) {}
 
             val riskTier = actionContext?.riskTier
             if (riskTier != null) {
@@ -988,20 +1059,21 @@ class HostedPageActivity : AppCompatActivity() {
     }
 
     private fun configureRiskBadge(riskTier: String) {
-        val (text, bgColor, textColor) = when (riskTier.lowercase()) {
-            "critical" -> Triple(getString(R.string.usesense_risk_critical), Color.parseColor("#FFF0EC"), Color.parseColor("#B73520"))
-            "high" -> Triple(getString(R.string.usesense_risk_high), Color.parseColor("#FFF7E8"), Color.parseColor("#B77829"))
-            "medium" -> Triple(getString(R.string.usesense_risk_medium), Color.parseColor("#EBF0FF"), Color.parseColor("#2C4AB7"))
-            "low" -> Triple(getString(R.string.usesense_risk_low), Color.parseColor("#E6FBF5"), Color.parseColor("#008066"))
-            else -> Triple(riskTier.uppercase(), Color.parseColor("#F5F3EF"), Color.parseColor("#6B6760"))
+        // The tier's colour at 16% behind foreground text (BRAND-v1 4.1 tokens).
+        val (text, tone) = when (riskTier.lowercase()) {
+            "critical" -> getString(R.string.usesense_risk_critical) to CaptureTheme.Tone.ERROR
+            "high" -> getString(R.string.usesense_risk_high) to CaptureTheme.Tone.WARNING
+            "medium" -> getString(R.string.usesense_risk_medium) to CaptureTheme.Tone.PRIMARY
+            "low" -> getString(R.string.usesense_risk_low) to CaptureTheme.Tone.SUCCESS
+            else -> riskTier.uppercase() to null
         }
         riskTierBadge.text = text
-        riskTierBadge.setTextColor(textColor)
-        riskTierBadge.background = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = 6f * resources.displayMetrics.density
-            setColor(bgColor)
-        }
+        riskTierBadge.setTextColor(captureTheme.page.foreground)
+        riskTierBadge.typeface = styler.bodyMedium
+        riskTierBadge.background = styler.rounded(
+            tone?.let(captureTheme::toneTile) ?: captureTheme.page.surface,
+            6f * resources.displayMetrics.density,
+        )
     }
 
     private fun showDisputeConfirmation() {
@@ -1030,7 +1102,7 @@ class HostedPageActivity : AppCompatActivity() {
 
     private suspend fun initAndStartCapture() {
         setStep(PageStep.LOADING)
-        loadingText.text = getString(R.string.usesense_getting_ready)
+        loadingText.text = cs(R.string.usesense_getting_ready)
 
         try {
             val config = pendingConfig ?: run { showError("SDK not configured"); return }
@@ -1084,6 +1156,10 @@ class HostedPageActivity : AppCompatActivity() {
                     return
                 }
                 sess.injectHostedSessionData(response)
+                // A Flow's "Try again" re-resolves branding (BRAND-v1 6): the run
+                // view's branding over the fresh init-session's.
+                resolveBranding(config.branding, flowServerBranding(response))
+                applyBranding()
             } else {
                 val createResult = sess.createSession()
                 createResult.onFailure { e ->
@@ -1520,7 +1596,7 @@ class HostedPageActivity : AppCompatActivity() {
         challengeOverlay.visibility = View.GONE
         faceGuideOverlay.visibility = View.VISIBLE
         showCaptureText(false)
-        scanView.colors = ScanColors.resolve(resolvedBranding.appearance)
+        scanView.colors = captureTheme.camera
         scanView.tone = ContourScanView.Tone.NEUTRAL
         scanView.showLines = true
         scanView.ringColorOverride = null
@@ -1583,11 +1659,11 @@ class HostedPageActivity : AppCompatActivity() {
             name == "xc_dot" -> showExtraCheckSheet(ExtraCheckKind.FOLLOW_DOT, dots) {}
             name == "xc_digits" -> showExtraCheckSheet(ExtraCheckKind.SPEAK_DIGITS, digits) {}
             name == "upload_failed" -> showActionSheet(
-                StrokeIconView.Icons.UPLOAD, StrokeIconView.TINT_AMBER_BG, StrokeIconView.TINT_AMBER_FG,
-                getString(R.string.usesense_upload_failed_title), getString(R.string.usesense_upload_failed_body),
-                getString(R.string.usesense_page_try_again),
+                StrokeIconView.Icons.UPLOAD, CaptureTheme.Tone.WARNING,
+                cs(R.string.usesense_upload_failed_title), cs(R.string.usesense_upload_failed_body),
+                cs(R.string.usesense_page_try_again, com.usesense.sdk.ui.theme.CaptureCopyKeys.UPLOAD_RETRY),
             ) {}
-            name == "leave" -> { showGuidance(getString(R.string.usesense_hint_hold_still), null); showLeaveDialog() }
+            name == "leave" -> { showGuidance(cs(R.string.usesense_hint_hold_still), null); showLeaveDialog() }
             name == "inline_flash" || name == "inline_rmas" -> {
                 faceGuideOverlay.visibility = View.VISIBLE
                 captureTopBar.visibility = View.VISIBLE
@@ -1597,8 +1673,8 @@ class HostedPageActivity : AppCompatActivity() {
                 scanView.showLines = false
                 scanView.ringColorOverride = null
                 if (name == "inline_flash") {
-                    ensureFlashView().setBackgroundColor(Color.argb(153, 0, 255, 255))
-                    showGuidance(getString(R.string.usesense_hint_hold_still), getString(R.string.usesense_inline_flash_detail))
+                    ensureFlashView().setBackgroundColor(CaptureFixed.FLASH_PREVIEW)
+                    showGuidance(cs(R.string.usesense_hint_hold_still), cs(R.string.usesense_inline_flash_detail))
                 } else {
                     showMicroAction(MicroActionDetector.SMILE, 2)
                 }
@@ -1610,7 +1686,7 @@ class HostedPageActivity : AppCompatActivity() {
                 setScanBlur(false)
                 scanView.scanning = true
                 scanView.showLines = false
-                scanView.ringColorOverride = ExtraCheckOverlayView.PURPLE
+                scanView.ringColorOverride = captureTheme.camera.challenge
                 extraCheckView.reset()
                 extraCheckView.frozen = true
                 extraCheckView.topInset = captureTopBar.bottom.toFloat()
@@ -2028,7 +2104,7 @@ class HostedPageActivity : AppCompatActivity() {
         haptic()
         stopScanLoop()
         restoreFillLight()
-        hintPill.announceForAccessibility(getString(R.string.usesense_scan_complete))
+        hintPill.announceForAccessibility(cs(R.string.usesense_scan_complete))
         val sess = session ?: return
         // On-device attack detection first (if the policy has it on and the
         // scan looked off), then the movement or the upload. A round 2 the
@@ -2126,8 +2202,8 @@ class HostedPageActivity : AppCompatActivity() {
         scanView.tone = ContourScanView.Tone.READY
         scanView.ovalScale = step.targetScale.toFloat()
         placeHint()
-        showGuidance(getString(R.string.usesense_hint_move_closer), null)
-        hintPill.announceForAccessibility(getString(R.string.usesense_hint_move_closer))
+        showGuidance(cs(R.string.usesense_hint_move_closer), null)
+        hintPill.announceForAccessibility(cs(R.string.usesense_hint_move_closer))
         Log.i(TAG, "Closer: started, far eye %.1f px, need %.1f px".format(java.util.Locale.US, far, far * step.minScale))
         return true
     }
@@ -2143,7 +2219,7 @@ class HostedPageActivity : AppCompatActivity() {
             bankedNear = sess.closerBankedFrames,
         )
         if (tick.bank) sess.resumeCapture() else sess.pauseCapture()
-        showGuidance(getString(if (tick.needsCloser) R.string.usesense_hint_move_closer else R.string.usesense_hint_hold_still), null)
+        showGuidance(cs(if (tick.needsCloser) R.string.usesense_hint_move_closer else R.string.usesense_hint_hold_still), null)
         if (tick.done) {
             sess.pauseCapture()
             sess.endCloserStep()
@@ -2209,22 +2285,22 @@ class HostedPageActivity : AppCompatActivity() {
                 detectAction = { type, windowMs -> watchMicroAction(type, windowMs) },
                 getReactionTimeMs = { 0L },
                 onShowIntro = {
-                    showGuidance(getString(R.string.usesense_inline_intro), getString(R.string.usesense_inline_intro_detail))
-                    hintPill.announceForAccessibility(getString(R.string.usesense_inline_intro))
+                    showGuidance(cs(R.string.usesense_inline_intro), cs(R.string.usesense_inline_intro_detail))
+                    hintPill.announceForAccessibility(cs(R.string.usesense_inline_intro))
                     // Flash Reflection runs right after the intro: say the screen will change.
                     handler.postDelayed({
                         if (scanStage == ScanStage.INLINE && microAction == null) {
-                            showGuidance(getString(R.string.usesense_hint_hold_still), getString(R.string.usesense_inline_flash_detail))
+                            showGuidance(cs(R.string.usesense_hint_hold_still), cs(R.string.usesense_inline_flash_detail))
                         }
                     }, INLINE_INTRO_MS)
                 },
                 onShowComplete = {
                     overlay.setBackgroundColor(Color.TRANSPARENT)
                     scanView.paused = false
-                    scanView.ringColorOverride = ExtraCheckOverlayView.GREEN
+                    scanView.ringColorOverride = captureTheme.camera.success
                     scanView.progress = 1f
                     extraCheckView.tick = true
-                    showGuidance(getString(R.string.usesense_xc_done), null)
+                    showGuidance(cs(R.string.usesense_xc_done), null)
                 },
             )
             sess.stepUpEvidence = orchestrator.toJson()
@@ -2262,8 +2338,8 @@ class HostedPageActivity : AppCompatActivity() {
 
     /** An RMAS prompt: plain guidance under the oval, the ring amber while it waits. */
     private fun showMicroAction(type: String, step: Int) {
-        showGuidance(getString(MicroActionDetector.prompt(type)), null)
-        hintPill.announceForAccessibility(getString(MicroActionDetector.prompt(type)))
+        showGuidance(cs(MicroActionDetector.prompt(type)), null)
+        hintPill.announceForAccessibility(cs(MicroActionDetector.prompt(type)))
         scanView.paused = true
         scanView.progress = ((step - 1) / RMAS_STEPS).coerceIn(0f, 1f).let { if (it == 0f) 0.004f else it }
     }
@@ -2334,7 +2410,7 @@ class HostedPageActivity : AppCompatActivity() {
         setScanBlur(false)
         scanView.scanning = true
         scanView.showLines = false
-        scanView.ringColorOverride = ExtraCheckOverlayView.PURPLE
+        scanView.ringColorOverride = captureTheme.camera.challenge
         scanView.paused = false
         scanView.tone = ContourScanView.Tone.READY
         scanView.resetProgress()
@@ -2419,16 +2495,16 @@ class HostedPageActivity : AppCompatActivity() {
 
     private fun isWordsPhrase() = extraCheckPresenter?.spec?.phrase?.any { it.isLetter() } == true
 
-    private fun showGuidance(g: Guidance) = showGuidance(getString(g.title), g.detail?.let { getString(it) })
+    private fun showGuidance(g: Guidance) = showGuidance(cs(g.title), g.detail?.let { cs(it) })
 
     private fun announceExtraCheck(runner: ExtraCheckRunner) {
         val g = ExtraCheckCopy.guidance(runner, words = isWordsPhrase(), pausedBy = pausingHint())
-        hintPill.announceForAccessibility(listOfNotNull(getString(g.title), g.detail?.let { getString(it) }).joinToString(". "))
+        hintPill.announceForAccessibility(listOfNotNull(cs(g.title), g.detail?.let { cs(it) }).joinToString(". "))
     }
 
     private fun finishExtraCheckVisuals(runner: ExtraCheckRunner) {
         scanView.paused = false
-        scanView.ringColorOverride = ExtraCheckOverlayView.GREEN
+        scanView.ringColorOverride = captureTheme.camera.success
         scanView.progress = 1f
         extraCheckView.arrow = null
         extraCheckView.dotVisible = false
@@ -2448,7 +2524,7 @@ class HostedPageActivity : AppCompatActivity() {
         sess.pauseCapture()
         haptic()
         finishExtraCheckVisuals(runner)
-        hintPill.announceForAccessibility(getString(R.string.usesense_xc_done))
+        hintPill.announceForAccessibility(cs(R.string.usesense_xc_done))
         val round = captureRound
         handler.postDelayed({
             if (session !== sess || isFinishing) return@postDelayed
@@ -2472,7 +2548,7 @@ class HostedPageActivity : AppCompatActivity() {
                 "dropped=${scanController?.droppedWindows} aligningMs=${SystemClock.elapsedRealtime() - alignStartedAt}")
         }
         shutterButton.visibility = View.VISIBLE
-        showGuidance(getString(R.string.usesense_shutter_title), null)
+        showGuidance(cs(R.string.usesense_shutter_title), null)
         scanView.tone = ContourScanView.Tone.NEUTRAL
         if (!shutterAnnounced) {
             shutterAnnounced = true
@@ -2483,7 +2559,7 @@ class HostedPageActivity : AppCompatActivity() {
     /** During the scan the guidance is just "Hold still" (no counters or stage names, SPEC v1.1). */
     @Suppress("UNUSED_PARAMETER")
     private fun renderScanCopy(controller: ScanController) {
-        showGuidance(getString(R.string.usesense_hint_hold_still), null)
+        showGuidance(cs(R.string.usesense_hint_hold_still), null)
         if (!scanCopyShown) {
             scanCopyShown = true
             hintPill.announceForAccessibility(hintTitle.text)
@@ -2492,28 +2568,28 @@ class HostedPageActivity : AppCompatActivity() {
 
     /** Instruction and optional second line. Null for [GateHint.BRIGHTENING]: the fill light works silently. */
     private fun hintText(hint: GateHint): Pair<String, String?>? = when (hint) {
-        GateHint.SHOW_FACE -> getString(R.string.usesense_hint_show_face) to null
-        GateHint.ONE_PERSON -> getString(R.string.usesense_hint_one_person) to null
-        GateHint.FACE_COVERED -> getString(R.string.usesense_hint_face_covered) to null
-        GateHint.CENTRE -> getString(R.string.usesense_hint_centre) to null
-        GateHint.MOVE_CLOSER -> getString(R.string.usesense_hint_move_closer) to null
-        GateHint.MOVE_BACK, GateHint.TOO_BIG -> getString(R.string.usesense_hint_move_back) to null
-        GateHint.LOOK_STRAIGHT -> getString(R.string.usesense_hint_look_straight) to null
+        GateHint.SHOW_FACE -> cs(R.string.usesense_hint_show_face) to null
+        GateHint.ONE_PERSON -> cs(R.string.usesense_hint_one_person) to null
+        GateHint.FACE_COVERED -> cs(R.string.usesense_hint_face_covered) to null
+        GateHint.CENTRE -> cs(R.string.usesense_hint_centre) to null
+        GateHint.MOVE_CLOSER -> cs(R.string.usesense_hint_move_closer) to null
+        GateHint.MOVE_BACK, GateHint.TOO_BIG -> cs(R.string.usesense_hint_move_back) to null
+        GateHint.LOOK_STRAIGHT -> cs(R.string.usesense_hint_look_straight) to null
         GateHint.BRIGHTENING -> null
-        GateHint.FACE_LIGHT -> getString(R.string.usesense_hint_face_light) to
-            getString(R.string.usesense_hint_face_light_detail)
-        GateHint.TOO_BRIGHT -> getString(R.string.usesense_hint_too_bright) to
-            getString(R.string.usesense_hint_too_bright_detail)
-        GateHint.HOLD_STEADY -> getString(R.string.usesense_hint_hold_steady) to null
-        GateHint.EYES_OPEN -> getString(R.string.usesense_hint_eyes_open) to null
-        GateHint.HOLD_STILL -> getString(R.string.usesense_hint_hold_still) to null
+        GateHint.FACE_LIGHT -> cs(R.string.usesense_hint_face_light) to
+            cs(R.string.usesense_hint_face_light_detail)
+        GateHint.TOO_BRIGHT -> cs(R.string.usesense_hint_too_bright) to
+            cs(R.string.usesense_hint_too_bright_detail)
+        GateHint.HOLD_STEADY -> cs(R.string.usesense_hint_hold_steady) to null
+        GateHint.EYES_OPEN -> cs(R.string.usesense_hint_eyes_open) to null
+        GateHint.HOLD_STILL -> cs(R.string.usesense_hint_hold_still) to null
     }
 
     /** The align instruction: the hint, or "Hold still" when nothing needs doing. */
     private fun renderHint(hint: GateHint?) {
         val text = hint?.let(::hintText)
         if (text == null) {
-            showGuidance(getString(R.string.usesense_hint_hold_still), null)
+            showGuidance(cs(R.string.usesense_hint_hold_still), null)
         } else {
             showGuidance(text.first, text.second)
         }
@@ -2615,7 +2691,7 @@ class HostedPageActivity : AppCompatActivity() {
     private fun setPreviewBlurred(blurred: Boolean) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
             // No blur before Android 12: a near-opaque sheet hides the face instead.
-            uploadOverlay.setBackgroundColor(Color.parseColor(if (blurred) "#E60D0F14" else "#400D0F14"))
+            uploadOverlay.setBackgroundColor(if (blurred) CaptureFixed.CAMERA_SCRIM_OPAQUE else CaptureFixed.CAMERA_SCRIM)
             return
         }
         if (blurred) {
@@ -2679,9 +2755,9 @@ class HostedPageActivity : AppCompatActivity() {
      * server works and never reads as stuck.
      */
     private fun setProcessingCopy(phase: FinalizationPhase) {
-        uploadOverlayTitle.text = getString(R.string.usesense_upload_title)
-        uploadOverlaySubtitle.text = getString(R.string.usesense_upload_detail)
-        uploadProgress.progressTintList = ColorStateList.valueOf(ScanColors.resolve(resolvedBranding.appearance).ring)
+        // The bar's fill is `capture.ring` (styled with the sheet in applyBranding).
+        uploadOverlayTitle.text = cs(R.string.usesense_upload_title)
+        uploadOverlaySubtitle.text = cs(R.string.usesense_upload_detail)
         if (debugHooks?.forceState == "upload") return
         val now = SystemClock.elapsedRealtime()
         when (phase) {
@@ -2815,26 +2891,26 @@ class HostedPageActivity : AppCompatActivity() {
             ExtraCheckKind.FOLLOW_DOT -> StrokeIconView.Icons.DOT
             ExtraCheckKind.SPEAK_DIGITS -> StrokeIconView.Icons.MIC
         }
+        // The sheet is page surface; its icon carries the camera's challenge accent.
         showActionSheet(
-            icon, StrokeIconView.TINT_PURPLE_BG, StrokeIconView.TINT_PURPLE_FG,
-            getString(R.string.usesense_xc_sheet_title), getString(ExtraCheckCopy.sheetBody(kind, steps)),
-            getString(R.string.usesense_xc_continue), onContinue,
+            icon, CaptureTheme.Tone.CHALLENGE,
+            cs(R.string.usesense_xc_sheet_title), cs(ExtraCheckCopy.sheetBody(kind, steps)),
+            cs(R.string.usesense_xc_continue), onContinue,
         )
     }
 
     /** The upload overlay with the action sheet in place of the upload sheet. */
     private fun showActionSheet(
-        icon: String, iconBg: Int, iconFg: Int, title: String, body: String, button: String, onTap: () -> Unit,
+        icon: String, tone: CaptureTheme.Tone, title: String, body: String, button: String, onTap: () -> Unit,
     ) {
         setStep(PageStep.FINALIZING)
         handler.removeCallbacks(uploadBarTicker)
         uploadSheet.visibility = View.GONE
         actionSheet.visibility = View.VISIBLE
-        actionSheetIcon.set(icon, iconBg, iconFg)
+        styler.tile(actionSheetIcon, icon, tone)
         actionSheetTitle.text = title
         actionSheetBody.text = body
         actionSheetPrimary.text = button
-        tintPrimary(actionSheetPrimary)
         actionSheetPrimary.isEnabled = true
         actionSheetPrimary.setOnClickListener {
             if (!actionSheetPrimary.isEnabled) return@setOnClickListener
@@ -2926,22 +3002,14 @@ class HostedPageActivity : AppCompatActivity() {
 
     // ─── Dark pages and the leave dialog ─────────────────────────────────
 
-    /** The host app's name, for "[App]" in the copy. */
-    private fun appName(): String = runCatching {
+    /** "[App]" / `{app}`: the resolved display name, else the host app's label, else "this app". */
+    private fun appName(): String = resolvedBranding.displayName.value ?: runCatching {
         applicationInfo.loadLabel(packageManager).toString().takeIf { it.isNotBlank() }
     }.getOrNull() ?: getString(R.string.usesense_this_app)
 
-    private fun tintPrimary(button: TextView) {
-        val colour = if (isBranded) brandColor() else null
-        if (colour != null) {
-            button.background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = 14 * resources.displayMetrics.density
-                setColor(colour)
-            }
-            button.setTextColor(brandForeground())
-        }
-    }
+    /** Flows: the run view's branding over the init-session's (the fresh one on "Try again"). */
+    private fun flowServerBranding(initSession: com.usesense.sdk.api.models.CreateSessionResponse?): ServerBranding? =
+        BrandingResolver.mergeServer(pendingServerBranding, initSession?.branding?.toServerBranding())
 
     /** Show a storyboard page: icon, title, body, tips, a primary and maybe a secondary button. */
     private fun showPage(kind: PageKind, retriesLeft: Int = 0, onPrimary: () -> Unit, onSecondary: (() -> Unit)? = null) {
@@ -2949,34 +3017,35 @@ class HostedPageActivity : AppCompatActivity() {
         val spec = OutcomePages.spec(kind, retriesLeft)
         pageShown = kind
         hideLeaveDialog()
-        pageIcon.set(spec.icon, spec.iconBackground, spec.iconForeground)
-        pageTitle.text = getString(spec.title)
-        pageBody.text = getString(spec.body, appName())
+        hideHelpDialog()
+        styler.tile(pageIcon, spec.icon, spec.tone)
+        showIllustration(kind)
+        pageTitle.text = cs(spec.title, spec.titleKey)
+        pageBody.text = cs(spec.body)
         pageTips.removeAllViews()
         val density = resources.displayMetrics.density
-        spec.tips.forEach { tip ->
+        strings?.list(spec.tipsKey ?: "", spec.tips)?.takeIf { spec.tips.isNotEmpty() }.orEmpty().forEach { tip ->
             pageTips.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = android.view.Gravity.CENTER_VERTICAL
                 setPadding(0, (5 * density).toInt(), 0, (5 * density).toInt())
                 addView(View(context).apply {
-                    background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.parseColor("#7A96FF")) }
+                    background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(captureTheme.page.primary) }
                 }, LinearLayout.LayoutParams((8 * density).toInt(), (8 * density).toInt()).apply { marginEnd = (12 * density).toInt() })
                 addView(TextView(context).apply {
-                    text = getString(tip)
+                    text = tip
                     textSize = 15f
-                    setTextColor(Color.parseColor("#D9FFFFFF"))
+                    styler.style(this, CaptureStyler.Role.TEXT)
                 })
             })
         }
         pageTips.visibility = if (spec.tips.isEmpty()) View.GONE else View.VISIBLE
-        pagePrimary.text = getString(spec.primary)
+        pagePrimary.text = cs(spec.primary)
         pagePrimary.isEnabled = true
-        tintPrimary(pagePrimary)
         pagePrimary.setOnClickListener { if (pagePrimary.isEnabled) onPrimary() }
         val secondary = spec.secondary
         if (secondary != null && onSecondary != null) {
-            pageSecondary.text = getString(secondary)
+            pageSecondary.text = cs(secondary)
             pageSecondary.isEnabled = true
             pageSecondary.visibility = View.VISIBLE
             pageSecondary.setOnClickListener { if (pageSecondary.isEnabled) onSecondary() }
@@ -2988,13 +3057,38 @@ class HostedPageActivity : AppCompatActivity() {
         pageTitle.announceForAccessibility("${pageTitle.text}. ${pageBody.text}")
     }
 
+    /**
+     * `icons.success` / `review` / `notVerified` replace the icon tile on the
+     * result pages (BRAND-v1 4.1); the tile shows until the image loads.
+     */
+    private fun showIllustration(kind: PageKind) {
+        val icons = captureTheme.icons
+        val url = when (kind) {
+            PageKind.APPROVED -> icons?.success
+            PageKind.REVIEW -> icons?.review
+            PageKind.REJECTED, PageKind.REJECTED_RETRY -> icons?.notVerified
+            else -> null
+        }
+        pageIllustration.visibility = View.GONE
+        pageIcon.visibility = View.VISIBLE
+        pageIllustration.tag = url
+        if (url == null) return
+        mainScope.launch {
+            val bitmap = CaptureImages.load(url) ?: return@launch
+            if (pageShown != kind || pageIllustration.tag != url) return@launch
+            pageIllustration.setImageBitmap(bitmap)
+            pageIllustration.visibility = View.VISIBLE
+            pageIcon.visibility = View.GONE
+        }
+    }
+
     /** From the camera to the upload: leaving now ends the verification. */
     private fun isMidFlow(): Boolean =
         usesSdkCaptureSequence && pageShown == null && captureScreen.visibility == View.VISIBLE
 
     private fun showLeaveDialog() {
         leaveDialog.visibility = View.VISIBLE
-        leaveDialog.announceForAccessibility(getString(R.string.usesense_leave_title))
+        leaveDialog.announceForAccessibility(cs(R.string.usesense_leave_title))
     }
 
     private fun hideLeaveDialog() {
@@ -3019,9 +3113,9 @@ class HostedPageActivity : AppCompatActivity() {
                 pendingTerminalError = recovery.error
                 callbackGate.recovery()
                 showActionSheet(
-                    StrokeIconView.Icons.UPLOAD, StrokeIconView.TINT_AMBER_BG, StrokeIconView.TINT_AMBER_FG,
-                    getString(R.string.usesense_upload_failed_title), getString(R.string.usesense_upload_failed_body),
-                    getString(R.string.usesense_page_try_again),
+                    StrokeIconView.Icons.UPLOAD, CaptureTheme.Tone.WARNING,
+                    cs(R.string.usesense_upload_failed_title), cs(R.string.usesense_upload_failed_body),
+                    cs(R.string.usesense_page_try_again, com.usesense.sdk.ui.theme.CaptureCopyKeys.UPLOAD_RETRY),
                 ) {
                     pendingTerminalError = null
                     startFinalization(sess, recovery.phase)
@@ -3108,10 +3202,7 @@ class HostedPageActivity : AppCompatActivity() {
     /** Icon, plain-language title and message, and the code as a caption. */
     private fun bindErrorScreen(error: UseSenseError?) {
         errorIcon.setImageResource(R.drawable.usesense_icon_error)
-        errorIcon.setColorFilter(Color.parseColor("#DB4E33")) // error-6
-        errorIconCircle.background = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL; setColor(Color.parseColor("#FFF0EC")) // error-0
-        }
+        tintTile(errorIconCircle, errorIcon, CaptureTheme.Tone.ERROR)
         val (title, body) = errorCopy(error)
         errorTitle.text = getString(title)
         errorMessage.text = getString(body)
@@ -3231,10 +3322,7 @@ class HostedPageActivity : AppCompatActivity() {
         when (decision) {
             UseSenseResult.DECISION_APPROVE -> {
                 resultIcon.setImageResource(R.drawable.usesense_icon_success)
-                resultIcon.setColorFilter(Color.parseColor("#00AA88")) // MatchSense Green-6
-                resultIconCircle.background = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL; setColor(Color.parseColor("#E6FBF5")) // green-0
-                }
+                tintTile(resultIconCircle, resultIcon, CaptureTheme.Tone.SUCCESS)
                 resultTitle.text = getString(R.string.usesense_result_success_title)
                 resultBody.text = getString(R.string.usesense_result_success_body)
                 if (actionContext != null) {
@@ -3244,36 +3332,29 @@ class HostedPageActivity : AppCompatActivity() {
             }
             UseSenseResult.DECISION_MANUAL_REVIEW -> {
                 resultIcon.setImageResource(R.drawable.usesense_icon_review)
-                resultIcon.setColorFilter(Color.parseColor("#DB973A")) // warning-6
-                resultIconCircle.background = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL; setColor(Color.parseColor("#FFF7E8")) // warning-0
-                }
+                tintTile(resultIconCircle, resultIcon, CaptureTheme.Tone.WARNING)
                 resultTitle.text = getString(R.string.usesense_result_review_title)
                 resultBody.text = getString(R.string.usesense_result_review_body)
             }
             else -> {
                 resultIcon.setImageResource(R.drawable.usesense_icon_denied)
-                resultIcon.setColorFilter(Color.parseColor("#DB4E33")) // error-6
-                resultIconCircle.background = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL; setColor(Color.parseColor("#FFF0EC")) // error-0
-                }
+                tintTile(resultIconCircle, resultIcon, CaptureTheme.Tone.ERROR)
                 resultTitle.text = getString(R.string.usesense_result_failed_title)
                 resultBody.text = getString(R.string.usesense_result_failed_body_unsuccessful)
             }
         }
 
-        // As iOS ResultView: one primary button in the outcome colour
-        // (Continue / Done / Got It) that hands the decision to the host, and
-        // "Try Again" on a reject. No redirect: the host decides what's next.
+        // As iOS ResultView: one primary button (Continue / Done / Got It)
+        // that hands the decision to the host, and "Try Again" on a reject.
+        // The button is the brand's primary (BRAND-v1: every capture button).
         val isReject = decision != UseSenseResult.DECISION_APPROVE &&
             decision != UseSenseResult.DECISION_MANUAL_REVIEW
-        val (buttonText, buttonColor) = when (decision) {
-            UseSenseResult.DECISION_APPROVE -> R.string.usesense_result_button_approve to "#00AA88"
-            UseSenseResult.DECISION_MANUAL_REVIEW -> R.string.usesense_result_button_review to "#DB973A"
-            else -> R.string.usesense_result_button_reject to "#DB4E33"
+        val buttonText = when (decision) {
+            UseSenseResult.DECISION_APPROVE -> R.string.usesense_result_button_approve
+            UseSenseResult.DECISION_MANUAL_REVIEW -> R.string.usesense_result_button_review
+            else -> R.string.usesense_result_button_reject
         }
         resultButton.text = getString(buttonText)
-        resultButton.backgroundTintList = ColorStateList.valueOf(Color.parseColor(buttonColor))
         resultButton.setOnClickListener {
             pendingResult?.let { callbackGate.success(it) }
             pendingResult = null
@@ -3289,6 +3370,12 @@ class HostedPageActivity : AppCompatActivity() {
         }
 
         setStep(PageStep.RESULT)
+    }
+
+    /** A white-screen icon: the tone's glyph on its 16% tile, with the theme's tile radius. */
+    private fun tintTile(tile: View, glyph: ImageView, tone: CaptureTheme.Tone) {
+        glyph.imageTintList = ColorStateList.valueOf(captureTheme.toneColor(tone))
+        tile.background = styler.rounded(captureTheme.toneTile(tone), styler.dp(captureTheme.shape.tileRadiusDp))
     }
 
     /** A terminal failure with a cause: an API error keeps its own code and copy. */
@@ -3345,14 +3432,9 @@ class HostedPageActivity : AppCompatActivity() {
             resultScreen.visibility = View.GONE
         }
 
-        // The SDK's capture sequence is dark from the primer to the result: no white flash between pages.
-        val darkLoading = step == PageStep.LOADING && usesSdkCaptureSequence
+        // Every page-surface screen sits on the theme's page background (and image): no flash between pages.
         when (step) {
-            PageStep.LOADING -> {
-                loadingScreen.visibility = View.VISIBLE
-                loadingScreen.setBackgroundColor(if (darkLoading) PAGE_BACKGROUND else Color.TRANSPARENT)
-                loadingText.setTextColor(if (darkLoading) Color.parseColor("#BFFFFFFF") else Color.parseColor("#475569"))
-            }
+            PageStep.LOADING -> loadingScreen.visibility = View.VISIBLE
             PageStep.ERROR -> errorScreen.visibility = View.VISIBLE
             PageStep.INTRODUCTION -> introScreen.visibility = View.VISIBLE
             PageStep.ACTION_REVIEW -> actionReviewScreen.visibility = View.VISIBLE
@@ -3390,15 +3472,16 @@ class HostedPageActivity : AppCompatActivity() {
         val insets = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
         // Capture runs under the status bar (light icons over the camera); other screens are padded.
         captureFullBleed = isCaptureMode
-        (findViewById<View>(android.R.id.content) as? android.view.ViewGroup)?.getChildAt(0)?.let { root ->
-            root.setBackgroundColor(if (isCaptureMode) Color.BLACK else if (isPage || darkLoading) PAGE_BACKGROUND else Color.WHITE)
-            applySystemBarPadding(root)
-        }
+        currentStep = step
+        applyRootBackground()
+        (findViewById<View>(android.R.id.content) as? android.view.ViewGroup)?.getChildAt(0)?.let(::applySystemBarPadding)
         if (lightStatusBarDefault == null) lightStatusBarDefault = insets.isAppearanceLightStatusBars
-        insets.isAppearanceLightStatusBars = if (isCaptureMode || isPage || darkLoading) false else (lightStatusBarDefault ?: true)
+        // Status bar icons: light over the camera and dark pages, dark over light pages.
+        insets.isAppearanceLightStatusBars = !isCaptureMode && !captureTheme.isDark
 
-        // Section 11.8: Hide branded header/footer during capture, show capture footer
-        val bare = isCaptureMode || isPage || darkLoading
+        // The camera is bare; page-surface screens carry the brand header and
+        // "Powered by Sense" (the storyboard page has its own, inside it).
+        val bare = isCaptureMode || isPage
         headerBar.visibility = if (bare || !hasHeader) View.GONE else View.VISIBLE
         headerDivider.visibility = if (bare || !hasHeader) View.GONE else View.VISIBLE
         footerText.visibility = if (bare) View.GONE else View.VISIBLE
@@ -3479,7 +3562,9 @@ class HostedPageActivity : AppCompatActivity() {
         private const val EXTRA_CHECK_DONE_MS = 800L
         /** Speak Digits records this much past the read plus any quiet hold. */
         private const val DIGITS_RECORD_SLACK_MS = 4_000L
-        private val PAGE_BACKGROUND = Color.parseColor("#12141B")
+        /** Space above a page's icon, with and without the brand header above it. */
+        private const val PAGE_TOP_DP = 76
+        private const val PAGE_TOP_WITH_HEADER_DP = 28
 
         private const val GUIDANCE_FADE_MS = 200L
         private const val GUIDANCE_GAP_DP = 28f

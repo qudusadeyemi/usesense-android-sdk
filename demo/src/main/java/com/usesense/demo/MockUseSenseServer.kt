@@ -37,6 +37,9 @@ class MockUseSenseServer {
 
     private var lastSessionId: String? = null
 
+    /** Dashboard branding sent with the session (`branding`), e.g. a BRAND-v1 test brand; null sends none. */
+    var branding: JSONObject? = null
+
     // MockWebServer resolves its host name when it binds, which is a network
     // call: on the main thread Android throws NetworkOnMainThreadException.
     // Start and stop it on a worker and wait; both take milliseconds.
@@ -132,6 +135,7 @@ class MockUseSenseServer {
                 put("on_device_3dmm_required", false)
                 put("mesh_binding_challenge", "")
             })
+            branding?.let { put("branding", it) }
         }
 
         return MockResponse()

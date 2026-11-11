@@ -1,10 +1,6 @@
 package com.usesense.sdk.capture.scan
 
 import com.usesense.sdk.capture.ImageQualityAnalyzer
-import com.usesense.sdk.flows.AppearanceCapture
-import com.usesense.sdk.flows.FlowAppearance
-import com.usesense.sdk.flows.mergeAppearance
-import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -174,50 +170,6 @@ class DepthGridTest {
         g.noFace(400)
         repeat(30) { g.step() }
         assertTrue(g.sample(200f, 300f) < 0.05f)
-    }
-}
-
-class ScanColorsTest {
-
-    @Test fun `defaults without an appearance`() {
-        assertEquals(ScanColors.DEFAULT, ScanColors.resolve(null))
-        assertEquals(ScanColors.DEFAULT, ScanColors.resolve(FlowAppearance()))
-        assertEquals(0xFF4F7CFF.toInt(), ScanColors.DEFAULT.ring)
-        assertEquals(0xFF7A96FF.toInt(), ScanColors.DEFAULT.contourStart)
-        assertEquals(0xFFA878FC.toInt(), ScanColors.DEFAULT.contourEnd)
-        assertEquals(0xFFFFB84D.toInt(), ScanColors.DEFAULT.warning)
-    }
-
-    @Test fun `sense defaults clear the 3 to 1 bar`() {
-        listOf(ScanColors.DEFAULT_RING, ScanColors.DEFAULT_CONTOUR_START, ScanColors.DEFAULT_CONTOUR_END, ScanColors.DEFAULT_WARNING)
-            .forEach { assertTrue(ScanColors.contrast(it, ScanColors.CAMERA_BACKDROP) >= 3.0) }
-    }
-
-    @Test fun `readable custom colours are used, dark ones fall back`() {
-        val c = ScanColors.resolve(
-            FlowAppearance(capture = AppearanceCapture(ring = "#22D3EE", contourStart = "#1E3A8A", contourEnd = "fff", warning = "nope")),
-        )
-        assertEquals(0xFF22D3EE.toInt(), c.ring)
-        assertEquals(ScanColors.DEFAULT_CONTOUR_START, c.contourStart)
-        assertEquals(0xFFFFFFFF.toInt(), c.contourEnd)
-        assertEquals(ScanColors.DEFAULT_WARNING, c.warning)
-    }
-
-    @Test fun `hex parsing`() {
-        assertEquals(0xFF112233.toInt(), ScanColors.parseHex("#112233"))
-        assertEquals(0xFF112233.toInt(), ScanColors.parseHex("80112233"))
-        assertEquals(0xFFAABBCC.toInt(), ScanColors.parseHex("#abc"))
-        assertNull(ScanColors.parseHex(""))
-        assertNull(ScanColors.parseHex("#12345"))
-    }
-
-    @Test fun `capture colours decode from the wire and merge code over server`() {
-        val server = FlowAppearance.decode(JSONObject("""{"capture":{"ring":"#111111","contour_start":"#7A96FF","contourEnd":"#A878FC"}}"""))
-        assertEquals("#7A96FF", server.capture?.contourStart)
-        assertEquals("#A878FC", server.capture?.contourEnd)
-        val merged = mergeAppearance(FlowAppearance(capture = AppearanceCapture(ring = "#22D3EE")), server)
-        assertEquals("#22D3EE", merged?.capture?.ring)
-        assertEquals("#7A96FF", merged?.capture?.contourStart)
     }
 }
 

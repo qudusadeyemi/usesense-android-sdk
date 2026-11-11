@@ -20,6 +20,9 @@ object UseSense {
 
     val isInitialized: Boolean get() = config != null
 
+    /** The `initialize` config, for surfaces launched outside it (a Flow's capture). */
+    internal val currentConfig: UseSenseConfig? get() = config
+
     fun initialize(context: Context, config: UseSenseConfig) {
         require(config.apiKey.isNotBlank()) { "API key must not be blank" }
         this.appContext = context.applicationContext

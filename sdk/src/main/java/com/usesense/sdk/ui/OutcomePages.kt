@@ -3,6 +3,9 @@ package com.usesense.sdk.ui
 import com.usesense.sdk.R
 import com.usesense.sdk.UseSenseError
 import com.usesense.sdk.UseSenseResult
+import com.usesense.sdk.ui.theme.CaptureCopyKeys
+import com.usesense.sdk.ui.theme.CaptureTheme
+import com.usesense.sdk.ui.theme.CaptureTheme.Tone
 
 /** The full-screen dark pages of the storyboard (primer, results, errors). */
 internal enum class PageKind {
@@ -24,19 +27,23 @@ internal enum class PageKind {
 internal data class PageSpec(
     val kind: PageKind,
     val icon: String,
-    val iconBackground: Int,
-    val iconForeground: Int,
+    /** The icon's colour (glyph = tone, tile = tone at 16%), from the capture theme. */
+    val tone: CaptureTheme.Tone,
     val title: Int,
     val body: Int,
     val tips: List<Int> = emptyList(),
     val primary: Int,
     val secondary: Int? = null,
+    /** `copy.capture` key for [title] when its resource serves another key too (rejected vs retry). */
+    val titleKey: String? = null,
+    /** `copy.capture` key for the [tips] list. */
+    val tipsKey: String? = null,
 )
 
 /** Which page shows for an outcome or an error, and with what. Pure, so it is unit tested. */
 internal object OutcomePages {
     private val I = StrokeIconView.Icons
-    private val S = StrokeIconView
+    private val K = CaptureCopyKeys
 
     private val primerTips =
         listOf(
@@ -54,30 +61,29 @@ internal object OutcomePages {
                 PageSpec(
                     kind,
                     I.FACE,
-                    S.TINT_BLUE_BG,
-                    S.TINT_BLUE_FG,
+                    Tone.PRIMARY,
                     R.string.usesense_primer_title,
                     R.string.usesense_primer_body,
                     primerTips,
                     R.string.usesense_start,
+                    tipsKey = K.PRIMER_SELFIE_TIPS,
                 )
             PageKind.PRIMER_TWO ->
                 PageSpec(
                     kind,
                     I.FACE,
-                    S.TINT_BLUE_BG,
-                    S.TINT_BLUE_FG,
+                    Tone.PRIMARY,
                     R.string.usesense_primer_two_title,
                     R.string.usesense_primer_two_body,
                     primerTips,
                     R.string.usesense_start,
+                    tipsKey = K.PRIMER_TWO_STEPS_TIPS,
                 )
             PageKind.CAMERA_DENIED ->
                 PageSpec(
                     kind,
                     I.CAMERA,
-                    S.TINT_AMBER_BG,
-                    S.TINT_AMBER_FG,
+                    Tone.WARNING,
                     R.string.usesense_page_camera_denied_title,
                     R.string.usesense_page_camera_denied_body,
                     primary = R.string.usesense_open_settings,
@@ -87,8 +93,7 @@ internal object OutcomePages {
                 PageSpec(
                     kind,
                     I.CAMERA,
-                    S.TINT_AMBER_BG,
-                    S.TINT_AMBER_FG,
+                    Tone.WARNING,
                     R.string.usesense_page_camera_error_title,
                     R.string.usesense_page_camera_error_body,
                     primary = R.string.usesense_page_try_again,
@@ -97,8 +102,7 @@ internal object OutcomePages {
                 PageSpec(
                     kind,
                     I.WIFI,
-                    S.TINT_AMBER_BG,
-                    S.TINT_AMBER_FG,
+                    Tone.WARNING,
                     R.string.usesense_page_offline_title,
                     R.string.usesense_page_offline_body,
                     primary = R.string.usesense_page_try_again,
@@ -107,8 +111,7 @@ internal object OutcomePages {
                 PageSpec(
                     kind,
                     I.MIC,
-                    S.TINT_AMBER_BG,
-                    S.TINT_AMBER_FG,
+                    Tone.WARNING,
                     R.string.usesense_page_mic_title,
                     R.string.usesense_page_mic_body,
                     primary = R.string.usesense_open_settings,
@@ -118,8 +121,7 @@ internal object OutcomePages {
                 PageSpec(
                     kind,
                     I.CHECK,
-                    S.TINT_GREEN_BG,
-                    S.TINT_GREEN_FG,
+                    Tone.SUCCESS,
                     R.string.usesense_page_approved_title,
                     R.string.usesense_page_approved_body,
                     primary = R.string.usesense_page_done,
@@ -128,26 +130,26 @@ internal object OutcomePages {
                 PageSpec(
                     kind,
                     I.CLOCK,
-                    S.TINT_AMBER_BG,
-                    S.TINT_AMBER_FG,
+                    Tone.WARNING,
                     R.string.usesense_page_review_title,
                     R.string.usesense_page_review_body,
                     primary = R.string.usesense_page_done,
                 )
             PageKind.REJECTED_RETRY ->
                 PageSpec(
-                    kind, I.X, S.TINT_RED_BG, S.TINT_RED_FG,
+                    kind, I.X, Tone.ERROR,
                     R.string.usesense_page_rejected_title,
                     if (retriesLeft > 1) R.string.usesense_page_rejected_retry_body_many else R.string.usesense_page_rejected_retry_body,
                     listOf(R.string.usesense_page_rejected_tip_light, R.string.usesense_page_rejected_tip_level),
                     R.string.usesense_page_try_again, R.string.usesense_not_now,
+                    titleKey = K.RESULT_RETRY_TITLE,
+                    tipsKey = K.RESULT_RETRY_TIPS,
                 )
             PageKind.REJECTED ->
                 PageSpec(
                     kind,
                     I.X,
-                    S.TINT_RED_BG,
-                    S.TINT_RED_FG,
+                    Tone.ERROR,
                     R.string.usesense_page_rejected_title,
                     R.string.usesense_page_rejected_body,
                     primary = R.string.usesense_page_done,
@@ -156,8 +158,7 @@ internal object OutcomePages {
                 PageSpec(
                     kind,
                     I.HOURGLASS,
-                    S.TINT_AMBER_BG,
-                    S.TINT_AMBER_FG,
+                    Tone.WARNING,
                     R.string.usesense_page_expired_title,
                     R.string.usesense_page_expired_body,
                     primary = R.string.usesense_start_again,
@@ -166,8 +167,7 @@ internal object OutcomePages {
                 PageSpec(
                     kind,
                     I.ALERT,
-                    S.TINT_AMBER_BG,
-                    S.TINT_AMBER_FG,
+                    Tone.WARNING,
                     R.string.usesense_page_error_title,
                     R.string.usesense_page_error_body,
                     primary = R.string.usesense_page_try_again,

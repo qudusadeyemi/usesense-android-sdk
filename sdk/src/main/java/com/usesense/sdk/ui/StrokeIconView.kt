@@ -4,12 +4,13 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
 import androidx.core.graphics.PathParser
 
 /**
- * A round badge with a stroked line icon (24-unit viewport, 2-unit stroke,
+ * An icon tile with a stroked line icon (24-unit viewport, 2-unit stroke,
  * round caps), as the storyboard's sheet and page icons. The icon is SVG path
  * data from [Icons].
  */
@@ -32,6 +33,16 @@ internal class StrokeIconView
         /** Icon size as a share of the badge (26 of 52 on sheets, 36 of 72 on pages). */
         var iconScale = 0.5f
 
+        /** Tile corner radius in px (BRAND-v1: `shape.radius`, default 12 dp); null draws a disc. */
+        var tileRadiusPx: Float? = null
+            set(value) {
+                field = value
+                invalidate()
+            }
+
+        private val tile = RectF()
+
+        /** [background] is the tile (the tone at 16%), [foreground] the glyph (the tone). */
         fun set(
             pathData: String,
             background: Int,
@@ -46,7 +57,14 @@ internal class StrokeIconView
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
             val s = minOf(width, height).toFloat()
-            canvas.drawCircle(width / 2f, height / 2f, s / 2f, disc)
+            val r = tileRadiusPx
+            if (r == null) {
+                canvas.drawCircle(width / 2f, height / 2f, s / 2f, disc)
+            } else {
+                tile.set(width / 2f - s / 2f, height / 2f - s / 2f, width / 2f + s / 2f, height / 2f + s / 2f)
+                val rr = minOf(r, s / 2f)
+                canvas.drawRoundRect(tile, rr, rr, disc)
+            }
             val p = icon ?: return
             val iconSize = s * iconScale
             val k = iconSize / 24f
@@ -75,16 +93,4 @@ internal class StrokeIconView
             const val UPLOAD = "M12 16V4M7 9l5-5 5 5M4 20h16"
         }
 
-        companion object {
-            const val TINT_PURPLE_BG = 0x2EA878FC
-            const val TINT_PURPLE_FG = 0xFFC3A6FF.toInt()
-            const val TINT_AMBER_BG = 0x29FFB84D
-            const val TINT_AMBER_FG = 0xFFFFB84D.toInt()
-            const val TINT_GREEN_BG = 0x2900D4AA
-            const val TINT_GREEN_FG = 0xFF00D4AA.toInt()
-            const val TINT_RED_BG = 0x29FF6B4A
-            const val TINT_RED_FG = 0xFFFF6B4A.toInt()
-            const val TINT_BLUE_BG = 0x294F7CFF
-            const val TINT_BLUE_FG = 0xFF7A96FF.toInt()
-        }
     }
