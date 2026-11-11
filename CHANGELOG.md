@@ -17,6 +17,12 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   the previous waypoint. Pose comes from the face transform (yaw and pitch),
   so up, down and vertical dot moves are judged too. If there's no pose,
   each step runs for the server's time, as before.
+- With the head on target, a gate failure that the turn itself causes
+  (face off centre, pose past the scan's limit, face looking nearer as it
+  tilts) no longer pauses the check, so a big turn can complete its hold.
+  Any other failure (face lost or covered, another person) still pauses.
+  Signs were measured on a Galaxy A03: a turn to the person's left reads
+  positive yaw, and looking up reads negative pitch.
 - Frames bank to a step only while they show it: on target (Head Turn), or
   on target or once the dot has settled (Follow Dot). A timed-out step
   leaves its ring segment empty.

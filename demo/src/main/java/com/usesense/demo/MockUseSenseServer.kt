@@ -26,6 +26,9 @@ class MockUseSenseServer {
     /** Ask for an extra check after the scan (server step-up round 2): head_turn, follow_dot or null. */
     var stepUpType: String? = null
 
+    /** Head Turn directions for the mock spec, e.g. left, up, right, down (null: left, right). */
+    var headSteps: List<String>? = null
+
     /** The challenge-fallback endpoint answers with this HTTP status (200 = swap to Follow Dot). */
     var fallbackStatus: Int = 200
 
@@ -307,8 +310,9 @@ class MockUseSenseServer {
                 put("frames_per_step", 2)
                 put("capture_fps_hint", 10)
                 put("sequence", JSONArray().apply {
-                    put(JSONObject().apply { put("direction", "left"); put("duration_ms", 2000); put("index", 0) })
-                    put(JSONObject().apply { put("direction", "right"); put("duration_ms", 2000); put("index", 1) })
+                    (headSteps ?: listOf("left", "right")).forEachIndexed { i, dir ->
+                        put(JSONObject().apply { put("direction", dir); put("duration_ms", 2000); put("index", i) })
+                    }
                 })
             }
             "speak_phrase" -> JSONObject().apply {

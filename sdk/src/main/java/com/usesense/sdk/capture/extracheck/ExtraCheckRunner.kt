@@ -69,6 +69,14 @@ internal data class ExtraCheckInput(
      */
     val yaw: Double? = null,
     val pitch: Double? = null,
+    /**
+     * Every failing gate check is one the turn itself causes (the face off
+     * centre, the pose past the scan's limit, the face looking nearer as it
+     * tilts). With the head on target this doesn't pause the check: holding
+     * a big turn is the point (A03 run, 2026-11-11: right turns of 23 to 34
+     * degrees failed CENTRE and reset every hold).
+     */
+    val turnOnlyFailing: Boolean = false,
 )
 
 internal sealed class ExtraCheckEvent {
@@ -304,8 +312,16 @@ internal class ExtraCheckRunner(
         val dt = (now - lastTick).coerceIn(0L, MAX_TICK_MS)
         lastTick = now
 
+        // A failure the turn causes, with the head on target, is not the face leaving.
+        val gateOk =
+            input.gatePasses ||
+                (
+                    input.turnOnlyFailing && kind != ExtraCheckKind.SPEAK_DIGITS &&
+                        currentStep?.let { target(it, input) } == true
+                )
+
         // Face in the oval, with a little hysteresis so one bad frame doesn't flash amber.
-        if (!input.gatePasses) {
+        if (!gateOk) {
             goodSince = -1L
             if (badSince < 0) badSince = now
             if (!paused && now - badSince >= LOSE_MS) {
@@ -576,12 +592,13 @@ internal class ExtraCheckRunner(
 
         /**
          * Which way "left" and "up" read in [com.usesense.sdk.capture.scan.HeadPoseMath]'s
-         * angles. Galaxy A03 (extra-check device run): turning to the person's
-         * left reads yaw > 0 (iOS's transform reads it negative). Pitch: up
-         * reads positive, as iOS (mirroring flips yaw, not pitch).
+         * angles, measured on a Galaxy A03: turning to the person's left reads
+         * yaw > 0 (extra-check run); looking up reads pitch < 0 (Head Turn run,
+         * 2026-11-11: up -20 to -38, down +31). Both are the opposite of iOS's
+         * face transform.
          */
         const val LEFT_YAW_SIGN = 1.0
-        const val UP_PITCH_SIGN = 1.0
+        const val UP_PITCH_SIGN = -1.0
 
         private const val MIN_STEP_MS = 200L
 

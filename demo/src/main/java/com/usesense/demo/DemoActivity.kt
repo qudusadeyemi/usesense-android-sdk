@@ -54,6 +54,7 @@ class DemoActivity : AppCompatActivity() {
         // Test automation (adb): start straight away with the given mock setup, e.g.
         //   adb shell am start -n com.usesense.demo/.DemoActivity --ez autostart true \
         //     --es mock_challenge none --es mock_step_up follow_dot --es mock_decision APPROVE
+        //     (--es mock_head_steps left,up,right,down: the mock Head Turn's directions)
         if (intent.getBooleanExtra(EXTRA_AUTOSTART, false)) startVerification()
     }
 
@@ -124,6 +125,7 @@ class DemoActivity : AppCompatActivity() {
                 extras?.getStringExtra("mock_challenge")?.let { challengeType = it }
                 extras?.getStringExtra("mock_decision")?.let { mockDecision = it }
                 stepUpType = extras?.getStringExtra("mock_step_up")
+                headSteps = extras?.getStringExtra("mock_head_steps")?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }
                 fallbackStatus = extras?.getIntExtra("mock_fallback_status", 200) ?: 200
                 inlineThreshold = extras?.takeIf { it.hasExtra("mock_inline_threshold") }?.getIntExtra("mock_inline_threshold", 55)
                 extras?.getStringExtra("mock_inline_challenge")?.let { inlineChallenge = it }

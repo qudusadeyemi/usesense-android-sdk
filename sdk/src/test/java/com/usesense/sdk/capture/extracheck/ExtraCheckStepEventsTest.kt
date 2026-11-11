@@ -11,7 +11,8 @@ import org.junit.Test
 /**
  * The closed loop and step_events (v2, first move) from a synthetic pose
  * stream: one processed frame + one tick every 50 ms. Android's signs: a turn
- * to the person's left reads yaw > 0, up reads pitch > 0.
+ * to the person's left reads yaw > 0, up reads pitch < 0 (both measured on a
+ * Galaxy A03).
  */
 class ExtraCheckStepEventsTest {
     private data class Pose(val yaw: Double, val pitch: Double)
@@ -21,6 +22,7 @@ class ExtraCheckStepEventsTest {
         from: Long,
         to: Long,
         gate: Boolean = true,
+        turnOnly: Boolean = false,
         untilStep: Int? = null,
         pose: (Long) -> Pose?,
     ): List<ExtraCheckEvent> {
@@ -30,7 +32,7 @@ class ExtraCheckStepEventsTest {
             t += 50
             val p = pose(t)
             if (p != null) observePose(t, p.yaw, p.pitch)
-            events += tick(t, ExtraCheckInput(gatePasses = gate, yaw = p?.yaw, pitch = p?.pitch))
+            events += tick(t, ExtraCheckInput(gatePasses = gate, yaw = p?.yaw, pitch = p?.pitch, turnOnlyFailing = turnOnly))
         }
         return events
     }
@@ -42,7 +44,12 @@ class ExtraCheckStepEventsTest {
         t1: Long,
         a: Double,
         b: Double,
-    ): Double = if (t <= t0) a else if (t >= t1) b else a + (b - a) * (t - t0) / (t1 - t0)
+    ): Double =
+        when {
+            t <= t0 -> a
+            t >= t1 -> b
+            else -> a + (b - a) * (t - t0) / (t1 - t0)
+        }
 
     private val straight = Pose(0.0, 0.0)
 
@@ -95,7 +102,7 @@ class ExtraCheckStepEventsTest {
         val r = ExtraCheckRunner(ExtraCheckKind.HEAD_TURN, listOf(ExtraCheckStep(1500, direction = "down")))
         r.start(0)
         // Level at the prompt, a small rise first (away), then down to -15.
-        r.feed(0, 4000) { t -> Pose(0.0, if (t <= 500) ramp(t, 100, 500, 0.0, 5.0) else ramp(t, 500, 1100, 5.0, -15.0)) }
+        r.feed(0, 4000) { t -> Pose(0.0, -(if (t <= 500) ramp(t, 100, 500, 0.0, 5.0) else ramp(t, 500, 1100, 5.0, -15.0))) }
         val e = r.stepLog.single()
         assertEquals(true, e.reached)
         assertTrue("moved away first", e.firstMoveDeg!! < 0)
@@ -141,6 +148,41 @@ class ExtraCheckStepEventsTest {
     }
 
     @Test
+    fun `a held big turn that fails the gate's centring doesn't pause the check`() {
+        // A03 run: a right turn of 23 to 34 degrees failed CENTRE and reset every hold.
+        val r = ExtraCheckRunner(ExtraCheckKind.HEAD_TURN, listOf(ExtraCheckStep(2000, direction = "right")))
+        r.start(0)
+        r.feed(0, 300) { straight }
+        val events = r.feed(300, 3000, gate = false, turnOnly = true) { Pose(-30.0, 0.0) }
+        assertFalse(ExtraCheckEvent.Paused in events)
+        assertEquals(true, r.stepLog.single().reached)
+    }
+
+    @Test
+    fun `a turn-caused gate failure still pauses when the head isn't on target`() {
+        val r = ExtraCheckRunner(ExtraCheckKind.HEAD_TURN, listOf(ExtraCheckStep(2000, direction = "right")))
+        r.start(0)
+        val events = r.feed(0, 1000, gate = false, turnOnly = true) { Pose(30.0, 0.0) } // the wrong way
+        assertTrue(ExtraCheckEvent.Paused in events)
+    }
+
+    @Test
+    fun `any other gate failure pauses even on target`() {
+        val r = ExtraCheckRunner(ExtraCheckKind.HEAD_TURN, listOf(ExtraCheckStep(2000, direction = "right")))
+        r.start(0)
+        val events = r.feed(0, 1000, gate = false, turnOnly = false) { Pose(-30.0, 0.0) } // e.g. face covered
+        assertTrue(ExtraCheckEvent.Paused in events)
+        assertTrue(r.stepLog.isEmpty())
+    }
+
+    @Test
+    fun `up is pitch below zero on Android`() {
+        assertEquals(true, ExtraCheckRunner.atTarget("up", 0.0, -25.0))
+        assertEquals(false, ExtraCheckRunner.atTarget("up", 0.0, 25.0))
+        assertEquals(true, ExtraCheckRunner.atTarget("down", 0.0, 30.9))
+    }
+
+    @Test
     fun `frames bank only on target for a head turn`() {
         val r = ExtraCheckRunner(ExtraCheckKind.HEAD_TURN, listOf(ExtraCheckStep(2000, direction = "right")))
         r.start(0)
@@ -153,8 +195,10 @@ class ExtraCheckStepEventsTest {
     private val dots =
         listOf(
             ExtraCheckStep(1500, x = 0.5f, y = 0.5f),
-            ExtraCheckStep(1500, x = 0.85f, y = 0.45f), // right
-            ExtraCheckStep(1500, x = 0.8f, y = 0.1f), // up
+            // Right.
+            ExtraCheckStep(1500, x = 0.85f, y = 0.45f),
+            // Up.
+            ExtraCheckStep(1500, x = 0.8f, y = 0.1f),
         )
 
     @Test
@@ -180,7 +224,7 @@ class ExtraCheckStepEventsTest {
         // Waypoint 2 (up, judged on pitch from the pose held at waypoint 1): the head dips first, then rises.
         val p2 = w1.endedAt
         r.feed(p2, p2 + 6000) { t ->
-            Pose(-15.0, if (t <= p2 + 300) ramp(t, p2, p2 + 300, 0.0, -6.0) else ramp(t, p2 + 300, p2 + 900, -6.0, 12.0))
+            Pose(-15.0, -(if (t <= p2 + 300) ramp(t, p2, p2 + 300, 0.0, -6.0) else ramp(t, p2 + 300, p2 + 900, -6.0, 12.0)))
         }
         assertTrue(r.completed)
         val w2 = r.stepLog[2]
@@ -216,7 +260,8 @@ class ExtraCheckStepEventsTest {
 
     @Test
     fun `step events go on the wire in epoch ms with the v2 fields`() {
-        val r = ExtraCheckRunner(ExtraCheckKind.HEAD_TURN, listOf(ExtraCheckStep(2000, direction = "left"), ExtraCheckStep(2000, direction = "up")))
+        val steps = listOf(ExtraCheckStep(2000, direction = "left"), ExtraCheckStep(2000, direction = "up"))
+        val r = ExtraCheckRunner(ExtraCheckKind.HEAD_TURN, steps)
         r.start(0)
         r.feed(0, 1450) { t -> Pose(ramp(t, 500, 1000, 0.0, 20.0), 0.0) }
         r.feed(1450, 20_000) { Pose(20.0, 0.0) } // never looks up: hint, then timed out

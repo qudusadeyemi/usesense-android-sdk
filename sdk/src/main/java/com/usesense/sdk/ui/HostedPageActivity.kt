@@ -1782,10 +1782,15 @@ class HostedPageActivity : AppCompatActivity() {
             lastGateAt = now
             if (now - lastGateLogAt >= 1000 && Log.isLoggable(GATE_TAG, Log.DEBUG)) {
                 lastGateLogAt = now
-                Log.d(GATE_TAG, "challenge failing=${result.failing} motion=$motion turn=$turn ${result.metrics ?: ""}")
+                Log.d(GATE_TAG, "challenge failing=${result.failing} motion=$motion turn=$turn " +
+                    "yaw=${frame.pose?.yaw?.let { "%.1f".format(java.util.Locale.US, it) }} " +
+                    "pitch=${frame.pose?.pitch?.let { "%.1f".format(java.util.Locale.US, it) }} ${result.metrics ?: ""}")
             }
             val pose = if (frame.faceCount > 0) frame.pose else null
-            extraCheckFace = ExtraCheckInput(gatePasses = result.allPass, turn = turn, yaw = pose?.yaw, pitch = pose?.pitch)
+            val turnOnly = result.blocking.isNotEmpty() && result.blocking.all { it in TURN_CAUSED_HINTS }
+            extraCheckFace = ExtraCheckInput(
+                gatePasses = result.allPass, turn = turn, yaw = pose?.yaw, pitch = pose?.pitch, turnOnlyFailing = turnOnly,
+            )
             extraCheckBlocking = result.blocking
             extraCheckFaceAt = now
             // The first move (step_events v2) is read from every processed frame, banked or not.
@@ -2546,6 +2551,8 @@ class HostedPageActivity : AppCompatActivity() {
             // The runner's clock is elapsedRealtime: epoch ms = wall clock minus it.
             b.setStepEvents(runner.stepLog, System.currentTimeMillis() - SystemClock.elapsedRealtime())
         }
+        // Timings only (no images or identity): what the server's replay checks will read.
+        runner.stepLog.forEach { Log.i(TAG, "Extra check step: $it") }
         extraCheckPresenter?.endDriven()
         handler.removeCallbacks(scanTicker)
         liveAnalyzer?.active = false
@@ -3602,6 +3609,9 @@ class HostedPageActivity : AppCompatActivity() {
         private const val GUIDANCE_FADE_MS = 200L
         private const val GUIDANCE_GAP_DP = 28f
         private const val GATE_TAG = "UseSenseGate"
+
+        /** Gate failures a held head turn causes by itself (see ExtraCheckInput.turnOnlyFailing). */
+        private val TURN_CAUSED_HINTS = setOf(GateHint.CENTRE, GateHint.LOOK_STRAIGHT, GateHint.MOVE_BACK)
 
         /** Share of the upload sheet's bar that the upload itself fills. */
         private const val UPLOAD_BAR_FRAME_MS = 33L
