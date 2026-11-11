@@ -185,6 +185,28 @@
                         android:textColor="#FFFFFF"
                         android:inputType="text" />
                 </com.google.android.material.textfield.TextInputLayout>
+
+                <!-- External user ID: a LiveSense bench label (lsb3_...), or any id -->
+                <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/externalUserIdLayout"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    app:boxBackgroundColor="#0D1B2A"
+                    app:hintTextColor="#B0B0CC"
+                    app:helperText="@string/external_user_id_helper"
+                    app:helperTextTextColor="#B0B0CC">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/externalUserIdInput"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="@string/external_user_id_hint"
+                        android:textColor="#FFFFFF"
+                        android:inputType="text|textNoSuggestions"
+                        android:imeOptions="actionDone"
+                        android:maxLines="1" />
+                </com.google.android.material.textfield.TextInputLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

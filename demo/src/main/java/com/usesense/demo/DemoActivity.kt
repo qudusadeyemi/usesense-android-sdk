@@ -29,6 +29,8 @@ class DemoActivity : AppCompatActivity() {
     private lateinit var sessionTypeGroup: RadioGroup
     private lateinit var identityIdLayout: TextInputLayout
     private lateinit var identityIdInput: TextInputEditText
+    private lateinit var externalUserIdLayout: TextInputLayout
+    private lateinit var externalUserIdInput: TextInputEditText
     private lateinit var challengeCard: MaterialCardView
     private lateinit var challengeGroup: RadioGroup
     private lateinit var verdictCard: MaterialCardView
@@ -65,6 +67,8 @@ class DemoActivity : AppCompatActivity() {
         sessionTypeGroup = findViewById(R.id.sessionTypeGroup)
         identityIdLayout = findViewById(R.id.identityIdLayout)
         identityIdInput = findViewById(R.id.identityIdInput)
+        externalUserIdLayout = findViewById(R.id.externalUserIdLayout)
+        externalUserIdInput = findViewById(R.id.externalUserIdInput)
         challengeCard = findViewById(R.id.challengeCard)
         challengeGroup = findViewById(R.id.challengeGroup)
         verdictCard = findViewById(R.id.verdictCard)
@@ -98,8 +102,27 @@ class DemoActivity : AppCompatActivity() {
         runFlowButton.setOnClickListener { runFlow() }
     }
 
+    /**
+     * The session's external user id: the launch extra (device tests), else the
+     * field (a LiveSense bench label, livesense-phase3/tagging.md), else the
+     * demo default. Null when the field holds a malformed bench label: the
+     * field shows why, and nothing starts.
+     */
+    private fun externalUserId(
+        extras: android.content.Intent?,
+        default: String = DEFAULT_EXTERNAL_USER_ID,
+    ): String? {
+        extras?.getStringExtra("external_user_id")?.let { return it }
+        val typed = externalUserIdInput.text?.toString()?.trim().orEmpty()
+        val problem = BenchLabel.problem(typed)
+        externalUserIdLayout.error = problem
+        if (problem != null) return null
+        return typed.ifEmpty { default }
+    }
+
     private fun startVerification() {
         val extras = intent.takeIf { it.getBooleanExtra(EXTRA_AUTOSTART, false) }
+        val externalUserId = externalUserId(extras) ?: return
         val isMockMode = if (extras != null) extras.getStringExtra("base_url") == null else modeGroup.checkedRadioButtonId == R.id.modeMock
 
         val baseUrl: String
@@ -190,8 +213,7 @@ class DemoActivity : AppCompatActivity() {
             activity = this,
             request = VerificationRequest(
                 sessionType = sessionType,
-                // Launch extra `external_user_id` (device tests): a fresh user per run.
-                externalUserId = extras?.getStringExtra("external_user_id") ?: "demo_user_001",
+                externalUserId = externalUserId,
                 identityId = identityId,
                 metadata = mapOf("source" to "demo_app"),
             ),
@@ -223,6 +245,7 @@ class DemoActivity : AppCompatActivity() {
         val flowId = flowIdInput.text?.toString()?.trim().orEmpty()
         if (key.isEmpty()) { toast("Enter your API key to run a flow"); return }
         if (flowId.isEmpty()) { toast("Enter a flow ID (flw_...)"); return }
+        val externalRef = externalUserId(null, default = "android-demo-user") ?: return
         getSharedPreferences(PREFS, MODE_PRIVATE).edit()
             .putString(PREF_API_KEY, key).putString(PREF_FLOW_ID, flowId).apply()
         runFlowButton.isEnabled = false
@@ -230,7 +253,7 @@ class DemoActivity : AppCompatActivity() {
             val created = runCatching {
                 val body = JSONObject()
                     .put("flowId", flowId)
-                    .put("subject", JSONObject().put("externalRef", "android-demo-user"))
+                    .put("subject", JSONObject().put("externalRef", externalRef))
                     .put("mint_sdk_token", true)
                     .put("sdk_version", "android-demo")
                     .toString().toRequestBody("application/json".toMediaType())
@@ -309,6 +332,7 @@ class DemoActivity : AppCompatActivity() {
     private companion object {
         const val PREFS = "demo"
         const val PREF_API_KEY = "api_key"
+        const val DEFAULT_EXTERNAL_USER_ID = "demo_user_001"
         const val EXTRA_AUTOSTART = "autostart"
         const val PREF_FLOW_ID = "flow_id"
     }

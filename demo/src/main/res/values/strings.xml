@@ -21,6 +21,8 @@
     <string name="start_verification">Start Verification</string>
     <string name="api_key_hint">API Key (sk_test_...)</string>
     <string name="identity_id_hint">Identity ID (for auth)</string>
+    <string name="external_user_id_hint">External User ID (optional)</string>
+    <string name="external_user_id_helper">Bench runs: paste the run sheet\'s lsb3_… label</string>
     <string name="last_result">Last Result</string>
     <string name="flow_id_hint">Flow ID (flw_…), for Run flow</string>
     <string name="run_flow">Run flow</string>
