@@ -50,7 +50,7 @@ class MicroActionDetectorTest {
         var t = 0L
         while (t < 500) { t += 50; r.tick(t, ExtraCheckInput(false)) }
         assertEquals(
-            Guidance(R.string.usesense_hint_face_covered, R.string.usesense_xc_paused_turn_detail),
+            Guidance(R.string.usesense_hint_face_covered, R.string.usesense_xc_paused_turn_left),
             ExtraCheckCopy.guidance(r, pausedBy = GateHint.FACE_COVERED),
         )
         assertEquals(R.string.usesense_hint_centre, ExtraCheckCopy.guidance(r).title)

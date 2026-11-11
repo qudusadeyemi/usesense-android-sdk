@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.usesense.sdk.ui.compose.USType
+import com.usesense.sdk.ui.compose.UseSenseTypeRamp
 import com.usesense.sdk.ui.compose.UseSenseColors
 import com.usesense.sdk.ui.compose.UseSenseTheme
 import com.usesense.sdk.ui.compose.components.USBrandingHeader
@@ -81,7 +82,7 @@ fun FacePrimerScreen(
                         Spacer(Modifier.width(8.dp))
                         Text(
                             "Your face and surroundings are captured during this check and processed securely.",
-                            style = USType.body.copy(fontSize = 12.sp),
+                            style = UseSenseTypeRamp.body.copy(fontSize = 12.sp),
                             color = colors.mutedForeground,
                         )
                     }
@@ -106,11 +107,11 @@ fun FacePrimerScreen(
                 Icon(Icons.Filled.CenterFocusStrong, null, tint = brand, modifier = Modifier.size(28.dp))
             }
             Spacer(Modifier.height(20.dp))
-            Text(title, style = USType.h2.copy(fontSize = 24.sp), color = colors.foreground)
+            Text(title, style = UseSenseTypeRamp.h2.copy(fontSize = 24.sp), color = colors.foreground)
             Spacer(Modifier.height(6.dp))
             Text(
                 body,
-                style = USType.body,
+                style = UseSenseTypeRamp.body,
                 color = colors.mutedForeground,
             )
             Spacer(Modifier.height(28.dp))
@@ -133,7 +134,7 @@ private fun PrimerPoint(icon: ImageVector, text: String, colors: UseSenseColors)
         Spacer(Modifier.width(12.dp))
         Text(
             text,
-            style = USType.body.copy(fontSize = 14.sp),
+            style = UseSenseTypeRamp.body.copy(fontSize = 14.sp),
             color = colors.foreground,
             modifier = Modifier.padding(top = 4.dp),
         )

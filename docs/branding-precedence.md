@@ -63,6 +63,15 @@ Where the SDK has no separate per-launch override, layer 1 and 2 are the same ob
 that name is a real configured value (it always is for an org). Everything else
 is null when not configured.
 
+## Capture screens (BRAND-v1, 2026-11-11)
+
+The capture screens resolve the same branding into one capture theme
+(`ui/theme/CaptureTheme.kt`): page tokens per `mode` (unset keeps the capture
+pages dark; a remote hosted link's own screens stay light), camera accents
+contrast-gated at 3:1 against `#333333`, and `copy.capture` over strings.xml.
+A Flow's capture also takes `UseSense.initialize` as a code layer below the run
+options. Source of truth: `capture-test-kit/BRAND-v1.md`.
+
 ## Out of scope for v1
 - Web SDK alignment (follow-up, same rules).
 - Dashboard UI to show which fields are "set" vs inherited.

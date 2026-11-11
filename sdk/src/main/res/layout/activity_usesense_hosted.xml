@@ -4,7 +4,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@android:color/white"
+    android:tag="page"
     android:fitsSystemWindows="true">
 
     <LinearLayout
@@ -15,11 +15,11 @@
         <!-- Section 11.1: Header Component -->
         <LinearLayout
             android:id="@+id/headerBar"
+                android:tag="header"
             android:layout_width="match_parent"
             android:layout_height="56dp"
             android:gravity="center"
             android:paddingHorizontal="16dp"
-            android:background="@android:color/white"
             android:elevation="1dp">
 
             <ImageView
@@ -32,19 +32,19 @@
 
             <TextView
                 android:id="@+id/headerText"
+                android:tag="title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textSize="20sp"
                 android:textStyle="bold"
-                android:textColor="@color/usesense_primary"
                 android:visibility="gone" />
         </LinearLayout>
 
         <View
             android:id="@+id/headerDivider"
+                android:tag="divider"
             android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="#E2E8F0" />
+            android:layout_height="1dp" />
 
         <!-- Content area -->
         <FrameLayout
@@ -61,19 +61,27 @@
                 android:orientation="vertical"
                 android:visibility="visible">
 
-                <ProgressBar
+                <com.usesense.sdk.ui.theme.CaptureLoaderView
                     android:id="@+id/hostedLoadingSpinner"
                     android:layout_width="48dp"
                     android:layout_height="48dp"
-                    android:indeterminateTint="@color/usesense_primary" />
+                    android:importantForAccessibility="no" />
+
+                <ImageView
+                    android:id="@+id/hostedLoadingImage"
+                    android:layout_width="wrap_content"
+                    android:layout_height="48dp"
+                    android:adjustViewBounds="true"
+                    android:importantForAccessibility="no"
+                    android:visibility="gone" />
 
                 <TextView
                     android:id="@+id/hostedLoadingText"
+                android:tag="muted"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
-                    android:textSize="16sp"
-                    android:textColor="#475569" />
+                    android:textSize="16sp" />
             </LinearLayout>
 
             <!-- ============= ERROR SCREEN (Section 11.4) =============
@@ -111,28 +119,29 @@
 
                     <TextView
                         android:id="@+id/hostedErrorTitle"
+                android:tag="title"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="24dp"
                         android:gravity="center_horizontal"
                         android:textAlignment="center"
                         android:textSize="20sp"
-                        android:textStyle="bold"
-                        android:textColor="#0F172A" />
+                        android:textStyle="bold" />
 
                     <TextView
                         android:id="@+id/hostedErrorMessage"
+                android:tag="text"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
                         android:gravity="center_horizontal"
                         android:textAlignment="center"
                         android:lineSpacingMultiplier="1.3"
-                        android:textSize="15sp"
-                        android:textColor="#475569" />
+                        android:textSize="15sp" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/errorPrimaryButton"
+                android:tag="btn-primary"
                         style="@style/UseSense.Button.Primary"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -140,6 +149,7 @@
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/errorSecondaryButton"
+                android:tag="btn-neutral"
                         style="@style/UseSense.Button.Secondary"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -148,16 +158,17 @@
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/errorExitButton"
+                android:tag="btn-secondary"
                         style="@style/Widget.MaterialComponents.Button.TextButton"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
                         android:textAllCaps="false"
-                        android:textColor="#475569"
                         android:visibility="gone" />
 
                     <TextView
                         android:id="@+id/hostedErrorCode"
+                android:tag="muted"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="16dp"
@@ -166,7 +177,6 @@
                         android:textIsSelectable="true"
                         android:fontFamily="monospace"
                         android:textSize="12sp"
-                        android:textColor="#94A3B8"
                         android:visibility="gone" />
                 </LinearLayout>
             </ScrollView>
@@ -188,20 +198,20 @@
 
                     <TextView
                         android:id="@+id/introHeadline"
+                android:tag="title"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:textSize="18sp"
-                        android:textColor="#0F172A"
                         android:gravity="center_horizontal"
                         android:textAlignment="center"
                         android:layout_marginTop="16dp" />
 
                     <TextView
                         android:id="@+id/introDescription"
+                android:tag="text"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:textSize="14sp"
-                        android:textColor="#475569"
                         android:gravity="center_horizontal"
                         android:textAlignment="center"
                         android:layout_marginTop="8dp" />
@@ -218,7 +228,7 @@
                             android:layout_height="48dp"
                             android:layout_gravity="center"
                             android:src="@drawable/usesense_icon_camera"
-                            android:tint="@color/usesense_primary" />
+                            android:tag="icon" />
                     </FrameLayout>
 
                     <!-- What to expect -->
@@ -228,9 +238,9 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="What to expect:"
+                android:tag="text"
                         android:textSize="14sp"
                         android:textStyle="bold"
-                        android:textColor="#0F172A"
                         android:layout_marginTop="24dp" />
 
                     <TextView
@@ -239,8 +249,8 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="@string/usesense_intro_step_1"
+                android:tag="muted"
                         android:textSize="14sp"
-                        android:textColor="#475569"
                         android:drawablePadding="8dp"
                         android:layout_marginTop="8dp" />
 
@@ -250,8 +260,8 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="@string/usesense_intro_step_2"
+                android:tag="muted"
                         android:textSize="14sp"
-                        android:textColor="#475569"
                         android:drawablePadding="8dp"
                         android:layout_marginTop="4dp" />
 
@@ -261,8 +271,8 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="@string/usesense_intro_step_3"
+                android:tag="muted"
                         android:textSize="14sp"
-                        android:textColor="#475569"
                         android:drawablePadding="8dp"
                         android:layout_marginTop="4dp" />
 
@@ -271,14 +281,15 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="@string/usesense_intro_security"
+                android:tag="muted"
                         android:textSize="12sp"
-                        android:textColor="#475569"
                         android:layout_marginTop="16dp"
                         android:gravity="center_horizontal"
                         android:textAlignment="center" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/introGetStartedButton"
+                android:tag="btn-primary"
                         style="@style/UseSense.Button.Primary"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -304,20 +315,20 @@
 
                     <TextView
                         android:id="@+id/actionReviewHeadline"
+                android:tag="title"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:textSize="18sp"
-                        android:textColor="#0F172A"
                         android:gravity="center_horizontal"
                         android:textAlignment="center"
                         android:layout_marginTop="16dp" />
 
                     <TextView
                         android:id="@+id/actionReviewDescription"
+                android:tag="text"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:textSize="14sp"
-                        android:textColor="#475569"
                         android:gravity="center_horizontal"
                         android:textAlignment="center"
                         android:layout_marginTop="8dp" />
@@ -335,10 +346,10 @@
 
                         <TextView
                             android:id="@+id/actionContextText"
+                android:tag="text"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:textSize="16sp"
-                            android:textColor="#0F172A"
                             android:textStyle="bold"
                             android:gravity="center_horizontal"
                             android:textAlignment="center" />
@@ -369,7 +380,7 @@
                             android:layout_height="48dp"
                             android:layout_gravity="center"
                             android:src="@drawable/usesense_icon_success"
-                            android:tint="@color/usesense_primary" />
+                            android:tag="icon" />
                     </FrameLayout>
 
                     <!-- Security notice -->
@@ -377,14 +388,15 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="@string/usesense_intro_security"
+                android:tag="muted"
                         android:textSize="12sp"
-                        android:textColor="#475569"
                         android:layout_marginTop="16dp"
                         android:gravity="center_horizontal"
                         android:textAlignment="center" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/actionReviewVerifyButton"
+                android:tag="btn-primary"
                         style="@style/UseSense.Button.Primary"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -393,14 +405,13 @@
                     <!-- Dispute button (action auth only) -->
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/actionReviewDisputeButton"
+                android:tag="btn-danger"
                         style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
                         android:text="@string/usesense_not_my_request"
-                        android:textColor="@color/usesense_error"
                         android:textAllCaps="false"
-                        app:strokeColor="@color/usesense_error"
                         app:cornerRadius="10dp"
                         android:visibility="gone" />
                 </LinearLayout>
@@ -418,36 +429,37 @@
 
                 <ImageView
                     android:id="@+id/hostedPermissionIcon"
+                android:tag="icon"
                     android:layout_width="64dp"
                     android:layout_height="64dp"
-                    android:src="@drawable/usesense_icon_camera"
-                    android:tint="@color/usesense_primary" />
+                    android:src="@drawable/usesense_icon_camera" />
 
                 <TextView
                     android:id="@+id/hostedPermissionTitle"
+                android:tag="title"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="24dp"
                     android:textSize="18sp"
                     android:textStyle="bold"
-                    android:textColor="#0F172A"
                     android:gravity="center_horizontal"
                     android:textAlignment="center"
                     android:text="@string/usesense_camera_permission_title" />
 
                 <TextView
                     android:id="@+id/hostedPermissionMessage"
+                android:tag="text"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
                     android:textSize="14sp"
-                    android:textColor="#475569"
                     android:gravity="center_horizontal"
                     android:textAlignment="center"
                     android:text="@string/usesense_camera_permission_message" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/hostedPermissionButton"
+                android:tag="btn-primary"
                     style="@style/UseSense.Button.Primary"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -459,11 +471,11 @@
             <!-- Full-screen black background, no padding per spec -->
             <LinearLayout
                 android:id="@+id/hostedCaptureScreen"
+                android:tag="camera"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:orientation="vertical"
                 android:gravity="center_horizontal"
-                android:background="#FF000000"
                 android:visibility="gone">
 
                 <!-- Video Container -->
@@ -513,11 +525,11 @@
 
                             <TextView
                                 android:id="@+id/hostedDirectionArrow"
+                android:tag="cam-text"
                                 android:layout_width="match_parent"
                                 android:layout_height="match_parent"
                                 android:gravity="center"
                                 android:textSize="48sp"
-                                android:textColor="@android:color/white"
                                 android:textStyle="bold" />
                         </FrameLayout>
 
@@ -585,31 +597,27 @@
 
                                 <TextView
                                     android:id="@+id/hostedHintTitle"
+                android:tag="cam-text"
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
                                     android:gravity="center_horizontal"
                                     android:textAlignment="center"
                                     android:maxLines="2"
                                     android:letterSpacing="-0.01"
-                                    android:textColor="@android:color/white"
                                     android:textSize="22sp"
-                                    android:fontFamily="sans-serif-medium"
                                     android:textStyle="bold"
-                                    android:shadowColor="#73000000"
                                     android:shadowDy="2"
                                     android:shadowRadius="14" />
 
                                 <TextView
                                     android:id="@+id/hostedHintDetail"
+                android:tag="cam-detail"
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
                                     android:layout_marginTop="6dp"
                                     android:gravity="center_horizontal"
                                     android:textAlignment="center"
-                                    android:textColor="#D1FFFFFF"
                                     android:textSize="15sp"
-                                    android:fontFamily="sans-serif-medium"
-                                    android:shadowColor="#73000000"
                                     android:shadowDy="2"
                                     android:shadowRadius="14"
                                     android:visibility="gone" />
@@ -632,7 +640,6 @@
                         android:id="@+id/hostedCountdownOverlay"
                         android:layout_width="match_parent"
                         android:layout_height="match_parent"
-                        android:background="@color/usesense_countdown_overlay"
                         android:visibility="gone">
 
                         <LinearLayout
@@ -665,9 +672,8 @@
                                 android:paddingVertical="6dp"
                                 android:background="@drawable/usesense_pill_bg"
                                 android:text="@string/usesense_countdown_label"
-                                android:textColor="@android:color/white"
+                android:tag="cam-text"
                                 android:textSize="14sp"
-                                android:fontFamily="sans-serif-medium"
                                 android:textStyle="bold" />
                         </LinearLayout>
                     </FrameLayout>
@@ -677,7 +683,6 @@
                         android:id="@+id/hostedInstructionsOverlay"
                         android:layout_width="match_parent"
                         android:layout_height="match_parent"
-                        android:background="@color/usesense_instructions_overlay"
                         android:visibility="gone">
 
                         <LinearLayout
@@ -720,6 +725,7 @@
 
                             <TextView
                                 android:id="@+id/hostedInstructionsCta"
+                android:tag="cam-text"
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
                                 android:gravity="center"
@@ -727,9 +733,7 @@
                                 android:paddingHorizontal="24dp"
                                 android:background="@drawable/usesense_instructions_cta_bg"
                                 android:text="@string/usesense_instructions_cta"
-                                android:textColor="@android:color/white"
                                 android:textSize="14sp"
-                                android:fontFamily="sans-serif-medium"
                                 android:textStyle="bold" />
                         </LinearLayout>
                     </FrameLayout>
@@ -738,18 +742,18 @@
                          checking share one progress bar (shared visual spec). -->
                     <FrameLayout
                         android:id="@+id/hostedUploadOverlay"
+                android:tag="cam-scrim"
                         android:layout_width="match_parent"
                         android:layout_height="match_parent"
-                        android:background="#400D0F14"
                         android:visibility="gone">
 
                         <LinearLayout
                             android:id="@+id/hostedUploadSheet"
+                android:tag="sheet"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_gravity="bottom"
                             android:layout_margin="8dp"
-                            android:background="@drawable/usesense_upload_sheet_bg"
                             android:gravity="center_horizontal"
                             android:orientation="vertical"
                             android:paddingHorizontal="24dp"
@@ -759,52 +763,61 @@
                             <!-- Kept for branding code paths; the sheet uses the bar. -->
                             <ProgressBar
                                 android:id="@+id/hostedUploadOverlaySpinner"
+                android:tag="spinner"
                                 android:layout_width="0dp"
                                 android:layout_height="0dp"
                                 android:visibility="gone" />
 
                             <TextView
                                 android:id="@+id/hostedUploadOverlayTitle"
+                android:tag="title"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:gravity="center_horizontal"
                                 android:textAlignment="center"
                                 android:text="@string/usesense_upload_title"
                                 android:textSize="18sp"
-                                android:fontFamily="sans-serif-medium"
-                                android:textStyle="bold"
-                                android:textColor="@android:color/white" />
+                                android:textStyle="bold" />
 
                             <ProgressBar
                                 android:id="@+id/hostedUploadProgress"
+                android:tag="upload-bar"
                                 style="@android:style/Widget.ProgressBar.Horizontal"
                                 android:layout_width="match_parent"
                                 android:layout_height="4dp"
                                 android:layout_marginTop="16dp"
-                                android:max="1000"
-                                android:progressDrawable="@drawable/usesense_upload_progress" />
+                                android:max="1000" />
 
                             <TextView
                                 android:id="@+id/hostedUploadOverlaySubtitle"
+                android:tag="muted"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="14dp"
                                 android:gravity="center_horizontal"
                                 android:textAlignment="center"
                                 android:textSize="14sp"
-                                android:textColor="#FFA3A9B8"
                                 android:text="@string/usesense_upload_detail" />
+
+                            <TextView
+                                android:tag="powered"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="14dp"
+                                android:gravity="center"
+                                android:text="@string/usesense_powered_by"
+                                android:textSize="12sp" />
                         </LinearLayout>
 
                         <!-- Action sheet, same styling as the upload sheet (storyboard: xc_head,
                              xc_dot, xc_digits, upload_failed): icon, title, one sentence, a button. -->
                         <LinearLayout
                             android:id="@+id/hostedActionSheet"
+                android:tag="sheet"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_gravity="bottom"
                             android:layout_margin="8dp"
-                            android:background="@drawable/usesense_upload_sheet_bg"
                             android:orientation="vertical"
                             android:paddingHorizontal="24dp"
                             android:paddingTop="26dp"
@@ -813,6 +826,7 @@
 
                             <com.usesense.sdk.ui.StrokeIconView
                                 android:id="@+id/hostedActionSheetIcon"
+                android:tag="tile"
                                 android:layout_width="52dp"
                                 android:layout_height="52dp"
                                 android:layout_marginBottom="12dp"
@@ -820,34 +834,40 @@
 
                             <TextView
                                 android:id="@+id/hostedActionSheetTitle"
+                android:tag="title"
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
                                 android:accessibilityHeading="true"
-                                android:fontFamily="sans-serif-medium"
-                                android:textColor="@android:color/white"
                                 android:textSize="20sp"
                                 android:textStyle="bold" />
 
                             <TextView
                                 android:id="@+id/hostedActionSheetBody"
+                android:tag="muted"
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="12dp"
                                 android:lineSpacingMultiplier="1.2"
-                                android:textColor="#C7FFFFFF"
                                 android:textSize="15sp" />
 
                             <TextView
                                 android:id="@+id/hostedActionSheetPrimary"
+                android:tag="btn-primary"
                                 android:layout_width="match_parent"
                                 android:layout_height="54dp"
                                 android:layout_marginTop="18dp"
-                                android:background="@drawable/usesense_page_button_bg"
-                                android:fontFamily="sans-serif-medium"
                                 android:gravity="center"
-                                android:textColor="@android:color/white"
                                 android:textSize="17sp"
                                 android:textStyle="bold" />
+
+                            <TextView
+                                android:tag="powered"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="14dp"
+                                android:gravity="center"
+                                android:text="@string/usesense_powered_by"
+                                android:textSize="12sp" />
                         </LinearLayout>
                     </FrameLayout>
 
@@ -864,23 +884,22 @@
 
                         <ImageButton
                             android:id="@+id/hostedFaceGuideCloseButton"
+                android:tag="cam-button"
                             android:layout_width="32dp"
                             android:layout_height="32dp"
                             android:layout_gravity="start"
-                            android:background="@drawable/usesense_scan_button_bg"
                             android:contentDescription="@string/usesense_capture_back"
                             android:src="@drawable/usesense_ic_arrow_back" />
 
                         <TextView
                             android:id="@+id/hostedHelpButton"
+                android:tag="cam-button"
                             android:layout_width="32dp"
                             android:layout_height="32dp"
                             android:layout_gravity="end"
-                            android:background="@drawable/usesense_scan_button_bg"
                             android:contentDescription="@string/usesense_capture_help"
                             android:gravity="center"
                             android:text="\?"
-                            android:textColor="@android:color/white"
                             android:textSize="16sp"
                             android:textStyle="bold" />
                     </FrameLayout>
@@ -898,36 +917,34 @@
                 <!-- Status text — white on black background per Section 11.8 -->
                 <TextView
                     android:id="@+id/hostedCaptureTitle"
+                android:tag="cam-text"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
                     android:layout_marginHorizontal="16dp"
                     android:textSize="16sp"
-                    android:textColor="#FFFFFFFF"
-                    android:fontFamily="sans-serif-medium"
                     android:textStyle="bold"
                     android:gravity="center_horizontal"
                     android:textAlignment="center" />
 
                 <TextView
                     android:id="@+id/hostedCaptureSubtitle"
+                android:tag="cam-muted"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
                     android:layout_marginHorizontal="16dp"
-                    android:textSize="14sp"
-                    android:textColor="#80FFFFFF" />
+                    android:textSize="14sp" />
 
                 <!-- Head turn direction text -->
                 <TextView
                     android:id="@+id/hostedDirectionText"
+                android:tag="cam-text"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
                     android:layout_marginHorizontal="16dp"
                     android:textSize="16sp"
-                    android:textColor="#FFFFFFFF"
-                    android:fontFamily="sans-serif-medium"
                     android:textStyle="bold"
                     android:visibility="gone" />
 
@@ -946,30 +963,29 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="@string/usesense_read_phrase"
-                        android:textSize="14sp"
-                        android:textColor="#80FFFFFF" />
+                android:tag="cam-muted"
+                        android:textSize="14sp" />
 
                     <TextView
                         android:id="@+id/hostedPhraseText"
+                android:tag="cam-text"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
                         android:padding="12dp"
                         android:background="@drawable/usesense_phrase_bg"
                         android:textSize="15sp"
-                        android:textColor="#FFFFFFFF"
-                        android:fontFamily="sans-serif-medium"
                         android:textStyle="bold"
                         android:gravity="center_horizontal"
                         android:textAlignment="center" />
 
                     <TextView
                         android:id="@+id/hostedRecordingIndicator"
+                android:tag="cam-muted"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
                         android:text="@string/usesense_recording"
-                        android:textColor="@color/usesense_error"
                         android:textSize="12sp"
                         android:visibility="gone" />
                 </LinearLayout>
@@ -988,14 +1004,14 @@
                 <!-- Section 11.8: Capture-mode footer — 50% white on black -->
                 <TextView
                     android:id="@+id/captureFooterText"
+                android:tag="cam-muted"
                     android:visibility="gone"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:gravity="center"
                     android:paddingVertical="12dp"
                     android:text="@string/usesense_powered_by"
-                    android:textSize="12sp"
-                    android:textColor="#80FFFFFF" />
+                    android:textSize="12sp" />
             </LinearLayout>
 
             <!-- ============= FINALIZING SCREEN (Section 11.9) ============= -->
@@ -1007,37 +1023,45 @@
                 android:orientation="vertical"
                 android:visibility="gone">
 
-                <ProgressBar
+                <com.usesense.sdk.ui.theme.CaptureLoaderView
                     android:id="@+id/finalizingSpinner"
                     android:layout_width="64dp"
                     android:layout_height="64dp"
-                    android:indeterminateTint="@color/usesense_primary" />
+                    android:importantForAccessibility="no" />
+
+                <ImageView
+                    android:id="@+id/finalizingImage"
+                    android:layout_width="wrap_content"
+                    android:layout_height="64dp"
+                    android:adjustViewBounds="true"
+                    android:importantForAccessibility="no"
+                    android:visibility="gone" />
 
                 <TextView
                     android:id="@+id/finalizingTitle"
+                android:tag="title"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="24dp"
                     android:textSize="18sp"
-                    android:textStyle="bold"
-                    android:textColor="#0F172A" />
+                    android:textStyle="bold" />
 
                 <TextView
                     android:id="@+id/finalizingSubtitle"
+                android:tag="text"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
                     android:text="@string/usesense_finalizing_body"
-                    android:textSize="14sp"
-                    android:textColor="#475569" />
+                    android:textSize="14sp" />
             </LinearLayout>
 
             <!-- ============= RESULT SCREEN (Section 12) ============= -->
             <ScrollView
                 android:id="@+id/hostedResultScreen"
+                android:tag="page"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:background="@color/usesense_background"
                 android:fillViewport="true"
                 android:visibility="gone">
 
@@ -1052,7 +1076,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_gravity="center"
-                    android:background="@drawable/usesense_result_card_bg"
+                    android:tag="card"
                     android:elevation="6dp"
                     android:orientation="vertical"
                     android:padding="32dp"
@@ -1073,24 +1097,24 @@
 
                     <TextView
                         android:id="@+id/resultTitle"
+                android:tag="title"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="20dp"
                         android:textSize="26sp"
                         android:textStyle="bold"
-                        android:textColor="#1C1A17"
                         android:gravity="center_horizontal"
                         android:textAlignment="center" />
 
                     <TextView
                         android:id="@+id/resultBody"
+                android:tag="text"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="20dp"
                         android:paddingHorizontal="8dp"
                         android:lineSpacingMultiplier="1.2"
                         android:textSize="16sp"
-                        android:textColor="#6B6760"
                         android:gravity="center_horizontal"
                         android:textAlignment="center" />
 
@@ -1102,29 +1126,29 @@
                         android:orientation="vertical"
                         android:padding="12dp"
                         android:layout_marginTop="16dp"
-                        android:background="@drawable/usesense_card_bg"
                         android:visibility="gone">
 
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="@string/usesense_result_authorised"
-                            android:textSize="12sp"
-                            android:textColor="#475569" />
+                android:tag="muted"
+                            android:textSize="12sp" />
 
                         <TextView
                             android:id="@+id/resultActionText"
+                android:tag="text"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="4dp"
                             android:textSize="14sp"
-                            android:textStyle="bold"
-                            android:textColor="#0F172A" />
+                            android:textStyle="bold" />
                     </LinearLayout>
 
                     <!-- As iOS ResultView: primary in the outcome colour, then "Try Again" on a reject. -->
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/resultButton"
+                android:tag="btn-primary"
                         android:layout_width="match_parent"
                         android:layout_height="52dp"
                         android:layout_marginTop="28dp"
@@ -1133,11 +1157,11 @@
                         android:textAllCaps="false"
                         android:textSize="17sp"
                         android:textStyle="bold"
-                        android:textColor="@android:color/white"
                         app:cornerRadius="12dp" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/resultRetryButton"
+                android:tag="btn-neutral"
                         android:layout_width="match_parent"
                         android:layout_height="52dp"
                         android:layout_marginTop="20dp"
@@ -1147,9 +1171,7 @@
                         android:textAllCaps="false"
                         android:textSize="17sp"
                         android:textStyle="bold"
-                        android:textColor="#1C1A17"
                         android:visibility="gone"
-                        app:backgroundTint="@color/usesense_border"
                         app:cornerRadius="12dp" />
                 </LinearLayout>
                 </FrameLayout>
@@ -1159,64 +1181,104 @@
         <!-- Section 11.2: Footer Component -->
         <View
             android:id="@+id/footerDivider"
+                android:tag="divider"
             android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="#F1F5F9" />
+            android:layout_height="1dp" />
 
         <TextView
             android:id="@+id/footerText"
+                android:tag="powered"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center"
             android:paddingVertical="12dp"
             android:text="@string/usesense_powered_by"
-            android:textSize="12sp"
-            android:textColor="#64748B" />
+            android:textSize="12sp" />
     </LinearLayout>
 
     <!-- Dark full-screen page (storyboard): primer, results and errors. -->
     <ScrollView
         android:id="@+id/hostedPage"
+                android:tag="page"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="#FF12141B"
         android:fillViewport="true"
         android:visibility="gone">
 
         <LinearLayout
+            android:id="@+id/hostedPageContent"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:paddingHorizontal="28dp"
             android:paddingTop="76dp"
-            android:paddingBottom="40dp">
+            android:paddingBottom="24dp">
+
+            <!-- Brand header (BRAND-v1 4.1 logo): the logo, else the display name.
+                 Placement "center" centres it, "none" hides it. -->
+            <LinearLayout
+                android:id="@+id/hostedPageHeader"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="40dp"
+                android:gravity="center_vertical|start"
+                android:orientation="horizontal"
+                android:visibility="gone">
+
+                <ImageView
+                    android:id="@+id/hostedPageLogo"
+                    android:layout_width="wrap_content"
+                    android:layout_height="28dp"
+                    android:adjustViewBounds="true"
+                    android:importantForAccessibility="no"
+                    android:scaleType="fitStart"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/hostedPageBrandName"
+                    android:tag="title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    android:visibility="gone" />
+            </LinearLayout>
+
+            <!-- icons.success / review / notVerified replace the icon tile on result pages. -->
+            <ImageView
+                android:id="@+id/hostedPageIllustration"
+                android:layout_width="wrap_content"
+                android:layout_height="96dp"
+                android:adjustViewBounds="true"
+                android:importantForAccessibility="no"
+                android:visibility="gone" />
 
             <com.usesense.sdk.ui.StrokeIconView
                 android:id="@+id/hostedPageIcon"
+                android:tag="tile"
                 android:layout_width="72dp"
                 android:layout_height="72dp"
                 android:importantForAccessibility="no" />
 
             <TextView
                 android:id="@+id/hostedPageTitle"
+                android:tag="title"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 android:accessibilityHeading="true"
-                android:fontFamily="sans-serif"
                 android:letterSpacing="-0.01"
                 android:lineSpacingMultiplier="1.05"
-                android:textColor="@android:color/white"
                 android:textSize="28sp"
                 android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/hostedPageBody"
+                android:tag="muted"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 android:lineSpacingMultiplier="1.25"
-                android:textColor="#BFFFFFFF"
                 android:textSize="16sp" />
 
             <LinearLayout
@@ -1234,36 +1296,44 @@
 
             <TextView
                 android:id="@+id/hostedPagePrimary"
+                android:tag="btn-primary"
                 android:layout_width="match_parent"
                 android:layout_height="56dp"
-                android:background="@drawable/usesense_page_button_bg"
-                android:fontFamily="sans-serif-medium"
                 android:gravity="center"
-                android:textColor="@android:color/white"
                 android:textSize="17sp"
                 android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/hostedPageSecondary"
+                android:tag="btn-secondary"
                 android:layout_width="match_parent"
                 android:layout_height="48dp"
                 android:layout_marginTop="16dp"
                 android:background="?android:attr/selectableItemBackground"
-                android:fontFamily="sans-serif-medium"
                 android:gravity="center"
-                android:textColor="#CCFFFFFF"
                 android:textSize="15sp"
                 android:textStyle="bold"
                 android:visibility="gone" />
+
+            <!-- "Powered by Sense" stays on every capture screen (BRAND-v1 decision 4). -->
+            <TextView
+                android:id="@+id/hostedPagePoweredBy"
+                android:tag="powered"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:gravity="center"
+                android:text="@string/usesense_powered_by"
+                android:textSize="12sp" />
         </LinearLayout>
     </ScrollView>
 
     <!-- "Leave verification?" (storyboard: leave), over the capture. -->
     <FrameLayout
         android:id="@+id/hostedLeaveDialog"
+                android:tag="dialog-scrim"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="#80000000"
         android:clickable="true"
         android:focusable="true"
         android:padding="32dp"
@@ -1273,7 +1343,7 @@
             android:layout_width="290dp"
             android:layout_height="wrap_content"
             android:layout_gravity="center"
-            android:background="@drawable/usesense_leave_dialog_bg"
+            android:tag="dialog"
             android:orientation="vertical"
             android:paddingHorizontal="16dp"
             android:paddingTop="20dp"
@@ -1281,24 +1351,24 @@
 
             <TextView
                 android:id="@+id/hostedLeaveTitle"
+                android:tag="title"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:accessibilityHeading="true"
-                android:fontFamily="sans-serif-medium"
                 android:gravity="center"
                 android:text="@string/usesense_leave_title"
-                android:textColor="@android:color/white"
                 android:textSize="17sp"
                 android:textStyle="bold" />
 
             <TextView
+                android:id="@+id/hostedLeaveBody"
+                android:tag="text"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:gravity="center"
                 android:lineSpacingMultiplier="1.15"
                 android:text="@string/usesense_leave_body"
-                android:textColor="#CCFFFFFF"
                 android:textSize="14sp" />
 
             <LinearLayout
@@ -1309,32 +1379,83 @@
 
                 <TextView
                     android:id="@+id/hostedLeaveButton"
+                android:tag="btn-neutral"
                     android:layout_width="0dp"
                     android:layout_height="44dp"
                     android:layout_marginEnd="4dp"
                     android:layout_weight="1"
-                    android:background="@drawable/usesense_leave_no_bg"
-                    android:fontFamily="sans-serif-medium"
                     android:gravity="center"
                     android:text="@string/usesense_leave"
-                    android:textColor="@android:color/white"
                     android:textSize="15sp"
                     android:textStyle="bold" />
 
                 <TextView
                     android:id="@+id/hostedKeepGoingButton"
+                android:tag="btn-primary"
                     android:layout_width="0dp"
                     android:layout_height="44dp"
                     android:layout_marginStart="4dp"
                     android:layout_weight="1"
-                    android:background="@drawable/usesense_leave_yes_bg"
-                    android:fontFamily="sans-serif-medium"
                     android:gravity="center"
                     android:text="@string/usesense_keep_going"
-                    android:textColor="@android:color/white"
                     android:textSize="15sp"
                     android:textStyle="bold" />
             </LinearLayout>
+        </LinearLayout>
+    </FrameLayout>
+
+    <!-- The help sheet behind "?" on the camera ("Quick face scan"), themed like the leave dialog. -->
+    <FrameLayout
+        android:id="@+id/hostedHelpDialog"
+        android:tag="dialog-scrim"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clickable="true"
+        android:focusable="true"
+        android:padding="32dp"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="300dp"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:tag="dialog"
+            android:clickable="true"
+            android:orientation="vertical"
+            android:paddingHorizontal="20dp"
+            android:paddingTop="22dp"
+            android:paddingBottom="16dp">
+
+            <TextView
+                android:id="@+id/hostedHelpTitle"
+                android:tag="title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:accessibilityHeading="true"
+                android:text="@string/usesense_capture_help_title"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/hostedHelpBody"
+                android:tag="text"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:lineSpacingMultiplier="1.2"
+                android:text="@string/usesense_capture_help_body"
+                android:textSize="15sp" />
+
+            <TextView
+                android:id="@+id/hostedHelpOk"
+                android:tag="btn-primary"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:layout_marginTop="18dp"
+                android:gravity="center"
+                android:text="@string/usesense_ok"
+                android:textSize="15sp"
+                android:textStyle="bold" />
         </LinearLayout>
     </FrameLayout>
 </FrameLayout>

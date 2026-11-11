@@ -83,17 +83,19 @@ data class BrandingConfig(
     val buttonRadius: Int? = null,
     val fontFamily: String? = null,
     /**
-     * Full white-label appearance for the Flows runner (Phase 1c). When set this
-     * takes precedence over server branding and the legacy primaryColor/buttonRadius
-     * fields above. Mirrors the web SDK's `appearance` run option. Null = inherit
-     * (server appearance, then legacy fields, then built-in hosted-page tokens).
+     * Full white-label appearance for every capture screen and the Flows runner.
+     * Per field it takes precedence over the legacy primaryColor / buttonRadius /
+     * fontFamily / logoUrl fields above, and both (code) beat the dashboard
+     * (BRAND-v1 section 2). Mirrors the web SDK's `appearance` option.
+     * Null = inherit (the legacy fields above, then the dashboard's appearance,
+     * then the Sense defaults).
      */
     val appearance: com.usesense.sdk.flows.FlowAppearance? = null,
     /**
-     * Full white-label copy/messaging overrides for the Flows runner (Phase 2).
-     * When set this takes precedence over server-delivered copy. Mirrors the web
-     * SDK's `copy` run option. Null = inherit (server copy, then built-in
-     * hosted-page strings). Presentation only; never affects capture/scoring.
+     * Full white-label copy for the Flows runner and the capture screens
+     * (`copy.capture`, BRAND-v1 section 5). Per key it takes precedence over
+     * dashboard copy. Mirrors the web SDK's `copy` option. Null = inherit
+     * (dashboard copy, then the shipped English). Presentation only.
      */
     val copy: com.usesense.sdk.flows.FlowCopy? = null,
 ) {

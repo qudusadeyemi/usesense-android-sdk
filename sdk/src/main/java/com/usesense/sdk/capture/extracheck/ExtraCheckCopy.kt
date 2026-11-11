@@ -46,7 +46,7 @@ internal object ExtraCheckCopy {
         if (runner.paused) {
             val (fallback, detail) =
                 when (kind) {
-                    ExtraCheckKind.HEAD_TURN -> R.string.usesense_hint_centre to R.string.usesense_xc_paused_turn_detail
+                    ExtraCheckKind.HEAD_TURN -> R.string.usesense_hint_centre to pausedTurnDetail(runner.currentStep?.direction)
                     ExtraCheckKind.FOLLOW_DOT -> R.string.usesense_hint_show_face to R.string.usesense_xc_dot_wait
                     ExtraCheckKind.SPEAK_DIGITS -> R.string.usesense_hint_show_face to R.string.usesense_xc_paused_digits_detail
                 }
@@ -66,6 +66,17 @@ internal object ExtraCheckCopy {
                 }
         }
     }
+
+    /** "Then keep turning to the left": the paused head turn says which way it waits to go. */
+    fun pausedTurnDetail(dir: String?): Int =
+        when (dir) {
+            HeadTurnStep.LEFT -> R.string.usesense_xc_paused_turn_left
+            HeadTurnStep.RIGHT -> R.string.usesense_xc_paused_turn_right
+            HeadTurnStep.UP -> R.string.usesense_xc_paused_turn_up
+            HeadTurnStep.DOWN -> R.string.usesense_xc_paused_turn_down
+            HeadTurnStep.CENTER -> R.string.usesense_xc_paused_turn_centre
+            else -> R.string.usesense_xc_paused_turn_detail
+        }
 
     private fun headTurn(runner: ExtraCheckRunner): Guidance {
         val dir = runner.currentStep?.direction
@@ -104,7 +115,7 @@ internal object ExtraCheckCopy {
     /** The scan's words for a failing gate check (the light checks never pause, so they have none). */
     fun hintTitle(hint: GateHint): Int? =
         when (hint) {
-            GateHint.SHOW_FACE -> R.string.usesense_hint_show_face
+            GateHint.SHOW_FACE, GateHint.DARK_NO_FACE, GateHint.FILLING_NO_FACE -> R.string.usesense_hint_show_face
             GateHint.ONE_PERSON -> R.string.usesense_hint_one_person
             GateHint.FACE_COVERED -> R.string.usesense_hint_face_covered
             GateHint.CENTRE -> R.string.usesense_hint_centre
@@ -115,6 +126,7 @@ internal object ExtraCheckCopy {
             GateHint.EYES_OPEN -> R.string.usesense_hint_eyes_open
             GateHint.HOLD_STILL -> R.string.usesense_hint_hold_still
             GateHint.BRIGHTENING, GateHint.FACE_LIGHT, GateHint.TOO_BRIGHT -> null
+            GateHint.TOO_DARK_TO_SCAN -> R.string.usesense_hint_face_light
         }
 
     /** The digits as the pill shows them: "4 7 2 9" (the server already spaces them). */

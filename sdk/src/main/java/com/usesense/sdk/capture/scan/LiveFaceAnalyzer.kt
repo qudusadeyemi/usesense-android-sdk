@@ -184,7 +184,10 @@ internal class LiveFaceAnalyzer(
         val faces = result.faceLandmarks()
         if (faces.isEmpty()) {
             coverSegmenter.clear()
-            onFrame(GateFrame(ts, w, h, 0, null, null, null))
+            // No face: measure the frame's middle, so a dark room still turns the fill light on.
+            val argb = IntArray(w * h)
+            bmp.getPixels(argb, 0, w, 0, 0, w, h)
+            onFrame(GateFrame(ts, w, h, 0, null, null, null, frameLuma = QualityGate.centreLuma(argb, w, h)))
             return
         }
         // The subject is the largest face (MediaPipe doesn't order by size), as iOS and Web.

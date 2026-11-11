@@ -2,12 +2,14 @@ package com.usesense.sdk.ui
 
 import android.content.Context
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
+import com.usesense.sdk.ui.theme.CaptureColor
+import com.usesense.sdk.ui.theme.CaptureFixed
+import com.usesense.sdk.ui.theme.CaptureTheme
 import android.os.SystemClock
 import android.util.AttributeSet
 import android.view.View
@@ -103,44 +105,64 @@ internal class ExtraCheckOverlayView
                 strokeWidth = 5f * dp
                 strokeCap = Paint.Cap.ROUND
                 strokeJoin = Paint.Join.ROUND
-                color = Color.WHITE
-                setShadowLayer(6f * dp, 0f, 1f * dp, Color.argb(90, 0, 0, 0))
+                color = CaptureFixed.GUIDANCE_TEXT
+                setShadowLayer(6f * dp, 0f, 1f * dp, CaptureFixed.ARROW_SHADOW)
             }
-        private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AMBER }
+        private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG)
         private val haloPaint =
             Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 style = Paint.Style.STROKE
                 strokeWidth = 2f * dp
-                color = AMBER
-                alpha = (0.5f * 255).toInt()
             }
         private val trailPaint =
             Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 style = Paint.Style.STROKE
                 strokeWidth = 2f * dp
                 strokeCap = Paint.Cap.ROUND
-                color = AMBER
-                alpha = (0.35f * 255).toInt()
                 pathEffect = DashPathEffect(floatArrayOf(4f * dp, 6f * dp), 0f)
             }
-        private val pillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(184, 13, 15, 20) }
+        private val pillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = CaptureFixed.DIGITS_PILL }
         private val digitsPaint =
             Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.WHITE
+                color = CaptureFixed.DIGITS_TEXT
                 typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
                 textAlign = Paint.Align.CENTER
             }
-        private val meterPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = GREEN }
-        private val tickFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(230, 0, 212, 170) }
+        private val meterPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val tickFill = Paint(Paint.ANTI_ALIAS_FLAG)
         private val tickStroke =
             Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 style = Paint.Style.STROKE
                 strokeWidth = 6f * dp
                 strokeCap = Paint.Cap.ROUND
                 strokeJoin = Paint.Join.ROUND
-                color = Color.WHITE
+                color = CaptureFixed.GUIDANCE_TEXT
             }
         private val path = Path()
+
+        /**
+         * Camera accents (BRAND-v1 4.2): the Follow Dot dot and trail take
+         * [CaptureTheme.CameraTokens.warning]; the mic meter and the done tick
+         * take [CaptureTheme.CameraTokens.success].
+         */
+        var colors: CaptureTheme.CameraTokens = CaptureTheme.cameraTokens(null)
+            set(value) {
+                field = value
+                applyColors()
+                invalidate()
+            }
+
+        init {
+            applyColors()
+        }
+
+        private fun applyColors() {
+            dotPaint.color = colors.warning
+            haloPaint.color = CaptureColor.withAlpha(colors.warning, 0.5f)
+            trailPaint.color = CaptureColor.withAlpha(colors.warning, 0.35f)
+            meterPaint.color = colors.success
+            tickFill.color = colors.success
+        }
         private val rect = RectF()
 
         override fun onSizeChanged(
@@ -347,7 +369,7 @@ internal class ExtraCheckOverlayView
             val cy = oval.centerY()
             canvas.save()
             canvas.scale(scale, scale, cx, cy)
-            tickFill.alpha = (230 * min(1f, t * 1.5f)).toInt()
+            tickFill.alpha = (TICK_ALPHA * min(1f, t * 1.5f)).toInt()
             canvas.drawCircle(cx, cy, 44f * dp, tickFill)
             path.rewind()
             path.moveTo(cx - 20f * dp, cy + 2f * dp)
@@ -359,14 +381,13 @@ internal class ExtraCheckOverlayView
         }
 
         companion object {
-            const val AMBER = 0xFFFFB84D.toInt()
-            const val GREEN = 0xFF00D4AA.toInt()
-            const val PURPLE = 0xFFA878FC.toInt()
             const val METER_BARS = 9
 
             /** The storyboard's bar profile (10 18 30 22 34 16 26 12 8 of 34): taller in the middle. */
             private val METER_SHAPE = floatArrayOf(0.35f, 0.6f, 0.9f, 0.7f, 1f, 0.55f, 0.8f, 0.45f, 0.3f)
             private const val DOT_MOVE_MS = 600f
             private const val TICK_IN_MS = 220f
+            /** The tick disc at 90%. */
+            private const val TICK_ALPHA = 230
         }
     }

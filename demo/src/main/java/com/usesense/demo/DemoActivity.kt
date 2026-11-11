@@ -127,6 +127,8 @@ class DemoActivity : AppCompatActivity() {
                 fallbackStatus = extras?.getIntExtra("mock_fallback_status", 200) ?: 200
                 inlineThreshold = extras?.takeIf { it.hasExtra("mock_inline_threshold") }?.getIntExtra("mock_inline_threshold", 55)
                 extras?.getStringExtra("mock_inline_challenge")?.let { inlineChallenge = it }
+                // BRAND-v1 test brands as dashboard branding: --es brand acme|nightpay
+                branding = TestBrands.json(this@DemoActivity, extras?.getStringExtra("brand"))
                 requireAudio = challengeType == "speak_phrase"
                 start()
             }
