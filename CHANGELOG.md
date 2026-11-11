@@ -68,6 +68,15 @@ only primary buttons (when set) and `capture.ring` took effect.
   nothing shows while it settles (1.5 s), then "Find more light / Face a window
   or lamp" replaces "Show your face in the oval". During a scan or a movement
   nothing changes. A bright frame with no face behaves as before.
+- **A head turn in the dark flows.** On a Galaxy A03 in a dark room the extra check
+  paused for 40 s: the fill light was off for it, sharpness failed on every
+  turning frame ("Hold your phone steady"), and the fill light coming on made
+  the gate wait to re-baseline a change watch that is off while moving ("Hold
+  still"). A scan that needed the fill light now keeps it on for the movement,
+  sharpness gives way while moving (as stillness does), and a movement never
+  holds for a light change. A paused head turn's second line names the way to
+  go ("Then keep turning to the left"; new `copy.capture` keys
+  `extraCheck.pausedTurnSide` with `{side}` and `extraCheck.pausedLookCentre`).
 - "[App]" in the copy is the resolved display name before the app's label.
 - The Flow primer's title and body follow `typography`.
 - Precedence comments now match the code: a code legacy field
