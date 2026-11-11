@@ -48,7 +48,7 @@ class CaptureCopyTest {
         val c = copy(
             """{"capture":{
                  "primer":{"selfieTitle":"Quick selfie for {app}","two_steps_title":"Two steps","selfie_tips":["Light","No hats"]},
-                 "extra_check":{"headTurn":"Look {side}","try_next":"Next: {side}"},
+                 "extra_check":{"headTurn":"Look {side}","head_turn_next":"Next: {side}"},
                  "leave":{"keepGoing":"Stay"}
                }}""",
         )!!
@@ -56,7 +56,7 @@ class CaptureCopyTest {
         assertEquals("Two steps", c.text("primer.twoStepsTitle"))
         assertEquals(listOf("Light", "No hats"), c.list("primer.selfieTips"))
         assertEquals("Look {side}", c.text("extraCheck.headTurn"))
-        assertEquals("Next: {side}", c.text("extraCheck.tryNext"))
+        assertEquals("Next: {side}", c.text("extraCheck.headTurnNext"))
         val s = strings(c)
         assertEquals("Quick selfie for Acme Bank", s.text(id("usesense_primer_title")))
         assertEquals("Stay", s.text(id("usesense_keep_going")))
@@ -111,13 +111,13 @@ class CaptureCopyTest {
         val spec = mapOf(
             "primer" to "selfieTitle selfieBody selfieTips start cancel twoStepsTitle twoStepsBody twoStepsTips",
             "guidance" to "ready centre closer back straight dark darkHint bright brightHint blur eyes onePerson showFace covered holdStill shutterHint",
-            "extraCheck" to "sheetTitle sheetBody continue headTurn followDot speakDigits lookCentre tryNext done",
+            "extraCheck" to "sheetTitle sheetBody continue headTurn headTurnNext followDot speakDigits lookCentre tryNext done pausedTurnSide pausedLookCentre",
             "upload" to "title caption failedTitle failedBody retry",
             "result" to "approvedTitle approvedBody reviewTitle reviewBody rejectedTitle rejectedBody retryTitle retryBody done tryAgain notNow",
             "errors" to "cameraDeniedTitle cameraDeniedBody openSettings cameraStoppedTitle cameraStoppedBody micTitle micBody useHeadMovement offlineTitle offlineBody expiredTitle expiredBody startAgain errorTitle errorBody",
             "leave" to "title body leave keepGoing",
         ).flatMap { (g, keys) -> keys.split(' ').map { "$g.$it" } }
-        val notOnAndroid = setOf("primer.cancel", "guidance.ready")
+        val notOnAndroid = setOf("primer.cancel", "guidance.ready", "extraCheck.tryNext")
         val used = CaptureCopyKeys.byResource.values.map { it.key }.toSet() + setOf(
             CaptureCopyKeys.PRIMER_SELFIE_TIPS, CaptureCopyKeys.PRIMER_TWO_STEPS_TIPS,
             CaptureCopyKeys.RESULT_RETRY_TITLE, CaptureCopyKeys.UPLOAD_RETRY,
@@ -125,5 +125,20 @@ class CaptureCopyTest {
         spec.forEach { k -> assertTrue("unmapped $k", k in used || k in notOnAndroid) }
         assertEquals(7, CaptureCopy.GROUPS.size)
         CaptureCopyKeys.byResource.values.forEach { assertTrue(it.key, it.key.substringBefore('.') in CaptureCopy.GROUPS) }
+    }
+
+    @Test fun `the next side's title is headTurnNext, not tryNext, with a bare side word`() {
+        val s = strings(copy("""{"capture":{"extraCheck":{"headTurnNext":"Next, {side}","tryNext":"Let's try the next one"}}}"""))
+        assertEquals("Next, left", s.text(id("usesense_xc_now_left")))
+        assertEquals("Next, down", s.text(id("usesense_xc_now_down")))
+        // tryNext (after a missed step) never replaces a step title.
+        val onlyTryNext = strings(copy("""{"capture":{"extraCheck":{"tryNext":"Let's try the next one"}}}"""))
+        assertEquals("Now to the right", onlyTryNext.text(id("usesense_xc_now_right")))
+        // Shipped defaults for the paused line (BRAND-v1 section 5).
+        val none = strings(null)
+        assertEquals("Then keep turning to the left", none.text(id("usesense_xc_paused_turn_left")))
+        assertEquals("Then keep tilting your head up", none.text(id("usesense_xc_paused_turn_up")))
+        assertEquals("Then look straight ahead", none.text(id("usesense_xc_paused_turn_centre")))
+        assertEquals("Then keep turning", none.text(id("usesense_xc_paused_turn_detail")))
     }
 }

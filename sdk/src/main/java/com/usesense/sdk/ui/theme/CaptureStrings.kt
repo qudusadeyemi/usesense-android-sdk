@@ -116,10 +116,13 @@ internal object CaptureCopyKeys {
         "usesense_xc_turn_up" to e("extraCheck.headTurn", "up"),
         "usesense_xc_turn_down" to e("extraCheck.headTurn", "down"),
         "usesense_xc_turn_centre" to e("extraCheck.lookCentre"),
-        "usesense_xc_now_left" to e("extraCheck.tryNext", "left"),
-        "usesense_xc_now_right" to e("extraCheck.tryNext", "right"),
-        "usesense_xc_now_up" to e("extraCheck.tryNext", "up"),
-        "usesense_xc_now_down" to e("extraCheck.tryNext", "down"),
+        // The next side's title ("Now to the left"). extraCheck.tryNext is "Let's try the
+        // next one" after a missed step, which Android doesn't show (a missed step is
+        // retried with extraCheck.again).
+        "usesense_xc_now_left" to e("extraCheck.headTurnNext", "left"),
+        "usesense_xc_now_right" to e("extraCheck.headTurnNext", "right"),
+        "usesense_xc_now_up" to e("extraCheck.headTurnNext", "up"),
+        "usesense_xc_now_down" to e("extraCheck.headTurnNext", "down"),
         "usesense_xc_now_centre" to e("extraCheck.nowCentre"), // NEW
         "usesense_xc_follow_dot" to e("extraCheck.followDot"),
         "usesense_xc_say_numbers" to e("extraCheck.speakDigits"),
