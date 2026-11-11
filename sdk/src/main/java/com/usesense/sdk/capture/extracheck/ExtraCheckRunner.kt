@@ -5,7 +5,10 @@ import com.usesense.sdk.api.models.HeadTurnStep
 import com.usesense.sdk.capture.scan.OvalSpec
 import com.usesense.sdk.capture.scan.PointMapper
 import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.roundToLong
 import kotlin.math.sqrt
 
 /** The movements the scan screen can run as an extra check. */
@@ -58,10 +61,18 @@ internal data class ExtraCheckInput(
     val turn: Float? = null,
     /** Microphone level 0..1, Speak Digits only. */
     val micLevel: Float? = null,
+    /**
+     * Head pose in degrees from the face transform ([com.usesense.sdk.capture.scan.HeadPoseMath]),
+     * when known. With a pose, Head Turn and Follow Dot are closed loop (a step
+     * ends once the head is on target and held there); without one, each step
+     * runs for the server's time.
+     */
+    val yaw: Double? = null,
+    val pitch: Double? = null,
 )
 
 internal sealed class ExtraCheckEvent {
-    /** A step starts: show its direction / move the dot. [retry]: the one local retry of a missed turn. */
+    /** A step starts: show its direction / move the dot. [retry]: the one hint of the check (the same step again). */
     data class Step(val index: Int, val retry: Boolean) : ExtraCheckEvent()
 
     /** The face left the oval: the timer stops, the dot waits, the ring turns amber. */
@@ -80,19 +91,54 @@ internal sealed class ExtraCheckEvent {
 }
 
 /**
+ * How one Head Turn / Follow Dot step went, for the server's timing checks
+ * (`challenge_response.step_events`, same meaning as iOS and Web). A live
+ * person moves after the prompt; a replayed or looping video doesn't line up
+ * with prompts it can't see. Times are on the runner's clock (ms).
+ */
+internal data class ExtraCheckStepLog(
+    /** The step's index (the key of `step_frames` / `waypoint_frames`). */
+    val index: Int,
+    val promptedAt: Long,
+    val endedAt: Long,
+    /** Start of the on-target hold that ended the step (reached steps only). */
+    val reachedAt: Long?,
+    /** Ended on target (true), timed out after the hint (false), or by the server's time with no pose (null). */
+    val reached: Boolean?,
+    val hinted: Boolean,
+    /**
+     * step_events v2: the movement along the step's main axis, toward the
+     * target (+) or away (-), at the first pose more than
+     * [ExtraCheckRunner.FIRST_MOVE_DEG] from the pose at the prompt; and when
+     * (ms after the prompt). Null: never moved that far, or nothing to move
+     * toward (Follow Dot's first waypoint).
+     */
+    val firstMoveDeg: Double? = null,
+    val firstMoveMs: Long? = null,
+    /** The furthest away from the target along the main axis before reaching it (or the end), >= 0. */
+    val maxAwayDeg: Double? = null,
+)
+
+/**
  * The extra check's clock, pure Kotlin so every path is unit tested.
  *
- * Agreed behaviour (storyboard flows 4 and 5):
+ * Agreed behaviour (storyboard flows 4 and 5, iOS `ChallengeRunner` parity):
  *  - the face leaves the oval: pause (time stops, the dot waits), say what to
  *    fix, carry on when it is back. Never fails on the device;
- *  - a missed Head Turn (left or right not turned far enough) gets ONE local
- *    retry with a hint, then the result is left to the server;
+ *  - Head Turn and Follow Dot are closed loop: a step ends once the head has
+ *    reached the step's target and held it for [HOLD_MS]. Not there after
+ *    [HINT_AFTER_MS] (or the server's step, if longer): ONE hint per check,
+ *    with the same time again; still not there: on to the next step, the
+ *    result left to the server. A Follow Dot waypoint can't be reached before
+ *    the dot's glide ends ([DOT_GLIDE_MS]). No pose from the tracker: the
+ *    server's step time (and the old nose-offset check for the one retry);
  *  - Speak Digits: a flat meter for 2 s says "We can't hear you"; that holds
  *    the timer for at most [MAX_QUIET_HOLD_MS] in all, so a broken microphone
  *    can't hold the screen forever.
  *
- * The presenter only records which step each frame belongs to; this decides
- * when steps start and end.
+ * The presenter only records which step each frame belongs to (and, via
+ * [banksNow], whether a frame is evidence for it); this decides when steps
+ * start and end, and logs each step's timing ([stepLog]).
  */
 internal class ExtraCheckRunner(
     val kind: ExtraCheckKind,
@@ -101,7 +147,7 @@ internal class ExtraCheckRunner(
     var stepIndex = 0
         private set
 
-    /** The current step is the one retry. */
+    /** The current step is the one retry (the hint shows). */
     var retrying = false
         private set
     var retryUsed = false
@@ -124,20 +170,89 @@ internal class ExtraCheckRunner(
     private var silentSince = 0L
     private var quietHeld = 0L
 
-    /** Best turn toward the asked side during the current step, in half cheek-widths. */
+    /** Best turn toward the asked side during the current step, in half cheek-widths (no-pose fallback). */
     var peakTurn = 0f
         private set
 
+    // Closed loop (see the class comment).
+    /** A pose was seen during the check: the ring fills per step done. */
+    private var posed = false
+    private var stepPoseSeen = false
+    private var atTargetMs = 0L
+    private var lastAtTarget: Boolean? = null
+    private var reachedSteps = 0
+
+    /** Time the current step has run (the glide; not reset by the hint). */
+    private var stepAge = 0L
+
+    /** Follow Dot: the pose held at the previous waypoint (the next move is judged from it). */
+    private var refYaw = 0.0
+    private var refPitch = 0.0
+    private var tickYaw: Double? = null
+    private var tickPitch: Double? = null
+
+    // Step timing.
+    private val log = mutableListOf<ExtraCheckStepLog>()
+    private var promptedAt = -1L
+    private var reachedAt = -1L
+    private var stepHinted = false
+
+    // First move, from the pose on every processed frame ([observePose]).
+    private var poseYaw: Double? = null
+    private var posePitch: Double? = null
+    private var promptYaw: Double? = null
+    private var promptPitch: Double? = null
+    private var firstMoveDeg: Double? = null
+    private var firstMoveAt = -1L
+    private var maxAwayDeg: Double? = null
+
+    /** The head reached the target: what it does after that isn't the way there. */
+    private var moveSettled = false
+
     val currentStep: ExtraCheckStep? get() = steps.getOrNull(stepIndex)
 
-    /** Ring fill, 0..1: active time over planned time (a retry adds its step). */
-    val progress: Float get() = if (completed) 1f else (activeMs.toFloat() / plannedMs).coerceIn(0f, 1f)
+    /** Every finished Head Turn / Follow Dot step, in order. */
+    val stepLog: List<ExtraCheckStepLog> get() = log.toList()
+
+    /**
+     * Ring fill, 0..1. With a pose: one segment per step done (a step that
+     * timed out leaves its segment empty, so moving on never looks like a
+     * confirmation) plus the hold on the current one. Without: active time
+     * over planned time (a retry adds its step).
+     */
+    val progress: Float
+        get() {
+            if (completed) return 1f
+            if (posed && kind != ExtraCheckKind.SPEAK_DIGITS && steps.isNotEmpty()) {
+                val hold = min(1f, atTargetMs.toFloat() / HOLD_MS)
+                return ((reachedSteps + hold) / steps.size).coerceIn(0f, 1f)
+            }
+            return (activeMs.toFloat() / plannedMs).coerceIn(0f, 1f)
+        }
+
+    /**
+     * Frames taken now are evidence for the current step. Head Turn: only
+     * while the head is on target (frames from the way there, still turned
+     * from the last step, fail steps the person did). Follow Dot: on target,
+     * or once the dot has arrived and settled (the server judges each
+     * waypoint from a few frames even when the phone thinks it was missed).
+     * No pose to judge, or Speak Digits: always.
+     */
+    val banksNow: Boolean
+        get() =
+            when {
+                completed || kind == ExtraCheckKind.SPEAK_DIGITS -> true
+                kind == ExtraCheckKind.HEAD_TURN -> lastAtTarget ?: true
+                else -> (lastAtTarget ?: true) || stepAge >= DOT_GLIDE_MS + DOT_SETTLE_MS
+            }
 
     fun start(now: Long): List<ExtraCheckEvent> {
         if (started) return emptyList()
         started = true
         lastTick = now
         silentSince = now
+        // The first step shows now; the check starts with the face in the oval (straight from the scan or its sheet).
+        promptedAt = now
         if (steps.isEmpty()) {
             completed = true
             return listOf(ExtraCheckEvent.Completed)
@@ -151,6 +266,33 @@ internal class ExtraCheckRunner(
         if (badSince >= 0) badSince = now
         if (goodSince >= 0) goodSince = now
         silentSince = now
+    }
+
+    /**
+     * The tracker's pose on one processed frame (every frame, not only those
+     * banked), for the step's first move. [now] on the same clock as [tick].
+     */
+    fun observePose(
+        now: Long,
+        yaw: Double,
+        pitch: Double,
+    ) {
+        poseYaw = yaw
+        posePitch = pitch
+        if (!started || completed || promptedAt < 0 || moveSettled) return
+        if (promptYaw == null) {
+            // No pose at the prompt: the first pose after it stands in.
+            promptYaw = yaw
+            promptPitch = pitch
+        }
+        val py = promptYaw ?: return
+        val pp = promptPitch ?: return
+        val t = toward(yaw, pitch, py, pp) ?: return
+        maxAwayDeg = max(maxAwayDeg ?: 0.0, if (t < 0) -t else 0.0)
+        if (firstMoveAt < 0 && hypot(yaw - py, pitch - pp) > FIRST_MOVE_DEG) {
+            firstMoveDeg = t
+            firstMoveAt = now
+        }
     }
 
     fun tick(
@@ -213,36 +355,169 @@ internal class ExtraCheckRunner(
         if (!holding) {
             stepElapsed += dt
             activeMs += dt
+            stepAge += dt
         }
 
         val step = currentStep ?: return events
-        if (stepElapsed >= step.durationMs) {
-            if (needsRetry(step)) {
-                retryUsed = true
-                retrying = true
-                plannedMs += step.durationMs
-                stepElapsed = 0L
-                peakTurn = 0f
-                events += ExtraCheckEvent.Step(stepIndex, retry = true)
-            } else {
-                stepIndex++
-                retrying = false
-                stepElapsed = 0L
-                peakTurn = 0f
-                if (stepIndex >= steps.size) {
-                    completed = true
-                    paused = false
-                    quiet = false
-                    events += ExtraCheckEvent.Completed
-                } else {
-                    events += ExtraCheckEvent.Step(stepIndex, retry = false)
-                }
-            }
+        if (kind == ExtraCheckKind.SPEAK_DIGITS) {
+            if (stepElapsed >= step.durationMs) advance(now, events, reached = null)
+            return events
         }
+        if (paused) return events
+        if (input.yaw != null && input.pitch != null) {
+            tickYaw = input.yaw
+            tickPitch = input.pitch
+        }
+        advanceTargeted(now, step, target(step, input), dt, events)
         return events
     }
 
-    /** Only a left/right turn is checked on the device, and only once per extra check. */
+    /** Whether the pose is on the current step's target (null: no pose to judge). */
+    private fun target(
+        step: ExtraCheckStep,
+        input: ExtraCheckInput,
+    ): Boolean? {
+        if (kind == ExtraCheckKind.HEAD_TURN) return atTarget(step.direction, input.yaw, input.pitch)
+        // The dot must have arrived before the head can be on it.
+        val arrived = stepAge >= DOT_GLIDE_MS
+        val reached =
+            if (stepIndex == 0) {
+                // The first waypoint: a straight face (the reference).
+                atTarget(HeadTurnStep.CENTER, input.yaw, input.pitch)
+            } else {
+                val prev = steps[stepIndex - 1]
+                atDotTarget(step.x, step.y, prev.x, prev.y, input.yaw, input.pitch, refYaw, refPitch)
+            }
+        return reached?.let { it && arrived }
+    }
+
+    private fun advanceTargeted(
+        now: Long,
+        step: ExtraCheckStep,
+        target: Boolean?,
+        dt: Long,
+        events: MutableList<ExtraCheckEvent>,
+    ) {
+        val server = step.durationMs.coerceAtLeast(MIN_STEP_MS)
+        lastAtTarget = target
+        if (target == null && !stepPoseSeen) {
+            // No pose from the tracker: the server's time, as before.
+            if (stepElapsed >= step.durationMs) {
+                if (needsRetry(step)) {
+                    retryUsed = true
+                    retrying = true
+                    stepHinted = true
+                    plannedMs += step.durationMs
+                    stepElapsed = 0L
+                    peakTurn = 0f
+                    events += ExtraCheckEvent.Step(stepIndex, retry = true)
+                } else {
+                    advance(now, events, reached = null)
+                }
+            }
+            return
+        }
+        // A pose seen earlier in the step, lost now: not on target (the hint and time-out still run).
+        val onTarget = target ?: false
+        if (onTarget) moveSettled = true
+        stepPoseSeen = true
+        posed = true
+        if (onTarget && atTargetMs == 0L) reachedAt = now
+        atTargetMs = if (onTarget) atTargetMs + dt else 0L
+        if (!onTarget) reachedAt = -1L
+        if (atTargetMs >= HOLD_MS) {
+            advance(now, events, reached = true)
+            return
+        }
+        if (stepElapsed >= max(HINT_AFTER_MS, server)) {
+            if (!retrying && !retryUsed) {
+                // One hint per check, with the same time again.
+                retryUsed = true
+                retrying = true
+                stepHinted = true
+                stepElapsed = 0L
+                events += ExtraCheckEvent.Step(stepIndex, retry = true)
+            } else {
+                advance(now, events, reached = false) // the server judges this step
+            }
+        }
+    }
+
+    /** Log the step and start the next one (or complete). */
+    private fun advance(
+        now: Long,
+        events: MutableList<ExtraCheckEvent>,
+        reached: Boolean?,
+    ) {
+        if (kind != ExtraCheckKind.SPEAK_DIGITS) {
+            if (reached != false) reachedSteps++
+            val prompted = if (promptedAt >= 0) promptedAt else now
+            log +=
+                ExtraCheckStepLog(
+                    index = stepIndex,
+                    promptedAt = prompted,
+                    endedAt = now,
+                    reachedAt = if (reached == true && reachedAt >= 0) reachedAt else null,
+                    reached = reached,
+                    hinted = stepHinted,
+                    firstMoveDeg = firstMoveDeg,
+                    firstMoveMs = if (firstMoveAt >= 0) firstMoveAt - prompted else null,
+                    maxAwayDeg = maxAwayDeg,
+                )
+        }
+        promptedAt = now
+        // The next step's first move is measured from the pose now.
+        promptYaw = poseYaw
+        promptPitch = posePitch
+        firstMoveDeg = null
+        firstMoveAt = -1L
+        maxAwayDeg = null
+        moveSettled = false
+        reachedAt = -1L
+        stepHinted = false
+        lastAtTarget = null
+        if (kind == ExtraCheckKind.FOLLOW_DOT) {
+            // The next move is judged from where the head is now.
+            tickYaw?.let { refYaw = it }
+            tickPitch?.let { refPitch = it }
+        }
+        stepIndex++
+        retrying = false
+        stepElapsed = 0L
+        stepAge = 0L
+        atTargetMs = 0L
+        stepPoseSeen = false
+        peakTurn = 0f
+        if (stepIndex >= steps.size) {
+            completed = true
+            paused = false
+            quiet = false
+            events += ExtraCheckEvent.Completed
+        } else {
+            events += ExtraCheckEvent.Step(stepIndex, retry = false)
+        }
+    }
+
+    /** The current step's movement toward its target from the pose `from` (null: nothing to move toward). */
+    private fun toward(
+        yaw: Double,
+        pitch: Double,
+        fromYaw: Double,
+        fromPitch: Double,
+    ): Double? {
+        val step = currentStep ?: return null
+        return when (kind) {
+            ExtraCheckKind.HEAD_TURN -> towardTurn(step.direction, yaw, pitch, fromYaw, fromPitch)
+            ExtraCheckKind.FOLLOW_DOT -> {
+                if (stepIndex == 0) return null // waypoint 0: the reference
+                val prev = steps[stepIndex - 1]
+                towardDot(step.x, step.y, prev.x, prev.y, yaw, pitch, fromYaw, fromPitch)
+            }
+            ExtraCheckKind.SPEAK_DIGITS -> null
+        }
+    }
+
+    /** No pose: only a left/right turn is checked on the device (nose offset), once per extra check. */
     private fun needsRetry(step: ExtraCheckStep): Boolean =
         kind == ExtraCheckKind.HEAD_TURN && !retryUsed &&
             (step.direction == HeadTurnStep.LEFT || step.direction == HeadTurnStep.RIGHT) &&
@@ -262,11 +537,157 @@ internal class ExtraCheckRunner(
         /** Longest the quiet state holds the timer, in all. */
         const val MAX_QUIET_HOLD_MS = 6_000L
 
-        /** About 15 degrees of yaw: the nose a fifth of a half cheek-width off the midline. */
+        /** No pose: about 15 degrees of yaw, the nose a fifth of a half cheek-width off the midline. */
         const val TURN_ENOUGH = 0.22f
 
         /** A stalled tick (app in the background) doesn't jump the timer. */
         const val MAX_TICK_MS = 250L
+
+        /**
+         * Head Turn targets (degrees from the face transform), as iOS: a little
+         * more than the server's 6 (yaw) / 5 (pitch) so it sees a clear turn.
+         */
+        const val TURN_YAW = 15.0
+        const val TURN_PITCH = 12.0
+        const val CENTRE_TOLERANCE = 10.0
+
+        /** On target this long ends the step. */
+        const val HOLD_MS = 600L
+
+        /** Not there after this long (or the server's step): the hint; the same again: move on. */
+        const val HINT_AFTER_MS = 4_000L
+
+        /** Follow Dot: the dot's glide to its next waypoint (ExtraCheckOverlayView's DOT_MOVE_MS). */
+        const val DOT_GLIDE_MS = 600L
+
+        /** ...then this long before settled frames count (a person's reaction to the move). */
+        const val DOT_SETTLE_MS = 500L
+
+        /** Follow Dot: a move under this share of the screen on an axis asks for no movement on it (the server's 0.1). */
+        const val DOT_CENTRE_BAND = 0.1f
+        const val DOT_YAW = 10.0
+        const val DOT_PITCH = 8.0
+
+        /** The dot move's other direction may go this far the wrong way. */
+        const val DOT_WRONG_WAY = 10.0
+
+        /** A move from the pose at the prompt bigger than this (yaw/pitch distance) is the step's first move. */
+        const val FIRST_MOVE_DEG = 4.0
+
+        /**
+         * Which way "left" and "up" read in [com.usesense.sdk.capture.scan.HeadPoseMath]'s
+         * angles. Galaxy A03 (extra-check device run): turning to the person's
+         * left reads yaw > 0 (iOS's transform reads it negative). Pitch: up
+         * reads positive, as iOS (mirroring flips yaw, not pitch).
+         */
+        const val LEFT_YAW_SIGN = 1.0
+        const val UP_PITCH_SIGN = 1.0
+
+        private const val MIN_STEP_MS = 200L
+
+        /** Whether the pose is at a Head Turn target (null: no pose to judge). */
+        fun atTarget(
+            direction: String?,
+            yaw: Double?,
+            pitch: Double?,
+        ): Boolean? =
+            when (direction) {
+                HeadTurnStep.LEFT, HeadTurnStep.RIGHT -> {
+                    yaw?.let {
+                        val towardLeft = it * LEFT_YAW_SIGN
+                        if (direction == HeadTurnStep.LEFT) towardLeft >= TURN_YAW else -towardLeft >= TURN_YAW
+                    }
+                }
+                HeadTurnStep.UP, HeadTurnStep.DOWN -> {
+                    pitch?.let {
+                        val towardUp = it * UP_PITCH_SIGN
+                        if (direction == HeadTurnStep.UP) towardUp >= TURN_PITCH else -towardUp >= TURN_PITCH
+                    }
+                }
+                else -> if (yaw == null || pitch == null) null else abs(yaw) < CENTRE_TOLERANCE && abs(pitch) < CENTRE_TOLERANCE
+            }
+
+        /**
+         * Follow Dot: whether the head followed the dot's move from (px, py) to
+         * (x, y), measured from the pose held at the previous waypoint. Screen
+         * right is the person's right in the mirrored preview. Judged on the
+         * move's main direction (the larger part): the head must move that way
+         * by [DOT_YAW] / [DOT_PITCH]; the other part only fails it when the head
+         * goes clearly the opposite way (more than [DOT_WRONG_WAY]). Same rule
+         * as iOS and Watchtower's validator.
+         */
+        fun atDotTarget(
+            x: Float,
+            y: Float,
+            px: Float,
+            py: Float,
+            yaw: Double?,
+            pitch: Double?,
+            refYaw: Double,
+            refPitch: Double,
+        ): Boolean? {
+            if (yaw == null || pitch == null) return null
+            val dx = x - px
+            val dy = py - y // > 0: the dot moved up
+            val towardRight = (yaw - refYaw) * -LEFT_YAW_SIGN
+            val towardUp = (pitch - refPitch) * UP_PITCH_SIGN
+            val followX = if (dx > 0) towardRight else -towardRight
+            val followY = if (dy > 0) towardUp else -towardUp
+            val movesX = abs(dx) > DOT_CENTRE_BAND
+            val movesY = abs(dy) > DOT_CENTRE_BAND
+            if (!movesX && !movesY) return true
+            if (movesX && (!movesY || abs(dx) >= abs(dy))) {
+                return followX >= DOT_YAW && (!movesY || followY > -DOT_WRONG_WAY)
+            }
+            return followY >= DOT_PITCH && (!movesX || followX > -DOT_WRONG_WAY)
+        }
+
+        /**
+         * Head Turn: how far the head moved toward the step's target from the
+         * pose `from` (negative: away). Left/right on yaw, up/down on pitch,
+         * centre = the distance from straight ahead shrinking.
+         */
+        fun towardTurn(
+            direction: String?,
+            yaw: Double,
+            pitch: Double,
+            fromYaw: Double,
+            fromPitch: Double,
+        ): Double =
+            when (direction) {
+                HeadTurnStep.LEFT -> (yaw - fromYaw) * LEFT_YAW_SIGN
+                HeadTurnStep.RIGHT -> -(yaw - fromYaw) * LEFT_YAW_SIGN
+                HeadTurnStep.UP -> (pitch - fromPitch) * UP_PITCH_SIGN
+                HeadTurnStep.DOWN -> -(pitch - fromPitch) * UP_PITCH_SIGN
+                else -> hypot(fromYaw, fromPitch) - hypot(yaw, pitch)
+            }
+
+        /**
+         * Follow Dot: how far the head moved with the dot's move from the pose
+         * `from`, on the axis the dot moved most along (x wins ties, as the
+         * server's `judgeDotMove`), with [atDotTarget]'s mirroring and signs.
+         * Negative: against the dot.
+         */
+        fun towardDot(
+            x: Float,
+            y: Float,
+            px: Float,
+            py: Float,
+            yaw: Double,
+            pitch: Double,
+            fromYaw: Double,
+            fromPitch: Double,
+        ): Double {
+            val dx = x - px
+            val dy = py - y
+            val towardRight = (yaw - fromYaw) * -LEFT_YAW_SIGN
+            val towardUp = (pitch - fromPitch) * UP_PITCH_SIGN
+            if (abs(dx) >= abs(dy)) return if (dx >= 0) towardRight else -towardRight
+            return if (dy > 0) towardUp else -towardUp
+        }
+
+        /** Degrees on the wire: one decimal. */
+        fun roundDeg(v: Double): Double = (v * 10).roundToLong() / 10.0
 
         fun stepsFor(spec: ChallengeSpec): List<ExtraCheckStep> =
             when (ExtraCheckKind.of(spec.type)) {

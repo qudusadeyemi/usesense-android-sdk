@@ -1784,9 +1784,12 @@ class HostedPageActivity : AppCompatActivity() {
                 lastGateLogAt = now
                 Log.d(GATE_TAG, "challenge failing=${result.failing} motion=$motion turn=$turn ${result.metrics ?: ""}")
             }
-            extraCheckFace = ExtraCheckInput(gatePasses = result.allPass, turn = turn)
+            val pose = if (frame.faceCount > 0) frame.pose else null
+            extraCheckFace = ExtraCheckInput(gatePasses = result.allPass, turn = turn, yaw = pose?.yaw, pitch = pose?.pitch)
             extraCheckBlocking = result.blocking
             extraCheckFaceAt = now
+            // The first move (step_events v2) is read from every processed frame, banked or not.
+            if (pose != null) runner?.observePose(now, pose.yaw, pose.pitch)
             return
         }
         if (scanStage == ScanStage.CLOSER) {
@@ -2434,6 +2437,7 @@ class HostedPageActivity : AppCompatActivity() {
         if (kind == ExtraCheckKind.SPEAK_DIGITS) extraCheckView.digits = ExtraCheckCopy.digitsText(spec.phrase)
 
         presenter.beginDriven()
+        presenter.responseBuilder.bankFrames = true
         eventEmitter.emit(EventType.CHALLENGE_STARTED, mapOf("type" to spec.type, "timing" to timing.name.lowercase()))
         liveAnalyzer?.active = true
         lastGate = null
@@ -2454,12 +2458,19 @@ class HostedPageActivity : AppCompatActivity() {
         // No gate (MediaPipe missing) or a stalled one can't see the face: never block on it.
         val fresh = extraCheckFaceAt > 0L && now - extraCheckFaceAt < GATE_STALE_MS
         val forcedPass = debugHooks?.forceState == "pass"
-        val face = if (fresh && !forcedPass) extraCheckFace else ExtraCheckInput(gatePasses = true, turn = extraCheckFace.turn)
+        // A stale gate has no pose either: the step falls back to the server's time.
+        val face = when {
+            fresh && forcedPass -> extraCheckFace.copy(gatePasses = true)
+            fresh -> extraCheckFace
+            else -> ExtraCheckInput(gatePasses = true, turn = extraCheckFace.turn)
+        }
         // The paused guidance names the check, with the scan's hint timing.
         hintScheduler.update(now, if (face.gatePasses) emptyList() else extraCheckBlocking)
         val level = if (runner.kind == ExtraCheckKind.SPEAK_DIGITS) sess.audioLevel() else null
         if (level != null) extraCheckView.pushLevel(level)
         handleExtraCheckEvents(runner, runner.tick(now, face.copy(micLevel = level)))
+        // Frames bank only while they show the step (on target, or the dot settled).
+        extraCheckPresenter?.responseBuilder?.bankFrames = runner.banksNow
         if (extraCheck === runner) renderExtraCheck(runner)
     }
 
@@ -2530,6 +2541,11 @@ class HostedPageActivity : AppCompatActivity() {
     /** "Done": a short green tick, then the upload (or round 2's upload). */
     private fun finishExtraCheck(runner: ExtraCheckRunner) {
         val sess = session ?: return
+        extraCheckPresenter?.responseBuilder?.let { b ->
+            b.bankFrames = true
+            // The runner's clock is elapsedRealtime: epoch ms = wall clock minus it.
+            b.setStepEvents(runner.stepLog, System.currentTimeMillis() - SystemClock.elapsedRealtime())
+        }
         extraCheckPresenter?.endDriven()
         handler.removeCallbacks(scanTicker)
         liveAnalyzer?.active = false
