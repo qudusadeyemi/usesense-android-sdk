@@ -49,6 +49,11 @@ only primary buttons (when set) and `capture.ring` took effect.
   (`primer.selfieTitle`, `leave.keepGoing`, ...), camelCase or snake_case on the
   wire, with `{app}` (the display name, else the app's name) and `{side}`. A
   blank or missing key keeps the shipped English, unchanged.
+  `{side}` is the bare word (left, right, up, down). The next side's title
+  ("Now to the {side}") is `extraCheck.headTurnNext`; `extraCheck.tryNext`
+  ("Let's try the next one") has no Android string, since a missed step is
+  retried with `extraCheck.again`. Android adds keys for strings the contract
+  doesn't name yet (listed in PR #85).
 - The debug trace (`adb shell setprop log.tag.UseSense DEBUG`) names the source
   layer of every appearance and copy field.
 
