@@ -49,4 +49,6 @@ dependencies {
 
     // Mock server for demo mode
     implementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+
+    testImplementation("junit:junit:4.13.2")
 }
