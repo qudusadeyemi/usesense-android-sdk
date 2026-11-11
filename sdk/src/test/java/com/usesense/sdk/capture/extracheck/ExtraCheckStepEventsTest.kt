@@ -167,6 +167,20 @@ class ExtraCheckStepEventsTest {
     }
 
     @Test
+    fun `coming back from the last step's turn doesn't pause, for a moment`() {
+        val steps = listOf(ExtraCheckStep(2000, direction = "left"), ExtraCheckStep(2000, direction = "up"))
+        val r = ExtraCheckRunner(ExtraCheckKind.HEAD_TURN, steps)
+        r.start(0)
+        r.feed(0, 2000, untilStep = 1) { Pose(30.0, 0.0) }
+        // Still turned left (CENTRE fails) for 1 s after "up" shows: no pause.
+        val back = r.feed(r.stepLog[0].endedAt, r.stepLog[0].endedAt + 1000, gate = false, turnOnly = true) { Pose(30.0, 0.0) }
+        assertFalse(ExtraCheckEvent.Paused in back)
+        // Past the grace, still failing and not on target: it pauses.
+        val later = r.feed(r.stepLog[0].endedAt + 1000, r.stepLog[0].endedAt + 2000, gate = false, turnOnly = true) { Pose(30.0, 0.0) }
+        assertTrue(ExtraCheckEvent.Paused in later)
+    }
+
+    @Test
     fun `any other gate failure pauses even on target`() {
         val r = ExtraCheckRunner(ExtraCheckKind.HEAD_TURN, listOf(ExtraCheckStep(2000, direction = "right")))
         r.start(0)

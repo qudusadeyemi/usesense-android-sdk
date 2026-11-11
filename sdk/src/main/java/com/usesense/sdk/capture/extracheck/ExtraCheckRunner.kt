@@ -312,12 +312,17 @@ internal class ExtraCheckRunner(
         val dt = (now - lastTick).coerceIn(0L, MAX_TICK_MS)
         lastTick = now
 
-        // A failure the turn causes, with the head on target, is not the face leaving.
+        // A failure the turn causes is not the face leaving: with the head on target, or
+        // coming back from the previous step's turn (A03 run: still at yaw 45 after "left",
+        // "up" paused on CENTRE for 1.5 s).
         val gateOk =
             input.gatePasses ||
                 (
                     input.turnOnlyFailing && kind != ExtraCheckKind.SPEAK_DIGITS &&
-                        currentStep?.let { target(it, input) } == true
+                        (
+                            (stepIndex > 0 && stepAge < RETURN_GRACE_MS) ||
+                                currentStep?.let { target(it, input) } == true
+                        )
                 )
 
         // Face in the oval, with a little hysteresis so one bad frame doesn't flash amber.
@@ -586,6 +591,9 @@ internal class ExtraCheckRunner(
 
         /** The dot move's other direction may go this far the wrong way. */
         const val DOT_WRONG_WAY = 10.0
+
+        /** A new step: turn-caused gate failures don't pause for this long while the head comes back. */
+        const val RETURN_GRACE_MS = ExtraCheckMotion.SIDE_GRACE_MS
 
         /** A move from the pose at the prompt bigger than this (yaw/pitch distance) is the step's first move. */
         const val FIRST_MOVE_DEG = 4.0
