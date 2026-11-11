@@ -270,6 +270,13 @@ class HostedPageActivity : AppCompatActivity() {
     private var shutterKept = false
     private var scanCopyShown = false
     private var fillLightSince: Long? = null
+    /**
+     * This attempt's scan needed the fill light. The light goes off as the
+     * scan ends (and around inline Flash Reflection); an extra check after it
+     * puts it back on before the movement starts, so a dark room stays lit
+     * for "One more quick check" too (A03 device finding, 2026-11-11).
+     */
+    private var scanNeededFillLight = false
     private var lightStatusBarDefault: Boolean? = null
     private var systemBars = androidx.core.graphics.Insets.NONE
     private var captureFullBleed = false
@@ -1394,6 +1401,7 @@ class HostedPageActivity : AppCompatActivity() {
         sess.colourEvidence = null
         scanController = null
         sessionCaptureStarted = false
+        scanNeededFillLight = false
         gateUnavailable = false
         shutterKept = false
         shutterAnnounced = false
@@ -2103,6 +2111,7 @@ class HostedPageActivity : AppCompatActivity() {
     private fun completePassiveScan() {
         haptic()
         stopScanLoop()
+        if (fillLightSince != null) scanNeededFillLight = true
         restoreFillLight()
         hintPill.announceForAccessibility(cs(R.string.usesense_scan_complete))
         val sess = session ?: return
@@ -2395,6 +2404,8 @@ class HostedPageActivity : AppCompatActivity() {
             eventEmitter.emit(EventType.AUDIO_RECORD_STARTED)
         }
 
+        // Lit before the movement's first frame and held until it ends (as a scan, COVER-v1).
+        if (scanNeededFillLight) turnOnFillLight()
         scanStage = ScanStage.CHALLENGE
         sess.setCapturePhase(CapturePhase.CHALLENGE)
         sess.setCapturePhase(com.usesense.sdk.capture.CapturePhase.CHALLENGE)
