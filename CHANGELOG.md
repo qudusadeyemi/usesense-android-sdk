@@ -6,6 +6,12 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [4.14.0] - 2026-11-11
+
+Head Turn and Follow Dot follow the person (closed loop, iOS 4.11.0 parity) and
+send per-step timing for the server's replay checks (`step_events` v2).
+Device-checked on a Galaxy A03.
+
 ### Changed
 
 - **Head Turn and Follow Dot are closed loop** (iOS 4.11.0 parity). A step

@@ -87,7 +87,7 @@ Since 4.13.0 every session starts with the selfie scan, and a movement runs on t
 - **Before the scan** (the session's policy already has a challenge): the primer says "Two quick steps", and the movement follows straight on from the scan.
 - **After the scan** (the server asks for an extra check in the /signals response): a "One more quick check" sheet, then the movement, then a second upload.
 
-If the face leaves the oval, the movement pauses and says what to fix; it never fails on the device. A missed head turn gets one more go with a hint, then the server decides. The back button asks "Leave verification?" first; leaving cancels the verification (`onCancelled`).
+If the face leaves the oval, the movement pauses and says what to fix; it never fails on the device. Since 4.14.0, Head Turn and Follow Dot follow the person: each step ends once the head has reached it and held for a moment. A step not reached after 4 s gets the one hint of the check and the same time again, then the server decides. The back button asks "Leave verification?" first; leaving cancels the verification (`onCancelled`).
 
 ## Branding the Capture Screens
 
