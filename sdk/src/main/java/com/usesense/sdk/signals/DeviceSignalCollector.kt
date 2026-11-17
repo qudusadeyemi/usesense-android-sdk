@@ -120,6 +120,42 @@ class DeviceSignalCollector(private val context: Context, cloudProjectNumber: Lo
         waitMs: Long,
     ): PlayIntegrityManager.StandardResult = playIntegrityManager.requestStandardToken(scope, requestHash, waitMs)
 
+    /** What [requestNonceBoundPlayIntegrityToken] got: which API produced a token, or why there is none. */
+    data class NonceBoundIntegrity(val api: String?, val errorName: String?, val errorMessage: String?) {
+        val hasToken: Boolean get() = api != null
+    }
+
+    /**
+     * A Play Integrity token bound to a server nonce (PlayIntegrityNonceBinding):
+     * the Standard API with `requestHash` = hex SHA-256 of [nonce] first, then
+     * the Classic API with `nonce` = base64url SHA-256 of [nonce] if Standard
+     * gave no token. The token lands in `play_integrity_token` on the next
+     * collectSignals(). Never throws; bounded by [standardWaitMs] plus
+     * PlayIntegrityManager.TOKEN_TIMEOUT_MS. [scope] owns the Standard
+     * provider warm-up and must outlive this call.
+     */
+    suspend fun requestNonceBoundPlayIntegrityToken(
+        scope: kotlinx.coroutines.CoroutineScope,
+        nonce: String,
+        standardWaitMs: Long,
+    ): NonceBoundIntegrity {
+        var standardError: Pair<String?, String?> = "NoCloudProject" to "googleCloudProjectNumber not configured"
+        if (standardIntegrityAvailable) {
+            val r = playIntegrityManager.requestStandardToken(scope, PlayIntegrityNonceBinding.requestHash(nonce), standardWaitMs)
+            if (r.token != null) {
+                playIntegrityToken = r.token
+                return NonceBoundIntegrity(PlayIntegrityNonceBinding.API_STANDARD, null, null)
+            }
+            standardError = r.errorName to r.errorMessage
+        }
+        val classic = playIntegrityManager.requestIntegrityToken(PlayIntegrityNonceBinding.classicNonce(nonce))
+        if (classic != null) {
+            playIntegrityToken = classic
+            return NonceBoundIntegrity(PlayIntegrityNonceBinding.API_CLASSIC, null, null)
+        }
+        return NonceBoundIntegrity(null, standardError.first, standardError.second)
+    }
+
     /**
      * Collect all channel integrity signals for the server's DeepSense scorer.
      * These go into the `channel_integrity` object in the metadata payload.
@@ -434,6 +470,6 @@ class DeviceSignalCollector(private val context: Context, cloudProjectNumber: Lo
          * which made `sessions.sdk_version` useless for telling which build a
          * customer was actually running while diagnosing a field problem.
          */
-        const val SDK_VERSION = "4.14.0"
+        const val SDK_VERSION = "4.15.0"
     }
 }

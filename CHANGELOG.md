@@ -6,6 +6,55 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [4.15.0] - 2026-11-17
+
+Silent device check for Your KYC: keep your own KYC provider's SDK and run a
+headless Sense device check next to it. No UI, no camera, no permission prompts.
+
+### Added
+
+- **`UseSense.deviceCheck(context, DeviceCheckConfig(deviceCheckId, token, nonce))`**
+  returns a `DeviceCheck` with `suspend fun start()` and `suspend fun finish()`,
+  each returning `DeviceCheckResult.Sent` or `DeviceCheckResult.Failed(error)`,
+  plus `start(callback)` / `finish(callback)` for Java (callback on the main
+  thread) and `cancel()`. The ids come from your server's
+  `POST /v1/device-checks` (create it with `"platform": "android"`). Does not
+  need `UseSense.initialize()`; its `baseUrl` and Google Cloud project number
+  are used when it was called.
+  - `start()` collects the camera-free DeepSense signals from the same
+    collector as the face and Device Trust paths (attestation, emulator, root,
+    debuggable, Play services, security patch, device, screen, GPU, battery,
+    locale, network type, device telemetry), plus `install_id` (a random
+    per-install id in the app's private preferences) and
+    `has_hardware_keystore` / `hardware_keystore_tier` (an AndroidKeyStore key,
+    no prompt), and posts `phase: "start"` to
+    `/v1/sdk/device-checks/:id/signals` with `Authorization: Bearer dct_...`.
+    The capture-only keys (camera facing and resolution, camera and microphone
+    permission, motion samples) are left out, as on a Device Trust step.
+  - `finish()` posts `phase: "finish"` with `channel_integrity.camera_inventory`:
+    the `CameraManager` id list with facing, hardware level and logical
+    multi-camera per camera, read without the camera permission and without
+    opening a camera. Android ids carry no driver names, so no `labels` are
+    sent and the server's "virtual camera installed" flag is not set from it.
+  - Errors map to `DeviceCheckError.Code`: `INVALID_TOKEN` and `TOKEN_EXPIRED`
+    (401), `NONCE_MISMATCH` (400), `INVALID_REQUEST`, `NOT_FOUND`,
+    `OUT_OF_ORDER` (409 `already_started` / `not_started` / `already_finished`,
+    and a second local `start()` after an accepted one, which sends nothing),
+    `SERVICE_UNAVAILABLE` (5xx, 429), `NETWORK_ERROR`, `TIMEOUT`,
+    `INVALID_CONFIG` and `CANCELLED`, with the server's `code` passed through.
+    A 5xx, 429 or dropped connection is retried once after a 1 s backoff (or the
+    server's Retry-After, at most 5 s); a `409 already_started` after a dropped
+    connection counts as sent. Each call runs off the main thread and is bounded
+    by `DeviceCheckConfig.timeoutMs` (45 s by default). Nothing is thrown into
+    the host app and the token is never logged.
+- **Play Integrity bound to a server nonce** (`PlayIntegrityNonceBinding`,
+  `DeviceSignalCollector.requestNonceBoundPlayIntegrityToken`): the Standard API
+  with `requestHash` = lowercase hex SHA-256 of the nonce's UTF-8 bytes, then
+  the Classic API with `nonce` = base64url (no padding) of the same digest if
+  Standard gave no token. The silent device check declares
+  `play_integrity_nonce_binding: "sha256"` and `play_integrity_api`, so the
+  server rejects a token minted for another request.
+
 ## [4.14.0] - 2026-11-11
 
 Head Turn and Follow Dot follow the person (closed loop, iOS 4.11.0 parity) and

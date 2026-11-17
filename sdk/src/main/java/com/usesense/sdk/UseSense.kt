@@ -2,8 +2,15 @@ package com.usesense.sdk
 
 import android.app.Activity
 import android.content.Context
+import android.util.Log
 import com.usesense.sdk.api.V4VerificationCallback
 import com.usesense.sdk.api.V4VerificationRequest
+import com.usesense.sdk.devicecheck.AndroidDeviceCheckSignals
+import com.usesense.sdk.devicecheck.DeviceCheck
+import com.usesense.sdk.devicecheck.DeviceCheckConfig
+import com.usesense.sdk.devicecheck.DeviceCheckError
+import com.usesense.sdk.devicecheck.DeviceCheckTransport
+import com.usesense.sdk.signals.DeviceSignalCollector
 import com.usesense.sdk.ui.HostedPageActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -105,6 +112,53 @@ object UseSense {
         val intent = com.usesense.sdk.v4.LiveSenseV4Activity.buildIntent(activity, request)
         activity.startActivity(intent)
     }
+
+    /**
+     * A headless silent device check for "Your KYC": the app keeps its own KYC
+     * provider's SDK and runs this next to it. No UI, no camera, no permission
+     * prompts. [config] carries the `deviceCheckId`, `token` and `nonce` your
+     * server got from `POST /v1/device-checks` (with `"platform": "android"`).
+     *
+     * Does not need [initialize]; when it was called, its base URL and Google
+     * Cloud project number are used unless [config] sets its own. Never throws:
+     * a malformed [config] makes [DeviceCheck.start] and [DeviceCheck.finish]
+     * return [DeviceCheckError.Code.INVALID_CONFIG] without sending anything.
+     *
+     * ```
+     * val check = UseSense.deviceCheck(context, DeviceCheckConfig(id, token, nonce))
+     * check.start()           // before the provider's SDK opens
+     * provider.start(metadata = mapOf("device_check_id" to id))
+     * check.finish()          // optional, after it closes
+     * ```
+     */
+    @JvmStatic
+    fun deviceCheck(
+        context: Context,
+        config: DeviceCheckConfig,
+    ): DeviceCheck {
+        val app = context.applicationContext ?: context
+        val baseUrl = config.baseUrl ?: this.config?.baseUrl ?: UseSenseConfig.DEFAULT_BASE_URL
+        val project =
+            config.googleCloudProjectNumber
+                ?: this.config?.googleCloudProjectNumber
+                ?: UseSenseConfig.DEFAULT_GOOGLE_CLOUD_PROJECT_NUMBER
+        val log: (String) -> Unit = { Log.d(DEVICE_CHECK_TAG, it) }
+        return DeviceCheck(
+            config = config,
+            signals = AndroidDeviceCheckSignals(app, project),
+            transport =
+                DeviceCheckTransport(
+                    baseUrl = baseUrl,
+                    deviceCheckId = config.deviceCheckId.trim(),
+                    token = config.token.trim(),
+                    userAgent = "UseSense-Android-SDK/${DeviceSignalCollector.SDK_VERSION}",
+                    log = log,
+                ),
+            log = log,
+        )
+    }
+
+    private const val DEVICE_CHECK_TAG = "UseSense.DeviceCheck"
 
     /**
      * Subscribe to SDK lifecycle events. Returns an unsubscribe function.
