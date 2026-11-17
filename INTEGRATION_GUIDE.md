@@ -185,6 +185,35 @@ The webhook is the authoritative source. It contains the full scoring breakdown:
 
 Each retry creates a new session and consumes one credit (if the session completes).
 
+## Silent device check (Your KYC)
+
+Use this when you keep another KYC provider (MetaMap, Smile ID, Sumsub, ...) and want Sense's device evidence next to it. The SDK runs headless: no screens, no camera, no permission prompts.
+
+1. **Your server** calls `POST /v1/device-checks` with `{ "user_ref": "...", "platform": "android" }` and hands the app `deviceCheckId`, `token` (`dct_`, one use, 15 minutes) and `nonce` (`dn_`).
+2. **The app** calls `check.start()` before the provider's SDK opens. The SDK collects the camera-free DeepSense signals (a Play Integrity token whose `requestHash` is SHA-256 of the nonce, emulator, root, debug, Play services, security patch, hardware keystore, device and session context, a per-install id) and posts them to `/v1/sdk/device-checks/:id/signals` with `phase: "start"`.
+3. **The provider** runs as usual, with `deviceCheckId` in its metadata, mapped to the Sense field "Device check id" in your Your KYC connection (or link by sending the same user reference to both).
+4. **Optionally** the app calls `check.finish()` after the provider closes, which sends the camera inventory (`CameraManager` ids and characteristics; no camera is opened).
+
+```kotlin
+// deviceCheckId, token and nonce come from your server's POST /v1/device-checks.
+val check = UseSense.deviceCheck(context, DeviceCheckConfig(deviceCheckId, token, nonce))
+
+lifecycleScope.launch {
+    val started = check.start() // DeviceCheckResult.Sent or DeviceCheckResult.Failed; never throws
+    if (started is DeviceCheckResult.Failed) Log.w("KYC", "device check ${started.error.code}")
+
+    // Your provider, with the device check id in its metadata.
+    kycProvider.start(activity, metadata = mapOf("device_check_id" to deviceCheckId))
+}
+
+// Later, when the provider's flow has closed (optional), with the same `check`:
+lifecycleScope.launch { check.finish() }
+```
+
+The device only learns that the signals arrived (202): the score, verdict and flags go to your server (`GET /v1/device-checks/:id`) and into the Your KYC decision. The SDK retries once on a 5xx, 429 or dropped connection, bounds each call by `DeviceCheckConfig.timeoutMs` (45 s by default) and reports refusals as `DeviceCheckError` codes (`TOKEN_EXPIRED`, `NONCE_MISMATCH`, `OUT_OF_ORDER`, ...); see the README for the full table. Do not block the provider's flow on a failed check.
+
+On Android the camera inventory carries no driver names, so `finish` cannot show Sense a virtual camera driver the way a browser's camera labels can; it is sent for completeness and parity with the web and iOS SDKs.
+
 ## Android-Specific Considerations
 
 ### Activity Lifecycle

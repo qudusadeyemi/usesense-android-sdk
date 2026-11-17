@@ -7,7 +7,7 @@ Native Android SDK for human presence verification. Verify real humans, detect d
 - Android 9.0+ (API level 28)
 - Android Studio Hedgehog (2023.1) or later
 - Kotlin 1.9+
-- Device with front-facing camera (required)
+- Device with front-facing camera (required for face verification; not for the silent device check)
 - Google Play Services (recommended, required for Play Integrity attestation)
 - Internet connection (required for model download on first use and API calls)
 
@@ -29,7 +29,7 @@ dependency; no repository configuration needed.
 ```kotlin
 // app/build.gradle.kts
 dependencies {
-    implementation("ai.usesense:sdk:4.2.1")
+    implementation("ai.usesense:sdk:4.15.0")
 }
 ```
 
@@ -59,7 +59,7 @@ dependencyResolutionManagement {
 
 // app/build.gradle.kts
 dependencies {
-    implementation("com.github.qudusadeyemi:usesense-android-sdk:v4.2.1")
+    implementation("com.github.qudusadeyemi:usesense-android-sdk:v4.15.0")
 }
 ```
 
@@ -92,7 +92,7 @@ Then add to your module-level `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("ai.usesense:sdk:4.2.1")
+    implementation("ai.usesense:sdk:4.15.0")
 }
 ```
 
@@ -111,7 +111,7 @@ dependencies {
 
 ```kotlin
 dependencies {
-    implementation(files("libs/usesense-sdk-4.2.1.aar"))
+    implementation(files("libs/usesense-sdk-4.15.0.aar"))
 }
 ```
 
@@ -195,6 +195,110 @@ UseSenseFlows.run(
 ```
 
 Full reference: [`docs/WHITE_LABEL.md` in the web SDK](https://github.com/qudusadeyemi/usesense-web-sdk/blob/main/docs/WHITE_LABEL.md).
+
+## Silent device check (Your KYC)
+
+Keep your own KYC provider (MetaMap, Smile ID, Sumsub or any other) and run a Sense device check next to it. The check is headless: **no UI, no camera, no permission prompts**. Sense scores the device with the same camera-free DeepSense engine as a Device Trust step and links the result to the provider's result through your Your KYC connection (dashboard: Your KYC, level 2 "Results + device check").
+
+What the SDK sends, all without a permission:
+
+- **Attestation (D1):** a Play Integrity token bound to the check's nonce (Standard API `requestHash` = lowercase hex SHA-256 of the `dn_` nonce, Classic API fallback with `nonce` = base64url SHA-256), declared with `play_integrity_nonce_binding: "sha256"`. Sense refuses a token that is not bound to the check.
+- **Environment (D2):** emulator, root, debuggable, Play services, security patch, hardware-backed keystore (an AndroidKeyStore key, no prompt).
+- **Hardware (D3) and session context (D5):** the same device, screen, GPU, battery, locale and network type fields the SDK sends with a face capture, plus `install_id`, a random per-install id (not a hardware identifier) so Sense can tell one phone from another of the same model.
+- **Finish (optional):** the camera inventory from `CameraManager` (ids and characteristics only; no camera is opened).
+
+The server only answers `202 { received: true }`. The device never sees the score or verdict: your server reads them with `GET /v1/device-checks/:id` or from the Your KYC result.
+
+**1. Your server** creates the check (API key with the `flows` permission). Pass `"platform": "android"` so the device is scored as Android:
+
+```bash
+curl -X POST https://api.usesense.ai/v1/device-checks \
+  -H "x-api-key: sk_your_sandbox_key" \
+  -H "content-type: application/json" \
+  -d '{ "user_ref": "cust_88211", "platform": "android" }'
+
+# 201 { "deviceCheckId": "dc_...", "token": "dct_...", "nonce": "dn_...", "expiresAt": "..." }
+```
+
+Hand `deviceCheckId`, `token` and `nonce` to the app. Never ship your API key to the device. The token works only for this check and expires after 15 minutes.
+
+**2. The app** sends `start` before the provider's SDK opens, passes `deviceCheckId` into the provider's metadata, and sends `finish` after it closes:
+
+```kotlin
+import com.usesense.sdk.UseSense
+import com.usesense.sdk.devicecheck.DeviceCheck
+import com.usesense.sdk.devicecheck.DeviceCheckConfig
+import com.usesense.sdk.devicecheck.DeviceCheckResult
+
+class KycActivity : AppCompatActivity() {
+    private var deviceCheck: DeviceCheck? = null
+
+    private fun startKyc() {
+        lifecycleScope.launch {
+            // From your server, which called POST /v1/device-checks.
+            val kyc = myBackend.startKyc() // { deviceCheckId, token, nonce }
+
+            val check = UseSense.deviceCheck(
+                context = this@KycActivity,
+                config = DeviceCheckConfig(
+                    deviceCheckId = kyc.deviceCheckId,
+                    token = kyc.token,
+                    nonce = kyc.nonce,
+                ),
+            )
+            deviceCheck = check
+
+            // 1. Before the provider's SDK opens. Off the main thread, bounded, never throws.
+            when (val r = check.start()) {
+                is DeviceCheckResult.Sent -> Log.d("KYC", "device signals sent")
+                is DeviceCheckResult.Failed -> Log.w("KYC", "device check: ${r.error.code} ${r.error.message}")
+            }
+
+            // 2. Run your provider as usual, with the device check id in its metadata
+            //    (MetaMap metadata, Smile ID partner params, Sumsub metadata, ...).
+            //    Map that field to the Sense field "Device check id" in Your KYC.
+            kycProvider.start(
+                activity = this@KycActivity,
+                metadata = mapOf("device_check_id" to kyc.deviceCheckId),
+            )
+        }
+    }
+
+    // 3. Optional: when the provider's flow closes.
+    private fun onKycProviderClosed() {
+        lifecycleScope.launch { deviceCheck?.finish() }
+    }
+}
+```
+
+Instead of the metadata field, you can send the same `user_ref` to Sense and to the provider: Sense then links the newest check for that user made within the connection's window (30 minutes by default).
+
+From Java, use the callback variants (the callback runs on the main thread):
+
+```java
+DeviceCheck check = UseSense.deviceCheck(context, new DeviceCheckConfig(deviceCheckId, token, nonce));
+check.start(result -> {
+    if (!result.isSuccess()) Log.w("KYC", "device check failed: " + ((DeviceCheckResult.Failed) result).getError().getCode());
+});
+```
+
+`UseSense.deviceCheck` does not need `UseSense.initialize()`. When `initialize()` was called, its `baseUrl` and `googleCloudProjectNumber` are used unless `DeviceCheckConfig` sets its own. Each call is bounded by `DeviceCheckConfig.timeoutMs` (default 45 s), signal collection and the retry included.
+
+| `DeviceCheckError.Code` | Server | What to do |
+|---|---|---|
+| `INVALID_TOKEN` | 401 `invalid_token` | Check you passed the `dct_` token from create. |
+| `TOKEN_EXPIRED` | 401 `token_expired` | More than 15 minutes after create: create a new check. |
+| `NONCE_MISMATCH` | 400 `nonce_mismatch` | Pass the `dn_` nonce from the same create. |
+| `INVALID_REQUEST` | other 400, 413 | Should not happen; report it. |
+| `NOT_FOUND` | 404 `not_found` | Unknown `deviceCheckId`. |
+| `OUT_OF_ORDER` | 409 `already_started` / `not_started` / `already_finished` | `start` once, then `finish` once, in that order. A second local `start` after one was accepted is refused without a request. |
+| `SERVICE_UNAVAILABLE` | 5xx, 429 | Already retried once with backoff. Retry `start` later within the token's life. |
+| `NETWORK_ERROR` | none | No connection (already retried once). |
+| `TIMEOUT` | none | The call did not finish within `timeoutMs`. |
+| `INVALID_CONFIG` | none | The id, token or nonce is malformed; nothing was sent. |
+| `CANCELLED` | none | `check.cancel()` was called. |
+
+A failed device check never blocks your provider's flow: run the provider either way. A result with no device check is flagged (by default) by your Your KYC connection. Play Integrity needs Google Play services and your app registered in Play Console; without a token the device is still checked, it just scores without attestation.
 
 ## Configuration
 
