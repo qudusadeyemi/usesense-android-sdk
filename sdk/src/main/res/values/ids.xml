@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- UseSenseFragment's container for the capture screen; fixed so a
+         restored child Fragment finds it again. -->
+    <item name="usesense_fragment_container" type="id" />
+</resources>

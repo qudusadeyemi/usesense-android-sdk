@@ -30,8 +30,13 @@ object UseSense {
     /** The `initialize` config, for surfaces launched outside it (a Flow's capture). */
     internal val currentConfig: UseSenseConfig? get() = config
 
+    /**
+     * Configure the SDK. [UseSenseConfig.apiKey] may be blank when the app
+     * only starts verifications from client tokens
+     * ([startVerificationWithToken]); [startVerification] then fails with
+     * [UseSenseError.INVALID_CONFIG].
+     */
     fun initialize(context: Context, config: UseSenseConfig) {
-        require(config.apiKey.isNotBlank()) { "API key must not be blank" }
         this.appContext = context.applicationContext
         this.config = config
     }
@@ -45,13 +50,67 @@ object UseSense {
             "UseSense.initialize() must be called before startVerification()"
         )
 
-        validateRequest(request)?.let {
+        (validateRequest(request) ?: apiKeyMissing(cfg))?.let {
             callback.onError(it)
             return
         }
 
         HostedPageActivity.startDirect(activity, cfg, request, callback)
     }
+
+    /**
+     * Start a verification from a client token (server-side init), with no
+     * API key on the device. Same screens, branding, result and errors as
+     * [startVerification]. Mirrors iOS `createSessionWithToken(clientToken:sessionType:)`
+     * and the web SDK's `clientToken` option.
+     *
+     * 1. Your server calls `POST /v1/sessions/create-token` with its secret
+     *    key (`sk_*`), the session type, and anything else the session needs
+     *    (identity_id, reference_image, metadata).
+     * 2. It hands the returned `client_token` (`cli_tok_...`, single-use,
+     *    10 minutes) to the app.
+     * 3. The app calls this. The SDK exchanges the token
+     *    (`POST /v1/sessions/exchange-token`) and runs the capture.
+     *
+     * [initialize] is optional here: when it was called, its base URL,
+     * branding and capture options apply (the API key is not used). The token
+     * is single-use, so a rejected result offers no "Try again": start a new
+     * verification with a new token. Exchange errors arrive on
+     * [UseSenseCallback.onError] (`token_not_found`, `token_expired`,
+     * `token_already_used` in [UseSenseError.serverCode]).
+     *
+     * @param sessionType the type your server passed to `create-token` (the
+     *   exchange response does not repeat it); it picks the screens' copy.
+     */
+    @JvmStatic
+    fun startVerificationWithToken(
+        activity: Activity,
+        clientToken: String,
+        sessionType: SessionType,
+        callback: UseSenseCallback,
+    ) {
+        validateClientToken(clientToken)?.let {
+            callback.onError(it)
+            return
+        }
+        HostedPageActivity.startWithToken(activity, tokenConfig(), clientToken.trim(), sessionType, callback)
+    }
+
+    /** The config a token launch runs with: [initialize]'s, else the defaults (no key needed). */
+    internal fun tokenConfig(): UseSenseConfig = config ?: UseSenseConfig(apiKey = "")
+
+    internal fun validateClientToken(clientToken: String): UseSenseError? =
+        if (clientToken.isBlank()) UseSenseError.invalidConfig("clientToken must not be blank") else null
+
+    /** An API key session without a key: the server would answer 401. */
+    internal fun apiKeyMissing(config: UseSenseConfig): UseSenseError? =
+        if (config.apiKey.isBlank()) {
+            UseSenseError.invalidConfig(
+                "UseSenseConfig.apiKey is blank: pass a key, or start from a client token with startVerificationWithToken()",
+            )
+        } else {
+            null
+        }
 
     /**
      * Local checks that mirror the server: authentication needs an
@@ -70,14 +129,25 @@ object UseSense {
      * Fetches enrollment data from the server, shows introduction screen,
      * runs capture engine, and displays result.
      *
+     * [callback] (optional; the two-argument form still works) hears the
+     * outcome once, as iOS `HostedEnrollmentViewController`'s `onComplete`:
+     * [UseSenseCallback.onSuccess] with the decision when the person leaves
+     * the result screen, [UseSenseCallback.onError], or
+     * [UseSenseCallback.onCancelled] when they leave before the end.
+     *
      * @param context Activity or application context
      * @param remoteEnrollmentId The enrollment ID from the remote enrollment link
      */
-    fun startRemoteEnrollment(context: Context, remoteEnrollmentId: String) {
+    @JvmOverloads
+    fun startRemoteEnrollment(context: Context, remoteEnrollmentId: String, callback: UseSenseCallback? = null) {
         val cfg = config ?: throw IllegalStateException(
             "UseSense.initialize() must be called before startRemoteEnrollment()"
         )
-        HostedPageActivity.startEnrollment(context, cfg, remoteEnrollmentId)
+        if (remoteEnrollmentId.isBlank() && callback != null) {
+            callback.onError(UseSenseError.invalidConfig("remoteEnrollmentId must not be blank"))
+            return
+        }
+        HostedPageActivity.startEnrollment(context, cfg, remoteEnrollmentId, callback)
     }
 
     /**
@@ -85,14 +155,25 @@ object UseSense {
      * Fetches session data from the server, shows action review screen,
      * runs capture engine, and displays result.
      *
+     * [callback] (optional; the two-argument form still works) hears the
+     * outcome once, as iOS `HostedVerificationViewController`'s `onComplete`:
+     * [UseSenseCallback.onSuccess] with the decision (or
+     * [UseSenseResult.DECISION_DISPUTED] when the person disputes the action),
+     * [UseSenseCallback.onError], or [UseSenseCallback.onCancelled].
+     *
      * @param context Activity or application context
      * @param remoteSessionId The session ID from the remote verification link
      */
-    fun startRemoteVerification(context: Context, remoteSessionId: String) {
+    @JvmOverloads
+    fun startRemoteVerification(context: Context, remoteSessionId: String, callback: UseSenseCallback? = null) {
         val cfg = config ?: throw IllegalStateException(
             "UseSense.initialize() must be called before startRemoteVerification()"
         )
-        HostedPageActivity.startVerification(context, cfg, remoteSessionId)
+        if (remoteSessionId.isBlank() && callback != null) {
+            callback.onError(UseSenseError.invalidConfig("remoteSessionId must not be blank"))
+            return
+        }
+        HostedPageActivity.startVerification(context, cfg, remoteSessionId, callback)
     }
 
     /**

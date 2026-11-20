@@ -76,11 +76,21 @@ android {
 
     lint {
         abortOnError = false
+        // androidx.fragment's UnsafeFragmentLifecycleObserverDetector walks every
+        // call reachable from a Fragment's lifecycle methods with no memo; on the
+        // capture Fragment (HostedCaptureFragment, ~3.8k lines) lintDebug ran for
+        // an hour instead of under a minute. Its three issues flag observers bound
+        // to the Fragment instead of viewLifecycleOwner; the capture binds the
+        // back-press callback and the camera to viewLifecycleOwner already.
+        disable += setOf("FragmentLiveDataObserve", "FragmentBackPressedCallback", "FragmentAddMenuProvider")
     }
 
     testOptions {
         unitTests {
             isReturnDefaultValues = true
+            // Robolectric (the capture Fragment's lifecycle tests) inflates the
+            // SDK's real layouts and themes.
+            isIncludeAndroidResources = true
         }
     }
 }
@@ -292,6 +302,10 @@ dependencies {
     // returns null / 0), so unit tests that exercise JSON parsing need the
     // real implementation on the test classpath. Used by FlowsClientTest.
     testImplementation("org.json:json:20240303")
+    // Robolectric: the capture screen's lifecycle (Activity and embedded
+    // Fragment) on the JVM: configuration changes, back press, permissions.
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.test:core-ktx:1.6.1")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
 }

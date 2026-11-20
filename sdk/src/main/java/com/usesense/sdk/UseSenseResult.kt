@@ -23,5 +23,12 @@ data class UseSenseResult(
         const val DECISION_APPROVE = "APPROVE"
         const val DECISION_REJECT = "REJECT"
         const val DECISION_MANUAL_REVIEW = "MANUAL_REVIEW"
+
+        /**
+         * Remote verification only: the person disputed the action instead of
+         * verifying it (`startRemoteVerification`). As iOS, where the hosted
+         * verification completes with "DISPUTED".
+         */
+        const val DECISION_DISPUTED = "DISPUTED"
     }
 }
