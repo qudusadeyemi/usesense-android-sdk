@@ -69,16 +69,7 @@ class HostedPageActivity : AppCompatActivity(), HostedCaptureFragment.Host {
             clientToken: String,
             sessionType: SessionType,
             callback: UseSenseCallback,
-        ) = start(
-            context,
-            CaptureLaunch(
-                config,
-                CaptureLaunch.Kind.TOKEN,
-                request = VerificationRequest(sessionType = sessionType),
-                clientToken = clientToken,
-                callback = callback,
-            ),
-        )
+        ) = start(context, CaptureLaunch.forToken(config, clientToken, sessionType, callback))
 
         /**
          * Flows-runner entry point. Launches the same hosted capture UI as

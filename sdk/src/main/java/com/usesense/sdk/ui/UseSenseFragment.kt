@@ -132,13 +132,14 @@ class UseSenseFragment : Fragment(), HostedCaptureFragment.Host {
             clientToken: String,
             sessionType: SessionType = SessionType.AUTHENTICATION,
         ): UseSenseFragment {
-            val cfg = UseSense.tokenConfig()
+            // One launch per token: a second Fragment for the same token picks
+            // up, or replays, the first instead of exchanging it again.
             return create(
-                CaptureLaunch(
-                    cfg,
-                    CaptureLaunch.Kind.TOKEN,
-                    request = VerificationRequest(sessionType = sessionType),
-                    clientToken = clientToken,
+                CaptureLaunch.forToken(
+                    UseSense.tokenConfig(),
+                    clientToken.trim(),
+                    sessionType,
+                    callback = null,
                     initialError = UseSense.validateClientToken(clientToken),
                 ),
             )

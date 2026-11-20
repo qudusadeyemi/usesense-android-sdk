@@ -38,6 +38,14 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   bars alone and hands screen brightness back when it goes. It brings its own
   theme (`Theme.UseSense`), so it runs in hosts that are not on a Material
   theme, such as a plain `Theme.AppCompat` React Native or Flutter app.
+  One verification per client token, whatever the host does: a second
+  Fragment (or `startVerificationWithToken`) for the same token picks up the
+  running verification, replays its decision without delivering it again, or
+  reports `token_already_used` once; it never exchanges the token twice. A
+  screen re-attached or recreated after the callback fired shows how the
+  verification ended and never starts a new capture. A dead token
+  (`token_already_used`, `token_expired`, `token_not_found`) shows "Start
+  again", which hands the error to the app instead of retrying the exchange.
 - **Callbacks on remote enrolment and verification:**
   `startRemoteEnrollment(context, id, callback)` and
   `startRemoteVerification(context, id, callback)`, as iOS `onComplete`:

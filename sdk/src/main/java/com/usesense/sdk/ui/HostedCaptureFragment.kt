@@ -627,6 +627,7 @@ internal class HostedCaptureFragment : Fragment() {
                 kind = CaptureLaunch.Kind.DIRECT,
                 initialError = CaptureLaunch.interruptedError(),
             )
+        launch.attachScreen()
     }
 
     override fun onCreateView(
@@ -707,6 +708,11 @@ internal class HostedCaptureFragment : Fragment() {
         // verification up. A decision on screen comes back as it was; an
         // attempt in progress restarts on the same session when it hadn't
         // uploaded yet.
+        // The callback already fired (a screen re-attached or recreated after
+        // the end, or a second screen for a spent token): show how it ended.
+        // Never a new capture, never a second delivery.
+        launch.outcome?.let { showFinalState(it); return }
+
         val resuming = launch.started
         launch.started = true
         val decided = launch.pendingResult
@@ -1292,6 +1298,8 @@ internal class HostedCaptureFragment : Fragment() {
                         eventEmitter.emit(EventType.ERROR, mapOf("error" to (e.message ?: "")))
                         val error = (e as? com.usesense.sdk.api.ApiException)?.useSenseError
                             ?: UseSenseError.networkError(e.message)
+                        // Used, expired or unknown: no retry will ever work.
+                        if (error.serverCode in CaptureLaunch.DEAD_TOKEN_CODES) launch.tokenDead = true
                         deliverError(error)
                         return
                     }
@@ -3353,10 +3361,41 @@ internal class HostedCaptureFragment : Fragment() {
         pendingTerminalError = error
         launch.gate.recovery()
         Log.w(TAG, "Error page: ${error.code} ${error.serverCode} ${error.message}")
+        if (launch.tokenUnusable) {
+            // A spent client token: "Try again" would only ask the server again
+            // (and loop on 409). Only the app's server can mint the next token,
+            // so the button hands the error back to the app.
+            showPage(PageKind.EXPIRED, onPrimary = { close() })
+            return
+        }
         showPage(OutcomePages.forError(error, beforeUpload), onPrimary = {
             pendingTerminalError = null
             restartCapture()
         })
+    }
+
+    /** How the verification ended, for a screen shown after its callback fired. */
+    private fun showFinalState(outcome: CaptureLaunch.Outcome) {
+        launch.pendingResult = null
+        pendingTerminalError = null
+        when (outcome) {
+            is CaptureLaunch.Outcome.Result ->
+                if (usesSdkCaptureSequence) {
+                    showPage(OutcomePages.forDecision(outcome.result.decision, 0), onPrimary = { close() })
+                } else {
+                    showResult(outcome.result.decision, outcome.result)
+                }
+            is CaptureLaunch.Outcome.Error ->
+                showPage(
+                    if (launch.tokenUnusable) PageKind.EXPIRED else OutcomePages.forError(outcome.error, beforeUpload = false),
+                    onPrimary = { close() },
+                )
+            CaptureLaunch.Outcome.Cancelled -> {
+                setStep(PageStep.LOADING)
+                loadingText.text = ""
+                close()
+            }
+        }
     }
 
     /**
@@ -3743,7 +3782,11 @@ internal class HostedCaptureFragment : Fragment() {
         // (if one is on screen) or a cancellation. The gate makes this a no-op
         // after a success/exit. A configuration change keeps the launch: the
         // recreated screen carries on and delivers later.
-        if (activity?.isChangingConfigurations != true) {
+        // Another screen may be on this launch (a host that built a second
+        // Fragment for the same token before removing the first): only the
+        // last one to go ends the verification.
+        val stillShown = launch.detachScreen()
+        if (activity?.isChangingConfigurations != true && stillShown == 0) {
             deliverOnExit()
             launch.release()
             CaptureLaunches.remove(launch.id)
@@ -3753,7 +3796,7 @@ internal class HostedCaptureFragment : Fragment() {
     }
 
     companion object {
-        private const val TAG = "HostedPageActivity"
+        private const val TAG = "UseSenseCapture"
         private const val ARG_LAUNCH_ID = "usesense.launch_id"
         private const val ARG_FULL_SCREEN = "usesense.full_screen"
 

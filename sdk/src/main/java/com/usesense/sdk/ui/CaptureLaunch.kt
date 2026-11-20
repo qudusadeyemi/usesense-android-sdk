@@ -98,6 +98,33 @@ internal class CaptureLaunch(
     /** The screen ran at least once (a recreated screen resumes instead of starting over). */
     @Volatile var started = false
 
+    /**
+     * The exchange answered that this token can never work (already used,
+     * expired, unknown): no screen may exchange it again.
+     */
+    @Volatile var tokenDead = false
+
+    /** A client token this launch can no longer start a capture from. */
+    val tokenUnusable: Boolean
+        get() = kind == Kind.TOKEN && (tokenDead || (currentSession != null && uploadStarted))
+
+    /** How the verification ended, once the callback has fired. A screen shown after that replays it. */
+    sealed class Outcome {
+        data class Result(val result: UseSenseResult) : Outcome()
+        data class Error(val error: UseSenseError) : Outcome()
+        object Cancelled : Outcome()
+    }
+
+    @Volatile var outcome: Outcome? = null
+        private set
+
+    /** Screens (capture Fragments) on this launch right now; it ends when the last one goes. */
+    private val screens = java.util.concurrent.atomic.AtomicInteger(0)
+    fun attachScreen() { screens.incrementAndGet() }
+
+    /** Returns how many screens are still on this launch. */
+    fun detachScreen(): Int = screens.decrementAndGet().coerceAtLeast(0)
+
     // ─── Callback ──────────────────────────────────────────────────────────
 
     private val lock = Any()
@@ -118,7 +145,11 @@ internal class CaptureLaunch(
             if (value != null) flush?.invoke(value)
         }
 
+    /** A replay of a verification another launch already reported: shows it, delivers nothing. */
+    @Volatile private var silent = false
+
     private fun dispatch(deliver: (UseSenseCallback) -> Unit) {
+        if (silent) return
         val now = synchronized(lock) {
             target ?: run { queued = deliver; null }
         }
@@ -127,9 +158,9 @@ internal class CaptureLaunch(
 
     /** Exactly one of success / error / cancel, ever, for this launch. */
     val gate = FinalizationCallbackGate<UseSenseResult, UseSenseError>(
-        { r -> dispatch { it.onSuccess(r) } },
-        { e -> dispatch { it.onError(e) } },
-        { dispatch { it.onCancelled() } },
+        { r -> outcome = Outcome.Result(r); dispatch { it.onSuccess(r) } },
+        { e -> outcome = Outcome.Error(e); dispatch { it.onError(e) } },
+        { outcome = Outcome.Cancelled; dispatch { it.onCancelled() } },
     )
 
     // ─── Token exchange ────────────────────────────────────────────────────
@@ -169,7 +200,7 @@ internal class CaptureLaunch(
             return SessionSource.Reuse(held)
         }
         return when (kind) {
-            Kind.TOKEN -> if (held == null) SessionSource.Exchange(clientToken.orEmpty()) else SessionSource.TokenSpent
+            Kind.TOKEN -> if (held == null && !tokenDead) SessionSource.Exchange(clientToken.orEmpty()) else SessionSource.TokenSpent
             Kind.PREBUILT -> prebuiltSession?.let { SessionSource.Prebuilt(it) }
                 ?: sessionFactory?.let { SessionSource.Refresh(it) }
                 ?: SessionSource.Create
@@ -189,6 +220,53 @@ internal class CaptureLaunch(
     }
 
     companion object {
+        /** Exchange answers that mean the token will never work: no retry, back to the app. */
+        val DEAD_TOKEN_CODES = setOf("token_already_used", "token_expired", "token_not_found")
+
+        /**
+         * The launch for a client token. A token is single-use, and a host may
+         * build a second screen with the same one (a React Native screen
+         * remounted with the same props, a Fragment re-created by the app):
+         *  - the token's verification is still running: the same launch (the
+         *    new screen picks it up; [callback] replaces the old one);
+         *  - it ended with a decision: a replay that shows that result and
+         *    delivers nothing (the decision was reported once already);
+         *  - it was exchanged (or refused) and ended otherwise: a launch that
+         *    reports [tokenSpentError] once and never calls the server;
+         *  - it never reached the server: a fresh launch (the token is unspent).
+         */
+        fun forToken(
+            config: UseSenseConfig,
+            clientToken: String,
+            sessionType: SessionType,
+            callback: UseSenseCallback?,
+            initialError: UseSenseError? = null,
+        ): CaptureLaunch {
+            fun fresh(error: UseSenseError? = initialError) = CaptureLaunch(
+                config, Kind.TOKEN,
+                request = VerificationRequest(sessionType = sessionType),
+                clientToken = clientToken,
+                initialError = error,
+                callback = callback,
+            )
+            if (initialError != null) return fresh()
+            val prior = TokenLedger[clientToken]
+            return when {
+                prior == null -> fresh()
+                prior.outcome == null && CaptureLaunches[prior.id] != null ->
+                    prior.also { if (callback != null) it.callback = callback }
+                prior.outcome is Outcome.Result -> fresh().apply {
+                    silent = true
+                    gate.success((prior.outcome as Outcome.Result).result)
+                    currentSession = prior.currentSession
+                    uploadStarted = true
+                    started = true
+                }
+                prior.currentSession != null || prior.tokenDead -> fresh(tokenSpentError())
+                else -> fresh()
+            }.also { TokenLedger[clientToken] = it }
+        }
+
         /** The error when a token's session was used up and the screen would need another. */
         fun tokenSpentError() = UseSenseError(
             code = UseSenseError.SESSION_EXPIRED,
@@ -203,6 +281,22 @@ internal class CaptureLaunch(
             message = "The verification was interrupted. Start it again.",
         )
     }
+}
+
+/**
+ * Every client token this process started, with the launch that used it
+ * (bounded: tokens are single-use and short-lived). Lets a second screen for
+ * the same token pick up or replay the first instead of exchanging it again.
+ */
+internal object TokenLedger {
+    private const val MAX = 64
+    private val byToken = object : LinkedHashMap<String, CaptureLaunch>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CaptureLaunch>?) = size > MAX
+    }
+
+    @Synchronized operator fun get(token: String): CaptureLaunch? = byToken[token]
+    @Synchronized operator fun set(token: String, launch: CaptureLaunch) { byToken[token] = launch }
+    @Synchronized internal fun clearForTest() = byToken.clear()
 }
 
 /** Live launches by id. A launch leaves when its screen is finally destroyed. */

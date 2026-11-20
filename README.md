@@ -490,6 +490,8 @@ supportFragmentManager.beginTransaction()
 - **Back press** is handled while the Fragment is shown: mid-capture it asks before leaving, otherwise it ends the verification as cancelled.
 - **Permissions** (camera, and the microphone when a challenge needs it) are requested from the Fragment; nothing to wire up.
 - **Layout.** Your screen owns the system bars. Give the container the space you want the capture to fill; full screen works best for the camera. The host must be a `FragmentActivity` (for example `AppCompatActivity`); its theme does not matter, the capture uses its own.
+- **One verification per client token.** Building a second Fragment with the same token (a screen remounted with the same props) picks up the running verification, or shows how it ended: a decision already reported is shown again but not delivered again, and a token used without a decision reports `token_already_used` once. The token is never exchanged twice. Mint a new token for a new verification.
+- A Fragment re-attached or recreated after its callback fired shows the final screen; it never starts a new capture.
 - After process death the verification is gone: the Fragment reports `onError` with `serverCode = "verification_interrupted"`; start a new one.
 
 ## Remote enrolment and verification results
