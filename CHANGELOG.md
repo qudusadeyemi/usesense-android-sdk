@@ -6,6 +6,28 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Flows: a run held for manual review ends on the review screen.** When a
+  Flow parks a run for a human reviewer, the server returns state
+  `awaiting_review` with pending action `{ kind: "await_review", stepId,
+  instructions }`. The SDK did not know that action, so the run view failed to
+  load with `unsupported_action`. The runner now decodes it
+  (`PendingAction.AwaitReview`) and treats a review hold as the end of the
+  person's part: it reports `FlowRunResult(state = AWAITING_REVIEW, outcome)`
+  to `FlowsCallback.onResult` once and shows the "Under review" screen
+  (`copy.result.reviewTitle` / `reviewBody`, the same copy and branding as a
+  `MANUAL_REVIEW` outcome) until the person taps Done. The final decision
+  arrives later by webhook (`flow_run.completed`). The reviewer's
+  `instructions` are never shown to the person.
+- **Flows: an unknown pending action no longer fails the whole run view.** A
+  kind (or capture variant) this SDK version does not know now decodes as
+  `PendingAction.Unsupported`, and the runner shows "Something went wrong"
+  with Try again (which re-reads the run) instead of ending the run.
+  `unsupported_action` is logged once per kind and delivered to `onError` once
+  if the person leaves instead of retrying. New copy key
+  `copy.errors.unsupportedStep` sets the screen's body.
+
 ## [4.15.0] - 2026-11-17
 
 Silent device check for Your KYC: keep your own KYC provider's SDK and run a

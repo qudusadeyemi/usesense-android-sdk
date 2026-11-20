@@ -29,7 +29,9 @@ object UseSenseFlows {
     /**
      * Launch a Flow Run inside the host app. Presents a full-screen activity
      * that drives the parked steps and reports the terminal outcome via the
-     * callback on the main thread. Mirrors `flows.run(...)` in the web SDK
+     * callback on the main thread. A run held for a human reviewer reports
+     * once with state AWAITING_REVIEW (the decision arrives later by webhook)
+     * while the review end screen stays up until the person closes it. Mirrors `flows.run(...)` in the web SDK
      * and `UseSenseFlows.run(...)` on iOS.
      */
     @JvmOverloads
