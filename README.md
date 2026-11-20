@@ -21,7 +21,7 @@ The SDK ships through three channels. Pick whichever fits your build pipeline be
 | **JitPack** | `com.github.qudusadeyemi:usesense-android-sdk:v<version>` | None | Teams that want an alternative to Maven Central, or who need a fallback during a Central outage. |
 | **GitHub Packages** | `ai.usesense:sdk:<version>` | PAT with `read:packages` | Teams already standardizing on GitHub Packages for internal dependencies. |
 
-### Gradle (Maven Central) — recommended
+### Gradle (Maven Central), recommended
 
 Maven Central is on by default in every Android project. Just add the
 dependency; no repository configuration needed.
@@ -45,7 +45,7 @@ dependencyResolutionManagement {
 }
 ```
 
-### Gradle (JitPack) — alternative zero-auth channel
+### Gradle (JitPack), alternative zero-auth channel
 
 ```kotlin
 // settings.gradle.kts
@@ -164,6 +164,73 @@ UseSense.startVerification(
 
 `startVerification()` requires an Activity context because the SDK launches a full-screen camera Activity.
 
+## Run a Flow
+
+Flows are the main integration path: you build the steps (consent, forms, documents, face capture, registry checks, review) in the dashboard, and the SDK runs them. No API key ships in the app.
+
+**1. Your server starts the run** with its secret key and returns `flowRun.id` and `sdkToken` to the app:
+
+```bash
+curl -X POST https://api.usesense.ai/v1/flow-runs \
+  -H "x-api-key: sk_..." -H "Content-Type: application/json" \
+  -d '{"flowId":"YOUR_FLOW_ID","subject":{"externalRef":"user_123"},"mint_sdk_token":true}'
+# 201 { "flowRun": { "id": "...", "state": "pending", ... }, "stepRuns": [], "sdkToken": "...", "expiresAt": "..." }
+```
+
+The token is bound to that run and expires after 30 minutes (`sdk_token_ttl_seconds`, 60 s to 24 h).
+
+**2. The app runs it:**
+
+```kotlin
+import com.usesense.sdk.flows.FlowError
+import com.usesense.sdk.flows.FlowRunResult
+import com.usesense.sdk.flows.FlowRunState
+import com.usesense.sdk.flows.FlowsCallback
+import com.usesense.sdk.flows.UseSenseFlows
+
+UseSenseFlows.run(
+    activity = this,
+    flowRunId = flowRunId,
+    sdkToken = sdkToken,
+    callback = object : FlowsCallback {
+        override fun onResult(result: FlowRunResult) {
+            // result.flowRunId, result.state, result.outcome (APPROVE, REJECT, MANUAL_REVIEW or null)
+            if (result.state == FlowRunState.AWAITING_REVIEW) showUnderReview() else showDone()
+        }
+
+        override fun onError(error: FlowError) {
+            Log.e("UseSense", "Flow error ${error.code.wire}: ${error.message}")
+        }
+    },
+)
+```
+
+`run` presents a full-screen Activity and calls back once, on the main thread. Optional parameters: `apiBaseUrl`, `appearance` and `copy` (see [White-labeling](#white-labeling-appearance--copy)).
+
+**3. The result.** `FlowRunResult.state` is one of:
+
+| `state` | Meaning |
+|---------|---------|
+| `COMPLETED` | The run finished; `outcome` holds the Flow's outcome. |
+| `AWAITING_REVIEW` | Held for a human reviewer. The person sees the "Under review" screen (it stays up until they close it). The final decision arrives later by webhook (`flow_run.completed`). |
+| `CANCELLED` | The person left the run. |
+| `ERRORED` | A step failed and the Flow ended in error. |
+| `ABANDONED` | The run timed out without the person finishing. |
+
+The client result is for your UI only. Decide on your server, from the `flow_run.completed` webhook or `GET /v1/flow-runs/:id` with your API key.
+
+**4. Errors.** `onError` receives a `FlowError` with a `code` (`FlowError.Code`) and, when the server sent one, `serverCode`:
+
+| `code` | What to do |
+|--------|------------|
+| `TOKEN_EXPIRED`, `TOKEN_INVALID` | Start a new run on your server and call `run` again. |
+| `NETWORK_UNAVAILABLE` | Let the person retry when they are back online. |
+| `PERMISSION_DENIED` | Camera access was refused; explain how to allow it. |
+| `PROVIDER_UNAVAILABLE` | A verification provider is down; retry later. |
+| `CAPTURE_TIMEOUT`, `UPLOAD_TIMEOUT`, `RUN_TIMEOUT` | The capture, its upload, or the run did not finish in time; retry. |
+| `UNSUPPORTED_ACTION` | The Flow uses a step this SDK version cannot show; upgrade the SDK. |
+| `CANCELLED`, `INVALID_INPUT`, `UNKNOWN` | `INVALID_INPUT` is shown inline by the runner; treat the rest as a failed attempt. |
+
 ## White-labeling (Appearance & Copy)
 
 The verification flow UI is fully customizable through two optional inputs you pass
@@ -172,7 +239,7 @@ merged **SDK-init > dashboard (org settings) > built-in default**. Every field i
 optional; anything you omit keeps the Sense default.
 
 You can set this two ways: in code (below), or no-code via the dashboard's
-**Flows → Appearance** tab (saved on your org, delivered to every SDK and the hosted
+**Flows > Appearance** tab (saved on your org, delivered to every SDK and the hosted
 pages, no redeploy).
 
 Customizable surfaces: colors (plus dark-mode overrides), typography, shape and
@@ -181,12 +248,13 @@ subject-facing string plus privacy copy.
 
 ```kotlin
 UseSenseFlows.run(
-    context,
-    flowRunId,
-    sdkToken,
+    activity = this,
+    flowRunId = flowRunId,
+    sdkToken = sdkToken,
+    callback = flowsCallback,
     appearance = FlowAppearance(
         colors = AppearanceColors(primary = "#E4002B"),
-        shape = AppearanceShape(buttonStyle = "outline"),
+        shape = AppearanceShape(buttonStyle = AppearanceShape.ButtonStyle.OUTLINE),
     ),
     copy = FlowCopy(
         result = ResultCopy(successTitle = "You're verified"),
@@ -306,7 +374,7 @@ A failed device check never blocks your provider's flow: run the provider either
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `apiKey` | `String` | Yes | — | Your API key from the [Sense dashboard](https://watchtower.usesense.ai) |
+| `apiKey` | `String` | Yes | None | Your API key from the [Sense dashboard](https://watchtower.usesense.ai) |
 | `environment` | `UseSenseEnvironment` | No | `AUTO` | `SANDBOX`, `PRODUCTION`, or `AUTO` (detects from key prefix) |
 | `baseUrl` | `String` | No | `https://api.usesense.ai/v1` | API base URL (override for staging/testing) |
 | `branding` | `BrandingConfig?` | No | `null` | UI customization (colors, logo, fonts) |
@@ -350,11 +418,11 @@ UseSense.startVerification(
         override fun onSuccess(result: UseSenseResult) {
             when {
                 result.isApproved -> {
-                    // Enrollment succeeded — identity created
+                    // Enrollment succeeded: identity created
                     Log.d("UseSense", "Enrolled: ${result.sessionId}")
                 }
                 result.isPendingReview -> {
-                    // Under manual review — show "verification in progress"
+                    // Under manual review: show "verification in progress"
                     Log.d("UseSense", "Review pending: ${result.sessionId}")
                 }
                 result.isRejected -> {
@@ -394,13 +462,13 @@ UseSense.startVerification(
         override fun onSuccess(result: UseSenseResult) {
             when {
                 result.isApproved -> {
-                    // Identity verified — proceed with login/transaction
+                    // Identity verified: proceed with login/transaction
                 }
                 result.isPendingReview -> {
                     // Show "verification in progress" state
                 }
                 result.isRejected -> {
-                    // Verification failed — identity mismatch
+                    // Verification failed: identity mismatch
                 }
             }
         }
