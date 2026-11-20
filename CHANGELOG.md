@@ -4,7 +4,17 @@ All notable changes to the UseSense Android SDK will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [4.16.0] - 2026-11-20
+
+### Added
+
+- **`SessionType.LIVENESS`** (wire value `"liveness"`): a liveness-only session
+  that checks a real person is in front of the camera. The server creates no
+  identity, enrols no face and runs no 1:N duplicate search. Costs 1 credit.
+  `startVerification` returns `INVALID_CONFIG` if an `identityId` is passed with
+  `LIVENESS` (the server returns 400 for that), and the SDK never sends
+  `identity_id` on a liveness session. Flow mode already supports this through
+  the `face_liveness_check` tool and needs no change.
 
 ### Fixed
 

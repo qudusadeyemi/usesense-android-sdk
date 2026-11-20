@@ -368,7 +368,8 @@ internal class UseSenseSession(
         val createRequest = CreateSessionRequest(
             sessionType = request.sessionType.value,
             platform = "android",
-            identityId = request.identityId,
+            // Liveness sessions never carry an identity; the server rejects one.
+            identityId = if (request.sessionType == SessionType.LIVENESS) null else request.identityId,
             externalUserId = request.externalUserId,
             metadata = request.metadata,
         )

@@ -163,7 +163,14 @@ enum class UseSenseEnvironment {
 
 enum class SessionType(val value: String) {
     ENROLLMENT("enrollment"),
-    AUTHENTICATION("authentication");
+    AUTHENTICATION("authentication"),
+
+    /**
+     * Liveness only: checks that a real person is in front of the camera.
+     * Creates no identity, enrols no face and runs no duplicate (1:N) search.
+     * Do not pass an identityId with this type; the server rejects it.
+     */
+    LIVENESS("liveness");
 }
 
 data class VerificationRequest(
