@@ -140,6 +140,27 @@ internal class HostedCaptureFragment : Fragment() {
     private fun <T : View> findViewById(id: Int): T = requireView().findViewById(id)
 
     /**
+     * Embedded, the host's theme is the app's (often plain AppCompat, as in a
+     * React Native or Flutter app), but the capture's layouts use Material
+     * components that require Theme.MaterialComponents: inflate them, and
+     * every view or dialog built in code, under the SDK theme. Branding (code
+     * over dashboard) is applied on top by CaptureStyler, as full screen.
+     * Full screen, HostedPageActivity already runs under Theme.UseSense (or
+     * whatever the app set for it in its manifest): left exactly as before.
+     */
+    override fun onGetLayoutInflater(savedInstanceState: Bundle?): android.view.LayoutInflater {
+        val inflater = super.onGetLayoutInflater(savedInstanceState)
+        return if (fullScreen) {
+            inflater
+        } else {
+            inflater.cloneInContext(android.view.ContextThemeWrapper(inflater.context, R.style.Theme_UseSense))
+        }
+    }
+
+    /** The context views and dialogs are built with: the inflater's (themed when embedded). */
+    private val themedContext: Context get() = layoutInflater.context
+
+    /**
      * Leave the screen. Full screen, the Activity finishes and the callback
      * fires from onDestroy, as it always did. Embedded, nothing is destroyed,
      * so the callback fires now and the app removes the Fragment.
@@ -412,7 +433,7 @@ internal class HostedCaptureFragment : Fragment() {
 
     private val colourHost = object : com.usesense.sdk.evidence.ColourTintHost {
         override fun showTint(colour: String?, opacity: Double) {
-            val v = colourView ?: View(requireContext()).also { v ->
+            val v = colourView ?: View(themedContext).also { v ->
                 v.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                 // Over the camera, under the oval, ring and guidance.
                 videoContainer.addView(
@@ -866,7 +887,7 @@ internal class HostedCaptureFragment : Fragment() {
         // hosted link's intro / result / error screens stay light (theirs).
         val unsetMode = if (usesSdkCaptureSequence) FlowAppearance.Mode.DARK else FlowAppearance.Mode.LIGHT
         captureTheme = CaptureTheme.resolve(resolvedBranding.appearance, systemDark, unsetMode)
-        styler = CaptureStyler(requireContext(), captureTheme)
+        styler = CaptureStyler(themedContext, captureTheme)
         strings = CaptureStrings(
             copy = resolvedBranding.copy?.capture,
             app = appName(),
@@ -1155,7 +1176,7 @@ internal class HostedCaptureFragment : Fragment() {
     }
 
     private fun showDisputeConfirmation() {
-        AlertDialog.Builder(requireContext())
+        AlertDialog.Builder(themedContext)
             .setTitle(getString(R.string.usesense_dispute_confirm_title))
             .setMessage(getString(R.string.usesense_dispute_confirm_message))
             .setPositiveButton("Confirm") { _, _ ->
@@ -1172,7 +1193,7 @@ internal class HostedCaptureFragment : Fragment() {
                             decision = UseSenseResult.DECISION_DISPUTED,
                             timestamp = java.time.Instant.now().toString(),
                         )
-                        AlertDialog.Builder(requireContext())
+                        AlertDialog.Builder(themedContext)
                             .setMessage(getString(R.string.usesense_dispute_success))
                             .setPositiveButton("OK") { _, _ -> close() }
                             .setCancelable(false)
@@ -1668,7 +1689,7 @@ internal class HostedCaptureFragment : Fragment() {
     private fun startFakeCamera(sess: UseSenseSession): Boolean {
         val hooks = debugHooks ?: return false
         if (!hooks.usesFakeCamera) return false
-        val preview = fakePreview ?: ImageView(requireContext()).apply {
+        val preview = fakePreview ?: ImageView(themedContext).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             scaleX = -1f // mirrored, as the front-camera preview
             videoContainer.addView(this, 1, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
@@ -2467,7 +2488,7 @@ internal class HostedCaptureFragment : Fragment() {
 
     /** A full-screen colour layer over the camera, under the guide (Flash Reflection). */
     private fun ensureFlashView(): View =
-        flashView ?: View(requireContext()).also { v ->
+        flashView ?: View(themedContext).also { v ->
             v.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             videoContainer.addView(
                 v,
@@ -3198,7 +3219,7 @@ internal class HostedCaptureFragment : Fragment() {
         pageTips.removeAllViews()
         val density = resources.displayMetrics.density
         strings?.list(spec.tipsKey ?: "", spec.tips)?.takeIf { spec.tips.isNotEmpty() }.orEmpty().forEach { tip ->
-            pageTips.addView(LinearLayout(requireContext()).apply {
+            pageTips.addView(LinearLayout(themedContext).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = android.view.Gravity.CENTER_VERTICAL
                 setPadding(0, (5 * density).toInt(), 0, (5 * density).toInt())

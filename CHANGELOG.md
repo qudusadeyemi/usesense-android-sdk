@@ -35,7 +35,9 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   callback fires; a host that implements `UseSenseCallback` is re-attached by
   itself), back press, permissions requested from the Fragment, and the host
   Activity finishing (`onCancelled`). Embedded, it leaves the host's system
-  bars alone and hands screen brightness back when it goes.
+  bars alone and hands screen brightness back when it goes. It brings its own
+  theme (`Theme.UseSense`), so it runs in hosts that are not on a Material
+  theme, such as a plain `Theme.AppCompat` React Native or Flutter app.
 - **Callbacks on remote enrolment and verification:**
   `startRemoteEnrollment(context, id, callback)` and
   `startRemoteVerification(context, id, callback)`, as iOS `onComplete`:

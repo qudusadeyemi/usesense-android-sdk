@@ -202,6 +202,45 @@ class CaptureScreenLifecycleTest {
         override fun onCancelled() { events += "cancelled" }
     }
 
+    /**
+     * A host on a plain AppCompat theme (a fresh React Native app's AppTheme).
+     * MaterialButton in the capture layout requires Theme.MaterialComponents:
+     * the Fragment must bring its own theme instead of the host's.
+     */
+    class PlainAppCompatHost : AppCompatActivity() {
+        override fun onCreate(savedInstanceState: Bundle?) {
+            setTheme(androidx.appcompat.R.style.Theme_AppCompat_DayNight_NoActionBar)
+            super.onCreate(savedInstanceState)
+        }
+    }
+
+    @Test
+    fun `embedded capture runs in a host without a Material theme`() {
+        initialize(apiKey = "")
+        server.enqueue(MockResponse().setResponseCode(201).setBody(sessionJson))
+        val cb = Recorder()
+        val controller = Robolectric.buildActivity(PlainAppCompatHost::class.java).setup()
+        controller.get().supportFragmentManager.beginTransaction()
+            .replace(android.R.id.content, UseSenseFragment.newInstanceWithToken("cli_tok_x", SessionType.ENROLLMENT).apply { setCallback(cb) }, TAG)
+            .commitNow()
+        waitFor("the primer") { primerShown(controller.get()) }
+
+        // The capture's views carry the SDK theme; the host's own theme is untouched.
+        val button = controller.get().findViewById<View>(R.id.errorPrimaryButton)
+        val attr = android.util.TypedValue()
+        assertTrue(button.context.theme.resolveAttribute(com.google.android.material.R.attr.colorPrimaryVariant, attr, true))
+        assertTrue(!controller.get().theme.resolveAttribute(com.google.android.material.R.attr.colorPrimaryVariant, attr, true))
+
+        // Rotation re-inflates under the same theme.
+        controller.recreate()
+        (controller.get().supportFragmentManager.findFragmentByTag(TAG) as UseSenseFragment).setCallback(cb)
+        waitFor("the primer after rotation") { primerShown(controller.get()) }
+        assertEquals(emptyList<String>(), cb.events)
+        controller.get().onBackPressedDispatcher.onBackPressed()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(listOf("cancelled"), cb.events)
+    }
+
     // ─── Full screen (unchanged behaviour) ──────────────────────────────
 
     private fun startFullScreen(cb: Recorder): ActivityController<HostedPageActivity> {
