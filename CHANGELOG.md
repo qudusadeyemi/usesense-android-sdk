@@ -15,9 +15,44 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   `LIVENESS` (the server returns 400 for that), and the SDK never sends
   `identity_id` on a liveness session. Flow mode already supports this through
   the `face_liveness_check` tool and needs no change.
+- **Client token start (keep the API key off the device):**
+  `UseSense.startVerificationWithToken(activity, clientToken, sessionType, callback)`.
+  Your server calls `POST /v1/sessions/create-token` with its secret key and
+  hands the app the single-use `client_token`; the SDK exchanges it with
+  `POST /v1/sessions/exchange-token` (no API key sent) and runs the usual
+  capture, with the same result and error mapping as `startVerification`.
+  Mirrors iOS `createSessionWithToken(clientToken:sessionType:)`. `initialize`
+  is optional for this path, and `UseSenseConfig.apiKey` may now be blank
+  (`startVerification` then fails fast with `INVALID_CONFIG`). A token is
+  single-use: no "Try again" after a rejection, and a screen recreated mid
+  exchange waits for the same call instead of spending the token twice.
+- **`UseSenseFragment` works.** It was an empty stub. The capture now lives in
+  one Fragment shared by the full-screen `HostedPageActivity` and the
+  embeddable `UseSenseFragment` (`newInstance(request)` /
+  `newInstanceWithToken(clientToken, sessionType)` + `setCallback`), with the
+  same screens, branding (code wins over dashboard), copy and single callback.
+  Handles configuration changes (the verification and its session survive, no
+  callback fires; a host that implements `UseSenseCallback` is re-attached by
+  itself), back press, permissions requested from the Fragment, and the host
+  Activity finishing (`onCancelled`). Embedded, it leaves the host's system
+  bars alone and hands screen brightness back when it goes.
+- **Callbacks on remote enrolment and verification:**
+  `startRemoteEnrollment(context, id, callback)` and
+  `startRemoteVerification(context, id, callback)`, as iOS `onComplete`:
+  `onSuccess` with the decision (`UseSenseResult.DECISION_DISPUTED` when the
+  person disputes the action), `onError`, or `onCancelled`. The two-argument
+  forms keep working.
 
 ### Fixed
 
+- **The full-screen capture survives a configuration change.** Dark mode, a
+  locale or font change, or a multi-window resize recreated
+  `HostedPageActivity` with its launch state already cleared, so it showed
+  "SDK not initialized" and the app heard `onCancelled`. It now carries on with
+  the same session. The capture stays portrait-locked as before.
+- **A failed dispute no longer reports success.** The remote verification's
+  dispute call returned a failed `Result` that was never checked, so the person
+  saw "dispute submitted" when it had not been.
 - **Flows: a run held for manual review ends on the review screen.** When a
   Flow parks a run for a human reviewer, the server returns state
   `awaiting_review` with pending action `{ kind: "await_review", stepId,

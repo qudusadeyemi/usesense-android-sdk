@@ -441,6 +441,72 @@ UseSense.startVerification(
 )
 ```
 
+## Keep the API key off the device (client token)
+
+Your server creates the session with its secret key and hands the app a single-use client token. No API key ships in the app. Mirrors iOS `createSessionWithToken(clientToken:sessionType:)` and the web SDK's `clientToken`.
+
+```bash
+# Your server (secret key, never in the app):
+curl -X POST https://api.usesense.ai/v1/sessions/create-token \
+  -H "x-api-key: sk_..." -H "Content-Type: application/json" \
+  -d '{"session_type":"enrollment","platform":"android","external_user_id":"user_123"}'
+# 201 { "client_token": "cli_tok_...", "expires_at": "..." }   single-use, 10 minutes
+```
+
+```kotlin
+// The app: initialize is optional here (when called, its branding, baseUrl and
+// capture options apply; the apiKey may be blank).
+UseSense.startVerificationWithToken(
+    activity = this,
+    clientToken = clientTokenFromYourServer,
+    sessionType = SessionType.ENROLLMENT, // the type your server passed to create-token
+    callback = callback, // same UseSenseCallback, results and errors as startVerification
+)
+```
+
+The SDK calls `POST /v1/sessions/exchange-token` with the token and then runs the usual capture. Exchange failures arrive on `onError` with the server's code in `error.serverCode`: `token_not_found` (404), `token_expired` (410), `token_already_used` (409). A token is single-use, so a rejected result offers no "Try again": start a new verification with a new token from your server. Anything the session needs (`identity_id`, `reference_image`, `metadata`) goes on `create-token`, not in the app.
+
+## Embed the capture in your own screen (UseSenseFragment)
+
+`UseSenseFragment` runs the same capture, with the same branding (code wins over dashboard), copy and callback, inside your layout instead of a full-screen Activity. Mirrors iOS `UseSenseViewController`.
+
+```kotlin
+val fragment = UseSenseFragment.newInstance(VerificationRequest(SessionType.ENROLLMENT))
+// or, with no API key on the device:
+// val fragment = UseSenseFragment.newInstanceWithToken(clientToken, SessionType.ENROLLMENT)
+
+fragment.setCallback(object : UseSenseCallback {
+    override fun onSuccess(result: UseSenseResult) { removeCapture() }
+    override fun onError(error: UseSenseError) { removeCapture() }
+    override fun onCancelled() { removeCapture() }
+})
+supportFragmentManager.beginTransaction()
+    .replace(R.id.capture_container, fragment, "usesense")
+    .commit()
+```
+
+- **One callback, then remove it.** The callback fires once: `onSuccess` when the person leaves the result screen (at once with `showResultScreens = false`), `onError`, or `onCancelled` (back press, "Leave", the Fragment removed, the host Activity finishing). Remove the Fragment in the callback.
+- **Configuration changes.** Rotation, dark mode or a window resize keep the verification and its session (a client token is never exchanged twice), and fire no callback. The recreated Fragment needs its callback again: find it by tag and call `setCallback`, or make the host Activity (or parent Fragment) implement `UseSenseCallback`, which the Fragment picks up by itself. A result reached while no callback is attached is held and delivered when one is.
+- **Back press** is handled while the Fragment is shown: mid-capture it asks before leaving, otherwise it ends the verification as cancelled.
+- **Permissions** (camera, and the microphone when a challenge needs it) are requested from the Fragment; nothing to wire up.
+- **Layout.** Your screen owns the system bars. Give the container the space you want the capture to fill; full screen works best for the camera. The host must be a `FragmentActivity` (for example `AppCompatActivity`).
+- After process death the verification is gone: the Fragment reports `onError` with `serverCode = "verification_interrupted"`; start a new one.
+
+## Remote enrolment and verification results
+
+`startRemoteEnrollment` and `startRemoteVerification` take an optional callback (the two-argument forms still work). As iOS `HostedEnrollmentViewController` / `HostedVerificationViewController`, it hears the outcome once:
+
+```kotlin
+UseSense.startRemoteVerification(this, remoteSessionId, object : UseSenseCallback {
+    override fun onSuccess(result: UseSenseResult) {
+        // result.decision: APPROVE, REJECT, MANUAL_REVIEW, or DISPUTED
+        // (UseSenseResult.DECISION_DISPUTED) when the person disputed the action
+    }
+    override fun onError(error: UseSenseError) {}
+    override fun onCancelled() {} // left before the end
+})
+```
+
 ## Handling Results
 
 ### UseSenseResult
