@@ -29,7 +29,7 @@ dependency; no repository configuration needed.
 ```kotlin
 // app/build.gradle.kts
 dependencies {
-    implementation("ai.usesense:sdk:4.15.0")
+    implementation("ai.usesense:sdk:4.16.0")
 }
 ```
 
@@ -59,7 +59,7 @@ dependencyResolutionManagement {
 
 // app/build.gradle.kts
 dependencies {
-    implementation("com.github.qudusadeyemi:usesense-android-sdk:v4.15.0")
+    implementation("com.github.qudusadeyemi:usesense-android-sdk:v4.16.0")
 }
 ```
 
@@ -92,7 +92,7 @@ Then add to your module-level `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("ai.usesense:sdk:4.15.0")
+    implementation("ai.usesense:sdk:4.16.0")
 }
 ```
 
@@ -111,7 +111,7 @@ dependencies {
 
 ```kotlin
 dependencies {
-    implementation(files("libs/usesense-sdk-4.15.0.aar"))
+    implementation(files("libs/usesense-sdk-4.16.0.aar"))
 }
 ```
 
@@ -327,9 +327,9 @@ A failed device check never blocks your provider's flow: run the provider either
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `sessionType` | `SessionType` | Yes | `ENROLLMENT` or `AUTHENTICATION` |
+| `sessionType` | `SessionType` | Yes | `ENROLLMENT`, `AUTHENTICATION` or `LIVENESS` |
 | `externalUserId` | `String?` | No | Your internal user ID |
-| `identityId` | `String?` | No | Required for `AUTHENTICATION` — the enrolled identity to verify against |
+| `identityId` | `String?` | No | Required for `AUTHENTICATION` (the enrolled identity to verify against). Must not be set for `LIVENESS` |
 | `metadata` | `Map<String, Any>?` | No | Custom key-value pairs attached to the session |
 
 ## Session Types
@@ -412,6 +412,31 @@ UseSense.startVerification(
         override fun onCancelled() {
             Log.d("UseSense", "User cancelled")
         }
+    },
+)
+```
+
+### Liveness only
+
+Checks that a real person is in front of the camera, and nothing else. No identity is created, no face is enrolled and no 1:N duplicate search runs, so the same person can pass any number of times. A liveness session costs 1 credit. Do not pass an `identityId`: the SDK returns an `INVALID_CONFIG` error (the server rejects it with a 400).
+
+```kotlin
+UseSense.startVerification(
+    activity = this,
+    request = VerificationRequest(
+        sessionType = SessionType.LIVENESS,
+        externalUserId = "user_123", // optional, for your own records
+    ),
+    callback = object : UseSenseCallback {
+        override fun onSuccess(result: UseSenseResult) {
+            if (result.isApproved) {
+                // A live person completed the check
+            }
+        }
+        override fun onError(error: UseSenseError) {
+            Log.e("UseSense", "Error ${error.code}: ${error.message}")
+        }
+        override fun onCancelled() {}
     },
 )
 ```
