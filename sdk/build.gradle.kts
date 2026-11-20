@@ -76,6 +76,13 @@ android {
 
     lint {
         abortOnError = false
+        // androidx.fragment's UnsafeFragmentLifecycleObserverDetector walks every
+        // call reachable from a Fragment's lifecycle methods with no memo; on the
+        // capture Fragment (HostedCaptureFragment, ~3.8k lines) lintDebug ran for
+        // an hour instead of under a minute. Its three issues flag observers bound
+        // to the Fragment instead of viewLifecycleOwner; the capture binds the
+        // back-press callback and the camera to viewLifecycleOwner already.
+        disable += setOf("FragmentLiveDataObserve", "FragmentBackPressedCallback", "FragmentAddMenuProvider")
     }
 
     testOptions {
