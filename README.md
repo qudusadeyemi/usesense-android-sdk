@@ -878,7 +878,7 @@ Ensure you're on the latest SDK version which uses a different result delivery m
 
 ## API Reference
 
-Full generated API documentation is available at [watchtower.usesense.ai/developer-docs](https://watchtower.usesense.ai/developer-docs).
+Guides and the API reference are at [docs.usesense.ai](https://docs.usesense.ai) ([API reference](https://docs.usesense.ai/api)).
 
 ## Changelog
 
@@ -890,6 +890,6 @@ Proprietary. See [LICENSE](LICENSE).
 
 ## Support
 
-- Documentation: https://watchtower.usesense.ai/developer-docs
+- Documentation: https://docs.usesense.ai
 - Dashboard: https://watchtower.usesense.ai
 - Email: support@usesense.ai
