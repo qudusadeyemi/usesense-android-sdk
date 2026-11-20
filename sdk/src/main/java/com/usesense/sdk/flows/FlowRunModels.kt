@@ -187,11 +187,6 @@ data class InfoAction(
     }
 }
 
-/**
- * The action the server parked at. The runner reads it and renders the
- * matching native surface; unknown kinds surface as FlowError.UNSUPPORTED_ACTION.
- * See `guides/flows/action-contract` in the API docs.
- */
 /** One ID-type option for the id_number capture step (e.g. NIN / BVN). */
 data class IdTypeSpec(
     val value: String,
@@ -218,6 +213,13 @@ data class IdTypeSpec(
     }
 }
 
+/**
+ * The action the server parked at. The runner reads it and renders the
+ * matching native surface. A kind this SDK version does not know decodes as
+ * [Unsupported] (the runner shows a retry screen and reports
+ * FlowError.UNSUPPORTED_ACTION once) instead of failing the whole run view.
+ * See `guides/flows/action-contract` in the API docs.
+ */
 sealed class PendingAction {
     data class CaptureFace(val toolId: String?) : PendingAction()
     data class CaptureDocument(
@@ -237,13 +239,37 @@ sealed class PendingAction {
     data class Info(val info: InfoAction) : PendingAction()
     data class RedirectToConsent(val consentUrl: String) : PendingAction()
 
+    /**
+     * The run is held for a human reviewer (run state `awaiting_review`).
+     * Nothing is left for the person to do: the runner shows the review end
+     * screen and reports the result. [instructions] is the operator's note to
+     * the reviewer; it is kept for the host app but never shown to the person.
+     */
+    data class AwaitReview(val stepId: String?, val instructions: String?) : PendingAction()
+
+    /**
+     * A pending action this SDK version cannot render: an unknown kind, an
+     * unknown capture variant, or a malformed known shape. [kind] is the wire
+     * kind (plus the capture variant, e.g. `capture:selfie_video`); [reason]
+     * says what was not understood.
+     */
+    data class Unsupported(val kind: String, val reason: String) : PendingAction()
+
     companion object {
         /**
-         * Decodes the wire format; throws FlowError.UNSUPPORTED_ACTION for any
-         * kind the SDK does not implement so a version-skewed runner fails
-         * loud instead of guessing.
+         * Decodes the wire format. Never throws for an action shape the SDK
+         * does not implement: those decode as [Unsupported] so a
+         * version-skewed runner can still load the run view, show a retry
+         * screen and report the problem once.
          */
-        fun decode(raw: JSONObject): PendingAction {
+        fun decode(raw: JSONObject): PendingAction = try {
+            decodeKnown(raw)
+        } catch (e: FlowError) {
+            if (e.code != FlowError.Code.UNSUPPORTED_ACTION) throw e
+            Unsupported(kind = raw.optString("kind", ""), reason = e.message ?: "Unsupported action")
+        }
+
+        private fun decodeKnown(raw: JSONObject): PendingAction {
             val kind = raw.optString("kind", "")
             return when (kind) {
                 "capture" -> when (val capture = raw.optString("capture", "")) {
@@ -278,11 +304,15 @@ sealed class PendingAction {
                         }
                         CaptureIdNumber(idTypes = types)
                     }
-                    else -> throw FlowError(FlowError.Code.UNSUPPORTED_ACTION, "Unknown capture variant: $capture")
+                    else -> Unsupported(kind = "capture:$capture", reason = "Unknown capture variant: $capture")
                 }
                 "info" -> Info(InfoAction.decode(raw))
                 "redirect_to_consent" -> RedirectToConsent(consentUrl = raw.optString("consentUrl"))
-                else -> throw FlowError(FlowError.Code.UNSUPPORTED_ACTION, "Unknown pendingAction.kind: $kind")
+                "await_review" -> AwaitReview(
+                    stepId = raw.optStringOrNull("stepId"),
+                    instructions = raw.optStringOrNull("instructions"),
+                )
+                else -> Unsupported(kind = kind, reason = "Unknown pendingAction.kind: $kind")
             }
         }
     }
@@ -384,7 +414,12 @@ data class FlowRunView(
     }
 }
 
-/** Terminal result delivered to the host app's callback. */
+/**
+ * Result delivered to the host app's callback when the runner is done with
+ * the run: a terminal state, or [FlowRunState.AWAITING_REVIEW] when the run is
+ * held for a human reviewer (the person is done; the final decision arrives
+ * later by webhook, `flow_run.completed`).
+ */
 data class FlowRunResult(
     val flowRunId: String,
     val state: FlowRunState,

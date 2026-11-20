@@ -268,6 +268,8 @@ data class ErrorsCopy(
     /** Distinct from [documentUnreadable]: the document was fine, the transfer
      *  was not, so this copy must ask for a resend and never for a retake. */
     val documentIncomplete: String? = null,
+    /** Body of the screen shown for a step this SDK version cannot show. */
+    val unsupportedStep: String? = null,
 ) {
     companion object {
         fun decode(raw: JSONObject) = ErrorsCopy(
@@ -275,6 +277,7 @@ data class ErrorsCopy(
             providerUnavailable = raw.optStringOrNull("provider_unavailable") ?: raw.optStringOrNull("providerUnavailable"),
             documentUnreadable = raw.optStringOrNull("document_unreadable") ?: raw.optStringOrNull("documentUnreadable"),
             documentIncomplete = raw.optStringOrNull("document_incomplete") ?: raw.optStringOrNull("documentIncomplete"),
+            unsupportedStep = raw.optStringOrNull("unsupported_step") ?: raw.optStringOrNull("unsupportedStep"),
         )
     }
 }
@@ -361,6 +364,7 @@ fun mergeCopy(high: FlowCopy?, low: FlowCopy?): FlowCopy? {
             providerUnavailable = pick(high.errors?.providerUnavailable, low.errors?.providerUnavailable),
             documentUnreadable = pick(high.errors?.documentUnreadable, low.errors?.documentUnreadable),
             documentIncomplete = pick(high.errors?.documentIncomplete, low.errors?.documentIncomplete),
+            unsupportedStep = pick(high.errors?.unsupportedStep, low.errors?.unsupportedStep),
         ).takeIf { high.errors != null || low.errors != null },
         privacy = PrivacyCopy(
             disclosure = pick(high.privacy?.disclosure, low.privacy?.disclosure),

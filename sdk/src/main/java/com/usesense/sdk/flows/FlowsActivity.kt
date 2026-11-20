@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.text.InputType
 import android.util.Base64
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -20,6 +21,7 @@ import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
@@ -48,7 +50,10 @@ import com.usesense.sdk.ui.compose.screens.DocumentConfirmScreen
 import com.usesense.sdk.ui.compose.screens.DocumentPrimerScreen
 import com.usesense.sdk.ui.compose.screens.DocumentTypeSelectScreen
 import com.usesense.sdk.ui.compose.screens.FacePrimerScreen
+import com.usesense.sdk.ui.compose.screens.FlowErrorScreen
 import com.usesense.sdk.ui.compose.screens.FlowLoadingScreen
+import com.usesense.sdk.ui.compose.screens.FlowResultKind
+import com.usesense.sdk.ui.compose.screens.FlowResultScreen
 import com.usesense.sdk.ui.compose.screens.FormScreen
 import com.usesense.sdk.ui.compose.screens.FormState
 import com.usesense.sdk.ui.compose.screens.IdNumberScreen
@@ -89,7 +94,22 @@ internal class FlowsActivity : ComponentActivity() {
     private var formState: FormState? = null
     private var formChromeView: ComposeView? = null
     private var idNumberChromeView: ComposeView? = null
+    /** Full-screen end / unsupported-step screen, above every other surface. */
+    private var statusView: ComposeView? = null
     private var finishedReporting = false
+
+    /**
+     * The unsupported_action error for the step on screen, delivered to the
+     * host app once if the person leaves instead of retrying. Kinds already
+     * logged, so a retry that returns the same step does not log again.
+     */
+    private var pendingUnsupportedError: FlowError? = null
+    private val loggedUnsupportedKinds = mutableSetOf<String>()
+    private val leaveUnsupportedStep = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() {
+            reportError(pendingUnsupportedError ?: FlowError(Code.UNSUPPORTED_ACTION, "Unsupported pending action"))
+        }
+    }
     /** Per-field server validation errors from the last advance(). Cleared on
      *  the next success so a recovered form does not show stale highlights. */
     private var fieldErrors: Map<String, String> = emptyMap()
@@ -142,6 +162,7 @@ internal class FlowsActivity : ComponentActivity() {
         client = FlowsClient(options.flowRunId, options.sdkToken, options.apiBaseUrl)
 
         installScaffold()
+        onBackPressedDispatcher.addCallback(this, leaveUnsupportedStep)
         lifecycleScope.launch { refreshAndDrive() }
     }
 
@@ -271,8 +292,16 @@ internal class FlowsActivity : ComponentActivity() {
         pollJob?.cancel()
         pollJob = null
         hideSpinner()
-        if (v.state in TERMINAL_STATES) {
-            reportSuccess(FlowRunResult(v.id, v.state, v.outcome))
+        removeStatusView()
+        if (FlowRunSettlement.isAwaitingReview(v)) {
+            // Held for a human reviewer: the person is done. Report now (once)
+            // and keep the review end screen up until they close it.
+            reportSuccess(FlowRunSettlement.resultFor(v), finishActivity = false)
+            showReviewScreen()
+            return
+        }
+        if (FlowRunSettlement.isSettled(v)) {
+            reportSuccess(FlowRunSettlement.resultFor(v))
             return
         }
         val action = v.pendingAction
@@ -292,6 +321,9 @@ internal class FlowsActivity : ComponentActivity() {
             is PendingAction.CaptureIdNumber -> presentIdNumber(action.idTypes)
             is PendingAction.Info -> installInfoSurface(action.info)
             is PendingAction.RedirectToConsent -> launchConsent(action.consentUrl)
+            // Unreachable (isAwaitingReview above), kept for an exhaustive when.
+            is PendingAction.AwaitReview -> showReviewScreen()
+            is PendingAction.Unsupported -> showUnsupportedStep(action)
         }
     }
 
@@ -300,7 +332,7 @@ internal class FlowsActivity : ComponentActivity() {
             try {
                 val next = FlowRunPoller().pollUntil(
                     fetch = { withContext(Dispatchers.IO) { client.get() } },
-                    isSettled = { it.state in TERMINAL_STATES || it.pendingAction != null },
+                    isSettled = { FlowRunSettlement.isSettled(it) || it.pendingAction != null },
                 )
                 pollJob = null
                 view = next
@@ -313,6 +345,75 @@ internal class FlowsActivity : ComponentActivity() {
                 reportError(FlowError(Code.UNKNOWN, e.message ?: "Unknown error"))
             }
         }
+    }
+
+    // ── End and unsupported-step screens ───────────────────────────────────────
+
+    /**
+     * The review end screen: the same copy keys and branding as a
+     * MANUAL_REVIEW outcome. The reviewer's instructions are never shown.
+     */
+    private fun showReviewScreen() {
+        val c = mergedCopy()
+        val (title, body) = FlowRunSettlement.reviewScreenCopy(c)
+        showStatusView {
+            FlowResultScreen(
+                kind = FlowResultKind.Review,
+                continueText = text(c?.buttons?.continueLabel, "Done"),
+                onContinue = { finish() },
+                displayName = brandName(),
+                logoUrl = brandLogo(),
+                reviewTitle = title,
+                reviewBody = body,
+            )
+        }
+    }
+
+    /**
+     * A step this SDK version cannot show: a retry screen (which re-reads the
+     * run) instead of nothing. unsupported_action is logged once per kind and
+     * delivered to the host app once, if the person leaves rather than retries.
+     */
+    private fun showUnsupportedStep(action: PendingAction.Unsupported) {
+        val error = FlowError(Code.UNSUPPORTED_ACTION, action.reason)
+        if (loggedUnsupportedKinds.add(action.kind)) Log.w(TAG, error.toString())
+        val (title, body, retry) = FlowRunSettlement.unsupportedStepCopy(mergedCopy())
+        showStatusView {
+            FlowErrorScreen(
+                message = body,
+                title = title,
+                retryText = retry,
+                onRetry = {
+                    removeStatusView()
+                    lifecycleScope.launch { load() }
+                },
+                displayName = brandName(),
+                logoUrl = brandLogo(),
+            )
+        }
+        // After showStatusView, which clears the previous screen's state.
+        pendingUnsupportedError = error
+        leaveUnsupportedStep.isEnabled = true
+    }
+
+    private fun showStatusView(screen: @Composable () -> Unit) {
+        removeStatusView()
+        val status = ComposeView(this).apply { themedContent(screen) }
+        statusView = status
+        root.addView(
+            status,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            ),
+        )
+    }
+
+    private fun removeStatusView() {
+        statusView?.let { root.removeView(it) }
+        statusView = null
+        pendingUnsupportedError = null
+        leaveUnsupportedStep.isEnabled = false
     }
 
     // ── Surfaces ──────────────────────────────────────────────────────────────
@@ -1136,13 +1237,13 @@ internal class FlowsActivity : ComponentActivity() {
         loadingView?.visibility = View.GONE
     }
 
-    private fun reportSuccess(result: FlowRunResult) {
+    private fun reportSuccess(result: FlowRunResult, finishActivity: Boolean = true) {
         if (finishedReporting) return
         finishedReporting = true
         UseSenseFlows.pendingOptions = null
         UseSenseFlows.pendingCallback = null
         callback.onResult(result)
-        finish()
+        if (finishActivity) finish()
     }
 
     private fun reportError(error: FlowError) {
@@ -1161,9 +1262,7 @@ internal class FlowsActivity : ComponentActivity() {
         private const val CAPTURE_CAMERA = "camera"
         private const val CAPTURE_UPLOAD = "upload"
 
-        private val TERMINAL_STATES = setOf(
-            FlowRunState.COMPLETED, FlowRunState.ERRORED, FlowRunState.CANCELLED, FlowRunState.ABANDONED,
-        )
+        private const val TAG = "UseSenseFlows"
     }
 }
 
