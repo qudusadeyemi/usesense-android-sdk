@@ -45,14 +45,24 @@ object UseSense {
             "UseSense.initialize() must be called before startVerification()"
         )
 
-        if (request.sessionType == SessionType.AUTHENTICATION && request.identityId.isNullOrBlank()) {
-            callback.onError(
-                UseSenseError.invalidConfig("identity_id is required for authentication sessions")
-            )
+        validateRequest(request)?.let {
+            callback.onError(it)
             return
         }
 
         HostedPageActivity.startDirect(activity, cfg, request, callback)
+    }
+
+    /**
+     * Local checks that mirror the server: authentication needs an
+     * identityId, and liveness must not carry one (the server returns 400).
+     */
+    internal fun validateRequest(request: VerificationRequest): UseSenseError? = when {
+        request.sessionType == SessionType.AUTHENTICATION && request.identityId.isNullOrBlank() ->
+            UseSenseError.invalidConfig("identity_id is required for authentication sessions")
+        request.sessionType == SessionType.LIVENESS && !request.identityId.isNullOrBlank() ->
+            UseSenseError.invalidConfig("identity_id must not be set for liveness sessions")
+        else -> null
     }
 
     /**
