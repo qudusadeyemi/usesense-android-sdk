@@ -17,7 +17,13 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8 on, like a customer's release build (and Flutter's default), so
+            // the SDK's consumer-rules.pro is exercised by our own device tests.
+            // With it off, a missing keep rule only shows up in customer apps
+            // (2026-11-20: protobuf renamed -> no face mesh on Flutter release).
+            isMinifyEnabled = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 

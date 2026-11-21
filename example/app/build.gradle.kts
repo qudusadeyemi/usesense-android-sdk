@@ -18,7 +18,13 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8 on, as in a customer's release build: the SDK's consumer
+            // rules must hold under it (4.16.0 lost the face mesh, and crashed
+            // on launch with AGP 9, only when minified).
+            isMinifyEnabled = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            // Debug keys so the release build installs for device tests.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
@@ -40,7 +46,7 @@ dependencies {
     // UseSense SDK — resolved from Maven Central (or mavenLocal for local
     // development builds). Keep this version in sync with the latest published
     // release; bump it when a new version lands on central.sonatype.com.
-    implementation("ai.usesense:sdk:4.7.0")
+    implementation("ai.usesense:sdk:4.16.1")
 
     // Compose
     val composeBom = platform("androidx.compose:compose-bom:2024.06.00")

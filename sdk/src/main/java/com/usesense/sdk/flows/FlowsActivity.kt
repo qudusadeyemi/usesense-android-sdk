@@ -892,6 +892,12 @@ internal class FlowsActivity : ComponentActivity() {
                     environment = UseSenseEnvironment.AUTO,
                     baseUrl = endpoint,
                     branding = codeBranding(),
+                    // Inside a Flow the step's own verdict is not the person's
+                    // result: the Flow routes on it and ends on its own screen.
+                    // Showing the capture's end page first said "We couldn't
+                    // verify you", then "Under review" (A03, 2026-11-21). Web
+                    // already skips it; the Flow's end screen is the only one.
+                    showResultScreens = false,
                 )
                 val bridge = object : UseSenseCallback {
                     override fun onSuccess(result: UseSenseResult) {

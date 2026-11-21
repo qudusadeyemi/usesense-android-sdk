@@ -4,6 +4,30 @@ All notable changes to the UseSense Android SDK will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/).
 
+## [4.16.1] - 2026-11-21
+
+Found in a device test of 4.16.0 on a Galaxy A03. Update from 4.16.0 if your
+release build is minified (R8), which Flutter release builds are by default.
+
+### Fixed
+
+- **Face mesh and the Play services signal under R8.** The consumer rules did
+  not keep the protobuf-lite classes MediaPipe reads by name, so in a minified
+  release the face landmarker failed to start ("Unable to get message info for
+  com.google.protobuf.g") and no face mesh was captured. The reflective
+  `GoogleApiAvailability` lookup was renamed too, so every minified app
+  reported no Play services. Both lowered DeepSense enough to reject real
+  people. The rules now keep protobuf, `GoogleApiAvailability` and TFLite.
+- **Launch crash with AGP 9 and minify.** AGP 9's R8 removed the ML Kit
+  component registrars (named only in the manifest), so a minified release
+  crashed on start in `MlKitInitProvider` ("Unsatisfied dependency for
+  component ... mlkit.vision.face.internal"). The registrars and ML Kit common
+  are now kept.
+- **Flows show one end screen.** The Flow's face step showed its own result
+  ("We couldn't verify you") before the Flow's end screen ("Under review").
+  Inside a Flow the step's screen is now off; the Flow's end screen is the
+  person's result, as on web and iOS.
+
 ## [4.16.0] - 2026-11-20
 
 ### Added
