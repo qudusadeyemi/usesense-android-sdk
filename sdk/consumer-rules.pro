@@ -86,3 +86,14 @@
 # TensorFlow Lite calls back into Java from native code by name.
 -keep class org.tensorflow.lite.** { *; }
 -dontwarn org.tensorflow.lite.**
+
+# ML Kit (face detection, document scanner) assembles itself at app start from
+# component registrars named in the merged manifest (MlKitInitProvider ->
+# ComponentDiscovery). Newer R8 (AGP 9) renames or removes registrars it only
+# sees as manifest strings, and the app crashes on launch with "Unsatisfied
+# dependency for component ... mlkit.vision.face.internal" (native example on
+# AGP 9.1, release + minify, 2026-11-21).
+-keep class * implements com.google.firebase.components.ComponentRegistrar { *; }
+-keep class com.google.mlkit.common.** { *; }
+-keep class com.google.mlkit.vision.common.** { *; }
+-dontwarn com.google.mlkit.**
