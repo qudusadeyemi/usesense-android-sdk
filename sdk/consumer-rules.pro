@@ -63,3 +63,26 @@
 -dontwarn autovalue.shaded.**
 -dontwarn com.google.auto.value.**
 -dontwarn com.google.auto.common.**
+
+# MediaPipe's graph config and landmarker options are protobuf-lite messages,
+# including well-known types that live in com.google.protobuf. protobuf-lite
+# reads message fields by name at runtime, so if R8 renames them the landmarker
+# fails to start ("Unable to get message info for com.google.protobuf.g") and
+# no face mesh is captured. Seen on a Flutter release build of 4.16.0
+# (2026-11-20); Flutter enables R8 for release by default.
+-keep class com.google.protobuf.** { *; }
+-keep class * extends com.google.protobuf.GeneratedMessageLite { *; }
+-dontwarn com.google.protobuf.**
+
+# DeviceSignalCollector looks GoogleApiAvailability up by reflection (so the SDK
+# needs no compile-time play-services-base dependency). Renamed, the lookup
+# fails and every minified app reports "no Play services", which DeepSense
+# scores as a custom ROM.
+-keep class com.google.android.gms.common.GoogleApiAvailability {
+    public static ** getInstance();
+    public int isGooglePlayServicesAvailable(android.content.Context);
+}
+
+# TensorFlow Lite calls back into Java from native code by name.
+-keep class org.tensorflow.lite.** { *; }
+-dontwarn org.tensorflow.lite.**
